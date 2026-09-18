@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="csrf-token" content="{{ csrf }}">
+<title>AI Gate System | 車両認識管理</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+<header><div class="brand"><span class="mark">G</span><div>AI GATE SYSTEM<small>車両認識・管理コンソール</small></div></div><span class="connection" id="connection">接続確認中</span></header>
+<main>
+<div class="intro"><div class="eyebrow">VEHICLE RECOGNITION</div><h1>映像から、車両を記録。</h1><p>カメラのリアルタイム認識と、保存した画像・動画のファイル処理をひとつの画面で。</p></div>
+<div id="message" role="status" hidden></div>
+<div class="workspace">
+<section class="panel controls"><h2><span class="number">01</span> 入力と認識</h2>
+<form id="start-form">
+<div class="tabs" role="group" aria-label="入力方式">
+<label><input type="radio" name="kind" value="camera" checked><span>カメラ</span></label>
+<label><input type="radio" name="kind" value="file"><span>ファイル</span></label>
+</div>
+<div id="camera-fields"><label class="field">カメラ番号 / RTSP URL<input name="source" placeholder="0 または rtsp://…" value="0" autocomplete="off"></label><p class="hint">処理PCに接続したUSBカメラ、またはネットワークカメラ。閲覧端末のカメラではありません。</p></div>
+<div id="file-fields" hidden><label class="upload">画像・動画を選択<input type="file" name="file" accept=".jpg,.jpeg,.png,.bmp,.webp,.tif,.tiff,.mp4,.avi,.mov,.mkv,.m4v,.webm"></label><p class="hint">JPEG・PNG・MP4など / 最大512MB / 1ファイルずつ処理</p></div>
+<div class="settings"><label class="field">処理間隔（フレーム）<input type="number" name="every" value="1" min="1" max="1000" required></label><label class="field">車両検出しきい値<input type="number" name="confidence" value="0.4" min="0.01" max="1" step="0.01" required></label></div>
+<p class="hint">カメラは最新フレームを優先。ファイルは指定間隔で順番に処理します。</p>
+<div class="actions"><button class="primary" id="start" type="submit">認識を開始</button><button id="stop" type="button" disabled>停止</button></div>
+</form></section>
+<section class="panel monitor"><div class="panel-title"><h2><span class="number">02</span> 処理モニター</h2><span class="badge" id="job-status">待機中</span></div>
+<div class="screen"><img id="preview" alt="車両・ナンバー候補の検出枠を重ねた処理済み映像" hidden><div id="preview-empty"><span class="viewfinder">＋</span><p>入力を選んで認識を開始してください</p><small>初回は認識モデルの準備に時間がかかります</small></div></div>
+<div class="metrics"><div><span>処理フレーム</span><strong id="frame-count">—</strong></div><div><span>検出レコード</span><strong id="observation-count">—</strong></div><div><span>入力</span><strong class="source-label" id="source-label">未選択</strong></div></div><p class="hint">プレビューは処理済みフレームを約1.5秒ごとに更新。日本語の読取結果は下の履歴に表示します。</p>
+</section></div>
+<section class="panel history"><div class="panel-title"><h2><span class="number">03</span> 認識履歴</h2><span class="hint" id="result-total">0件</span></div>
+<div class="filters"><label>処理<select id="job-filter"><option value="">すべての処理</option></select></label><label>車両区分<select id="vehicle-filter"><option value="">すべての車両</option><option value="car">乗用車</option><option value="motorcycle">二輪車</option><option value="bus">バス</option><option value="truck">トラック</option></select></label><button id="refresh" type="button">更新</button></div>
+<p class="hint">番号は読取候補です。画像と照合してください。同じ車両の連続検出も別レコードとして保存します。</p>
+<div class="table-scroll"><table><thead><tr><th>処理日時</th><th>車両</th><th>ナンバー候補</th><th>検出 / OCR信頼度</th><th>画像</th></tr></thead><tbody id="results"><tr><td colspan="5" class="empty">まだ認識結果はありません</td></tr></tbody></table></div>
+<div class="pagination"><button id="prev" disabled>前へ</button><span id="page-label">1 / 1</span><button id="next" disabled>次へ</button></div>
+</section>
+<section class="panel jobs"><div class="panel-title"><h2><span class="number">04</span> 処理履歴</h2><span class="hint">直近100件</span></div><div id="jobs" class="job-list"><p class="hint">処理履歴はありません</p></div></section>
+<footer>AI Gate System · OpenCV / 車両区分・ナンバー認識 <span>番号の確定・ゲート開閉は行いません</span></footer>
+</main></body></html>

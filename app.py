@@ -7,6 +7,8 @@ import re
 import sqlite3
 import unicodedata
 import uuid
+import os
+import threading
 
 VEHICLES = {'car': '乗用車', 'motorcycle': '二輪車', 'bus': 'バス', 'truck': 'トラック'}
 
@@ -28,7 +30,8 @@ def parse_plate(text):
 def open_database(path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(path)
+    db = sqlite3.connect(path, timeout=30)
+    db.execute("PRAGMA journal_mode=WAL")
     db.execute('''CREATE TABLE IF NOT EXISTS observations (
         id TEXT PRIMARY KEY, processed_at TEXT NOT NULL,
         run_id TEXT NOT NULL, frame_index INTEGER NOT NULL,
@@ -127,6 +130,66 @@ def frames(source, cv2, every):
         capture.release()
 
 
+def live_frames(source, cv2, every):
+    """Read continuously and keep one latest frame, rather than a backlog."""
+    condition = threading.Condition()
+    stop = threading.Event()
+    state = {'item': None, 'done': False, 'error': None}
+
+    def capture_loop():
+        capture = None
+        try:
+            capture = cv2.VideoCapture(int(source) if source.isdecimal() else source)
+            if not capture.isOpened():
+                raise ValueError('カメラを開けません。接続と設定を確認してください。')
+            index = 0
+            while not stop.is_set():
+                ok, frame = capture.read()
+                if not ok:
+                    raise ValueError('カメラ映像の取得が停止しました。再接続して開始してください。')
+                if index % every == 0:
+                    with condition:
+                        state['item'] = (index, None, frame)
+                        condition.notify_all()
+                index += 1
+        except Exception as exc:
+            with condition:
+                state['error'] = str(exc)
+        finally:
+            if capture is not None:
+                capture.release()
+            with condition:
+                state['done'] = True
+                condition.notify_all()
+
+    thread = threading.Thread(target=capture_loop, daemon=True)
+    thread.start()
+    try:
+        while True:
+            with condition:
+                condition.wait_for(lambda: state['item'] is not None or state['done'])
+                item = state['item']
+                state['item'] = None
+                done, error = state['done'], state['error']
+            if item is not None:
+                yield item
+            elif done:
+                if error:
+                    raise ValueError(error)
+                return
+    finally:
+        stop.set()
+        thread.join(timeout=1)
+
+
+def atomic_json(path, value):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix('.tmp')
+    temporary.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
+    os.replace(temporary, path)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', required=True, help='写真、動画のパス、カメラ番号（0）またはRTSP URL')
@@ -135,9 +198,15 @@ def main():
     parser.add_argument('--every', type=int, default=10, help='動画・カメラをNフレームごとに処理')
     parser.add_argument('--confidence', type=float, default=0.4)
     parser.add_argument('--save-images', action='store_true', help='検出した車両の切り抜き画像を保存')
+    parser.add_argument('--source-kind', choices=['auto', 'file', 'camera'], default='auto')
+    parser.add_argument('--run-id', default=None)
+    parser.add_argument('--progress', default=None, help='Web管理用の進捗JSON')
+    parser.add_argument('--preview', default=None, help='最新の処理済みフレームJPEG')
     args = parser.parse_args()
     if args.every < 1 or not 0 < args.confidence <= 1:
         parser.error('--every は1以上、--confidence は0より大きく1以下です。')
+    if args.progress:
+        atomic_json(args.progress, {'phase': 'loading', 'frames_processed': 0, 'observations': 0})
     import cv2
     import easyocr
     from ultralytics import YOLO
@@ -145,11 +214,15 @@ def main():
     reader = easyocr.Reader(['ja', 'en'], gpu=False)
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
-    run_id = uuid.uuid4().hex
+    run_id = args.run_id or uuid.uuid4().hex
     db = open_database(out / 'gate.db')
-    stream = frames(args.source, cv2, args.every)
+    is_live = args.source_kind == 'camera' or (args.source_kind == 'auto' and
+              (args.source.isdecimal() or args.source.lower().startswith(('rtsp://', 'rtsps://'))))
+    stream = live_frames(args.source, cv2, args.every) if is_live else frames(args.source, cv2, args.every)
+    processed, observations = 0, 0
     try:
         for index, media_ms, frame in stream:
+            canvas = frame.copy() if args.preview else None
             result = model.predict(frame, conf=args.confidence, device='cpu', verbose=False)[0]
             for box in result.boxes:
                 label = result.names[int(box.cls.item())]
@@ -180,8 +253,32 @@ def main():
                               bbox=[x1, y1, x2, y2], plate_candidates=plates,
                               plate_status='unreadable' if not plates else 'needs_review',
                               image_path=image_path)
+                if canvas is not None:
+                    cv2.rectangle(canvas, (x1, y1), (x2, y2), (100, 220, 70), 2)
+                    cv2.putText(canvas, label + ' ' + format(record['confidence'], '.2f'),
+                                (x1, max(20, y1-6)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100,220,70), 2)
+                    for candidate in plates:
+                        a, b, c, d = candidate['bbox_in_vehicle']
+                        cv2.rectangle(canvas, (x1+a, y1+b), (x1+c, y1+d), (0,200,255), 2)
                 save_observation(db, record)
+                observations += 1
                 print(json.dumps(record, ensure_ascii=False), flush=True)
+            processed += 1
+            if args.preview:
+                preview = Path(args.preview)
+                preview.parent.mkdir(parents=True, exist_ok=True)
+                # Limit browser transfer size without changing inference resolution.
+                scale = min(1.0, 1280 / canvas.shape[1])
+                canvas = cv2.resize(canvas, None, fx=scale, fy=scale)
+                ok, encoded = cv2.imencode('.jpg', canvas)
+                if not ok:
+                    raise OSError('プレビュー画像を生成できません。')
+                temporary = preview.with_suffix('.tmp')
+                encoded.tofile(temporary)
+                os.replace(temporary, preview)
+            if args.progress:
+                atomic_json(args.progress, dict(phase='processing', frames_processed=processed,
+                            observations=observations, frame_index=index, media_ms=media_ms))
     finally:
         stream.close()
         db.close()
