@@ -39,14 +39,20 @@ class BusyError(Exception):
 
 
 class JobManager:
-    def __init__(self, root, model='yolo11n.pt', popen=subprocess.Popen):
+    def __init__(self, root, model='yolo11n.pt', popen=subprocess.Popen, max_cameras=None):
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.model = model
         self.popen = popen
         self.lock = threading.RLock()
-        self.process = None
-        self.active_id = None
+        configured = max_cameras if max_cameras is not None else os.getenv('GATE_MAX_CAMERAS', '4')
+        try:
+            self.max_cameras = int(configured)
+        except (TypeError, ValueError):
+            self.max_cameras = 4
+        self.max_cameras = min(16, max(1, self.max_cameras))
+        self.processes = {}
+        self.sources = {}
         events.initialize(self.root)
         with events.connection(self.root) as db:
             db.execute("UPDATE alerts SET media_status='failed',s3_status=CASE WHEN s3_status='waiting' THEN 'failed' ELSE s3_status END,media_error='録画完了前にサーバーが停止しました。' WHERE media_status='recording'")
@@ -58,6 +64,17 @@ class JobManager:
                 confidence REAL NOT NULL)''')
             db.execute("UPDATE jobs SET status='interrupted', ended_at=?, error=? WHERE status IN ('starting','running','stopping')",
                        (now(), 'サーバー再起動により処理状態をリセットしました。'))
+
+    @property
+    def active_ids(self):
+        with self.lock:
+            return list(self.processes)
+
+    @property
+    def active_id(self):
+        """Backward-compatible first active job; API clients should use active_ids."""
+        ids = self.active_ids
+        return ids[0] if ids else None
 
     @contextmanager
     def connect(self):
@@ -76,8 +93,16 @@ class JobManager:
 
     def start(self, kind, source, label, every, confidence, upload=None):
         with self.lock:
-            if self.active_id:
-                raise BusyError('処理中です。現在の処理を停止してから開始してください。')
+            active_kinds = [value[1] for value in self.processes.values()]
+            if kind == 'file' and self.processes:
+                raise BusyError('カメラ処理を停止してからファイル処理を開始してください。')
+            if kind != 'file' and 'file' in active_kinds:
+                raise BusyError('ファイル処理が完了してからカメラ処理を開始してください。')
+            if kind != 'file' and len(self.processes) >= self.max_cameras:
+                raise BusyError(f'同時カメラ数の上限（{self.max_cameras}台）に達しています。')
+            source_key = str(source) if kind == 'camera' else None
+            if source_key is not None and source_key in self.sources.values():
+                raise BusyError('同じカメラ入力はすでに処理中です。')
             job_id = uuid.uuid4().hex
             folder = self.folder(job_id)
             folder.mkdir(parents=True)
@@ -105,7 +130,9 @@ class JobManager:
                 raise
             finally:
                 log.close()
-            self.process, self.active_id = process, job_id
+            self.processes[job_id] = (process, kind)
+            if source_key is not None:
+                self.sources[job_id] = source_key
             with self.connect() as db:
                 db.execute("UPDATE jobs SET status='running' WHERE id=?", (job_id,))
             threading.Thread(target=self._watch, args=(job_id, process), daemon=True).start()
@@ -121,16 +148,17 @@ class JobManager:
                 db.execute('UPDATE jobs SET status=?, ended_at=?, error=? WHERE id=?', (status, now(), error, job_id))
             with events.connection(self.root) as db:
                 db.execute("UPDATE alerts SET media_status='failed',s3_status=CASE WHEN s3_status='waiting' THEN 'failed' ELSE s3_status END,media_error='処理終了時に録画を確定できませんでした。' WHERE run_id=? AND media_status='recording'",(job_id,))
-            if self.active_id == job_id:
-                self.active_id, self.process = None, None
+            self.processes.pop(job_id, None)
+            self.sources.pop(job_id, None)
 
     def stop(self, job_id):
         with self.lock:
-            if self.active_id != job_id or self.process is None:
+            active = self.processes.get(job_id)
+            if active is None:
                 return False
             with self.connect() as db:
                 db.execute("UPDATE jobs SET status='stopping' WHERE id=?", (job_id,))
-            process = self.process
+            process = active[0]
             try:
                 process.terminate()
             except ProcessLookupError:
@@ -150,9 +178,10 @@ class JobManager:
 
     def shutdown(self):
         with self.lock:
-            job_id, process = self.active_id, self.process
-        if job_id:
+            active = [(job_id, value[0]) for job_id, value in self.processes.items()]
+        for job_id, process in active:
             self.stop(job_id)
+        for _, process in active:
             self._kill_if_needed(process)
 
     def list_jobs(self):
@@ -180,7 +209,7 @@ class JobManager:
     def delete_history(self, scopes):
         """Delete selected history tables and their narrowly scoped files."""
         with self.lock:
-            if self.active_id:
+            if self.processes:
                 raise BusyError('認識処理を停止してから履歴を削除してください。')
             with self.connect() as db:
                 job_ids = ([row[0] for row in db.execute('SELECT id FROM jobs')]
@@ -268,7 +297,10 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
 
     @app.get('/api/jobs')
     def jobs():
-        return jsonify(jobs=manager.list_jobs(), active_id=manager.active_id)
+        active_ids=manager.active_ids
+        return jsonify(jobs=manager.list_jobs(), active_ids=active_ids,
+                       active_id=active_ids[0] if active_ids else None,
+                       max_concurrent=manager.max_cameras)
 
     @app.get('/api/history/summary')
     def history_summary():

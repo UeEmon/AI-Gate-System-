@@ -43,11 +43,31 @@ class WebTests(unittest.TestCase):
         cmd=self.commands[0]; self.assertEqual(cmd[cmd.index('--source-kind')+1],'file')
         self.processes[0].done.set(); self.idle()
         self.assertEqual(JobManager(self.tmp.name).list_jobs()[0]['status'],'completed')
-    def test_camera_stop_and_busy(self):
-        r=self.camera(); self.assertEqual(r.status_code,201)
+    def test_multiple_cameras_stop_independently_and_file_is_busy(self):
+        r=self.camera('0'); self.assertEqual(r.status_code,201)
+        second=self.camera('1');self.assertEqual(second.status_code,201)
+        jobs=self.client.get('/api/jobs').json
+        self.assertEqual(set(jobs['active_ids']),{r.json['id'],second.json['id']})
+        self.assertEqual(jobs['max_concurrent'],4)
+        self.assertEqual(self.camera('0').status_code,409)
         self.assertEqual(self.upload().status_code,409)
         self.assertEqual(self.client.post('/api/jobs/'+r.json['id']+'/stop',headers=self.headers).status_code,200)
-        self.idle(); self.assertEqual(self.manager.list_jobs()[0]['status'],'stopped')
+        deadline=time.monotonic()+2
+        while r.json['id'] in self.manager.active_ids and time.monotonic()<deadline: time.sleep(.01)
+        self.assertNotIn(r.json['id'],self.manager.active_ids)
+        self.assertIn(second.json['id'],self.manager.active_ids)
+        self.assertEqual(self.client.post('/api/jobs/'+second.json['id']+'/stop',headers=self.headers).status_code,200)
+        self.idle()
+        self.assertTrue(all(job['status']=='stopped' for job in self.manager.list_jobs()[:2]))
+
+    def test_camera_concurrency_limit(self):
+        manager=JobManager(self.tmp.name,popen=lambda *a,**k:Process(),max_cameras=2)
+        one=manager.start('camera','0','USB 0',1,.4)
+        two=manager.start('camera','1','USB 1',1,.4)
+        with self.assertRaisesRegex(Exception,'上限'):
+            manager.start('camera','2','USB 2',1,.4)
+        self.assertEqual(set(manager.active_ids),{one,two})
+        manager.shutdown()
 
     def test_browser_camera_frame_endpoint(self):
         response=self.client.post('/api/jobs',data={'kind':'browser','every':'1','confidence':'0.4'},headers=self.headers)

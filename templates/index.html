@@ -89,11 +89,11 @@
 <label><input type="radio" name="kind" value="browser"><span>端末Webカメラ</span></label>
 <label><input type="radio" name="kind" value="file"><span>ファイル</span></label>
 </div>
-<div id="camera-fields"><label class="field">カメラ番号 / RTSP URL<input name="source" placeholder="0 または rtsp://…" value="0" autocomplete="off"></label><p class="hint">処理PCに接続したUSBカメラ、またはネットワークカメラ。</p></div>
+<div id="camera-fields"><label class="field">カメラ番号 / RTSP URL<input name="source" placeholder="0 または rtsp://…" value="0" autocomplete="off"></label><p class="hint">処理PCに接続したUSBカメラ、またはネットワークカメラ。入力を変えて開始すると複数台を同時処理できます。</p></div>
 <div id="browser-fields" hidden><p class="hint">このブラウザのカメラ映像をHTTPS（またはlocalhost）でサーバーへ送信します。ブラウザの許可が必要です。</p><video id="browser-camera" autoplay muted playsinline hidden></video></div>
 <div id="file-fields" hidden><label class="upload">画像・動画を選択<input type="file" name="file" accept=".jpg,.jpeg,.png,.bmp,.webp,.tif,.tiff,.mp4,.avi,.mov,.mkv,.m4v,.webm"></label><p class="hint">JPEG・PNG・MP4など / 最大512MB / 1ファイルずつ処理</p></div>
 <div class="settings"><label class="field">処理間隔（フレーム）<input type="number" name="every" value="1" min="1" max="1000" required></label><label class="field">車両検出しきい値<input type="number" name="confidence" value="0.4" min="0.01" max="1" step="0.01" required></label></div>
-<p class="hint">カメラは最新フレームを優先。ファイルは指定間隔で順番に処理します。</p>
+<p class="hint">カメラは最大4台（サーバー設定で変更可能）を並列処理し、各処理履歴から個別に表示・停止できます。ファイル処理中はカメラを開始できません。</p>
 <div class="actions"><button class="primary" id="start" type="submit">認識を開始</button><button id="stop" type="button" disabled>停止</button></div>
 </form></section>
 <section class="panel monitor"><div class="panel-title"><h2><span class="number">02</span> 処理モニター</h2><span class="badge" id="job-status">待機中</span></div>

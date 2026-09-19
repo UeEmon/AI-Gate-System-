@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = {active: null, selected: null, page: 1, busy: false, refreshing: false};
+const state = {active: null, activeIds: [], maxConcurrent: 4, selected: null, page: 1, busy: false, refreshing: false};
 const labels = {starting:'準備中', running:'処理中', stopping:'停止中', stopped:'停止済み', completed:'完了', failed:'失敗', interrupted:'中断'};
 function message(text='') {$('message').textContent=text; $('message').hidden=!text;}
 async function api(url, options={}) {
@@ -14,13 +14,17 @@ function cell(text, className='') {const td=document.createElement('td');td.text
 function date(value){return new Date(value).toLocaleString('ja-JP');}
 function pct(value){return Number.isFinite(value)?Math.round(value*100)+'%':'—';}
 function setControls(){
-  $('start').disabled=!!state.active||state.busy;$('stop').disabled=!state.active||state.busy;
-  $('delete-history').disabled=!!state.active||state.busy;
+  const kind=document.querySelector('input[name="kind"]:checked')?.value;
+  const full=kind==='file'?state.activeIds.length>0:state.activeIds.length>=state.maxConcurrent;
+  $('start').disabled=state.busy||full;
+  $('stop').disabled=state.busy||!state.activeIds.includes(state.selected);
+  $('delete-history').disabled=state.activeIds.length>0||state.busy;
 }
 for(const input of document.querySelectorAll('input[name="kind"]'))input.addEventListener('change',()=>{
   const file=input.value==='file'&&input.checked;
   const browser=input.value==='browser'&&input.checked;
   $('file-fields').hidden=!file;$('camera-fields').hidden=file||browser;$('browser-fields').hidden=!browser;
+  setControls();
 });
 let browserStream=null,browserTimer=null,browserJob=null;
 async function stopBrowserCamera(){if(browserTimer){clearInterval(browserTimer);browserTimer=null;}if(browserStream){browserStream.getTracks().forEach(track=>track.stop());browserStream=null;}browserJob=null;}
@@ -47,13 +51,13 @@ async function startBrowserCamera(jobId){
   },200);
 }
 $('start-form').addEventListener('submit',async event=>{
-  event.preventDefault();state.busy=true;setControls();message();
-  try{const form=new FormData(event.target);const data=await api('/api/jobs',{method:'POST',body:form});state.selected=data.id;state.active=data.id;state.page=1;if(form.get('kind')==='browser')await startBrowserCamera(data.id);}
-  catch(error){if(state.active&&browserJob===null){try{await api('/api/jobs/'+state.active+'/stop',{method:'POST'});}catch(_ignored){}}message(error.message);}finally{state.busy=false;await refresh();setControls();}
+  event.preventDefault();state.busy=true;setControls();message();let startedJob=null;
+  try{const form=new FormData(event.target);if(form.get('kind')==='browser'&&browserJob)throw new Error('この画面では端末Webカメラを1台だけ送信できます。別端末またはUSB・RTSPカメラを追加してください。');const data=await api('/api/jobs',{method:'POST',body:form});startedJob=data.id;state.selected=data.id;state.active=data.id;state.activeIds.push(data.id);state.page=1;if(form.get('kind')==='browser')await startBrowserCamera(data.id);}
+  catch(error){if(startedJob&&browserJob===null){try{await api('/api/jobs/'+startedJob+'/stop',{method:'POST'});}catch(_ignored){}}message(error.message);}finally{state.busy=false;await refresh();setControls();}
 });
 $('stop').addEventListener('click',async()=>{
-  if(!state.active)return;state.busy=true;setControls();
-  try{const job=state.active;await api('/api/jobs/'+job+'/stop',{method:'POST'});if(browserJob===job)await stopBrowserCamera();message('停止を要求しました。');}
+  const job=state.selected;if(!state.activeIds.includes(job))return;state.busy=true;setControls();
+  try{await api('/api/jobs/'+job+'/stop',{method:'POST'});if(browserJob===job)await stopBrowserCamera();message('選択中の処理に停止を要求しました。');}
   catch(error){message(error.message);}finally{state.busy=false;await refresh();setControls();}
 });
 async function renderObservations(){
@@ -75,8 +79,9 @@ async function renderObservations(){
 async function refresh(){
   if(state.refreshing)return;state.refreshing=true;
   try{
-    const data=await api('/api/jobs');state.active=data.active_id;
-    if(!state.selected&&data.jobs.length)state.selected=state.active||data.jobs[0].id;
+    const data=await api('/api/jobs');state.activeIds=data.active_ids||[];state.maxConcurrent=data.max_concurrent||4;
+    if(!state.selected&&data.jobs.length)state.selected=state.activeIds[0]||data.jobs[0].id;
+    state.active=state.activeIds.includes(state.selected)?state.selected:null;
     const current=data.jobs.find(job=>job.id===state.selected);
     const existing=$('job-filter').value;
     const options=[new Option('すべての処理',''),...data.jobs.map(job=>new Option(date(job.created_at)+' · '+job.label,job.id))];
