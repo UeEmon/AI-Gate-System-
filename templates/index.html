@@ -6,6 +6,7 @@
 <title>AI Gate System | 車両認識管理</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+<script src="{{ url_for('static', filename='registration-queue.js') }}" defer></script>
 </head>
 <body>
 <header><div class="brand"><span class="mark">G</span><div>AI GATE SYSTEM<small>車両認識・管理コンソール</small></div></div><span class="connection" id="connection">接続確認中</span></header>
@@ -22,6 +23,13 @@
 <div class="panel-title"><h2>登録車両・通知指定</h2><span class="hint">ナンバー全体と車種区分で照合</span></div>
 <p class="hint">初期登録：カメラで車両を読み取り、認識履歴の「登録に取り込む」を押してください。取り込んだナンバー・車種を確認、修正して「登録・更新」で保存できます。</p>
 <button id="registration-camera" type="button">カメラ入力へ</button>
+<div class="registration-review">
+<h3>連続取り込み</h3>
+<p class="hint">認識を開始し、処理モニターに表示中の処理から候補を連続で取り込みます。既存の履歴も対象です。同じナンバーは1件にまとめ、最大100件保持します。</p>
+<div class="registry-actions"><button id="queue-start" type="button">連続取り込みを開始</button><button id="queue-stop" type="button" disabled>取り込みを停止</button><button id="queue-save" type="button">選択した車両を一括登録</button></div>
+<button id="queue-clear" type="button">候補クリア</button><p id="queue-status" role="status">候補なし</p><div id="queue-list"></div>
+<p class="hint">取り込みだけでは登録しません。画像と番号を確認して選択してください。車種が一致しない候補は個別に確認・修正してください。候補一覧はこの画面を閉じると消えますが、認識履歴から再取得できます。</p>
+</div>
 <div id="registration-review" class="registration-review" hidden>
 <p id="registration-source"></p>
 <img id="registration-image" alt="登録対象として選択した車両の読み取り画像" hidden>

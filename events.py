@@ -1,5 +1,5 @@
 """Vehicle registry, durable alerts and SES/S3 delivery (one dispatcher)."""
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 import json
 import os
@@ -71,7 +71,7 @@ def plate_key(fields):
     return '|'.join((region,category,kana,str(int(serial))))
 
 
-def register_vehicle(root, data, vehicle_id=None):
+def register_vehicle(root, data, vehicle_id=None, database=None):
     if not isinstance(data,dict): raise ValueError('登録内容はオブジェクトで指定してください。')
     key=plate_key(data)
     kind=data.get('vehicle_type')
@@ -81,7 +81,7 @@ def register_vehicle(root, data, vehicle_id=None):
     label=str(data.get('label','')).strip()[:120]
     plate=' '.join(key.split('|'))
     vehicle_id=vehicle_id or uuid.uuid4().hex
-    with connection(root) as db:
+    with (connection(root) if database is None else nullcontext(database)) as db:
         db.execute('''INSERT INTO vehicles VALUES (?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET plate_key=excluded.plate_key,plate=excluded.plate,
             vehicle_type=excluded.vehicle_type,label=excluded.label,watch=excluded.watch,

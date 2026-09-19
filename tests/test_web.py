@@ -97,6 +97,47 @@ class WebTests(unittest.TestCase):
         self.upload(); self.processes[0].code=1; self.processes[0].done.set(); self.idle()
         self.assertEqual(self.manager.list_jobs()[0]['status'],'failed')
 
+    def test_registration_feed_cursor_and_existing_filter(self):
+        import events
+        job=self.camera().json['id']
+        fields=dict(region='品川',category='300',kana='あ',serial='1234')
+        with self.manager.connect() as db:
+            for i in range(103):
+                save_observation(db,dict(id=str(i),processed_at='2026-09-19',run_id=job,
+                    frame_index=i,media_ms=i*1000,vehicle_type='car',confidence=.9,image_path=None,
+                    plate_candidates=[] if i==0 else [dict(fields=fields,confidence=.8)]))
+        url='/api/registration-feed?job='+job
+        data=self.client.get(url).json['items']
+        self.assertEqual(len(data),100);self.assertIsNone(data[0]['draft'])
+        self.assertEqual(data[1]['draft']['key'],'品川|300|あ|1234')
+        rest=self.client.get(url+'&after='+str(data[-1]['cursor'])).json['items']
+        self.assertEqual(len(rest),3)
+        events.register_vehicle(self.manager.root,dict(fields,vehicle_type='car',enabled=False))
+        self.assertIsNone(self.client.get(url+'&after='+str(data[-1]['cursor'])).json['items'][0]['draft'])
+        self.assertEqual(self.client.get(url+'&after=-1').status_code,400)
+        self.assertEqual(self.client.get('/api/registration-feed?job=unknown').status_code,404)
+        secured=create_app(manager=self.manager,password='secret').test_client()
+        self.assertEqual(secured.get(url).status_code,401)
+
+    def test_batch_registration_deduplication_and_atomic_rollback(self):
+        vehicle=dict(region='品川',category='300',kana='あ',serial='1234',vehicle_type='car',label='元の登録',watch=True)
+        first=self.client.post('/api/vehicles',json=vehicle,headers=self.headers).json['id']
+        duplicate=dict(vehicle,serial='１２-３４',label='上書きしない',watch=False)
+        new=dict(vehicle,serial='5678')
+        endpoint='/api/vehicles/batch'
+        self.assertEqual(self.client.post(endpoint,json={'items':[new]}).status_code,403)
+        response=self.client.post(endpoint,json={'items':[duplicate,new,new]},headers=self.headers)
+        self.assertEqual(response.status_code,201)
+        self.assertEqual(len(response.json['added']),1);self.assertEqual(len(response.json['skipped']),2)
+        vehicles=self.client.get('/api/vehicles').json['items']
+        original=next(v for v in vehicles if v['id']==first)
+        self.assertEqual(original['label'],'元の登録');self.assertEqual(original['watch'],1)
+        response=self.client.post(endpoint,json={'items':[dict(new,serial='9999'),dict(new,kana='invalid')]},headers=self.headers)
+        self.assertEqual(response.status_code,400)
+        self.assertEqual(len(self.client.get('/api/vehicles').json['items']),2)
+        for items in ([],[new]*101,'bad'):
+            self.assertEqual(self.client.post(endpoint,json={'items':items},headers=self.headers).status_code,400)
+
     def test_camera_registration_review_save_and_match(self):
         import events
         fields=dict(region='品川',category='300',kana='あ',serial='12-34')

@@ -321,6 +321,33 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
             result.append(item)
         return jsonify(items=result, total=total, page=page, page_size=30)
 
+    @app.get('/api/registration-feed')
+    def registration_feed():
+        job = request.args.get('job', '')
+        try:
+            after = int(request.args.get('after', '0'))
+            if after < 0 or after > 9223372036854775807: raise ValueError
+        except ValueError:
+            abort(400, description='読取位置が不正です。')
+        with manager.connect() as db:
+            if not db.execute('SELECT id FROM jobs WHERE id=?', (job,)).fetchone(): abort(404)
+            rows = db.execute('SELECT rowid AS cursor,details_json FROM observations WHERE run_id=? AND rowid>? ORDER BY rowid LIMIT 100', (job, after)).fetchall()
+            items = []
+            for row in rows:
+                record = json.loads(row['details_json'])
+                item = dict(cursor=row['cursor'], draft=None)
+                for candidate in record.get('plate_candidates', []):
+                    if not candidate.get('fields') or candidate.get('confidence', 0) < .6: continue
+                    try: key = events.plate_key(candidate['fields'])
+                    except (ValueError, KeyError, TypeError): continue
+                    registered = db.execute('SELECT id FROM vehicles WHERE plate_key=?', (key,)).fetchone()
+                    if not registered:
+                        item['draft'] = dict(key=key, fields=candidate['fields'], vehicle_type=record['vehicle_type'],
+                            confidence=candidate['confidence'], observation_id=record['id'], has_image=bool(record.get('image_path')))
+                    break
+                items.append(item)
+        return jsonify(items=items)
+
     @app.get('/api/observations/<observation_id>/registration')
     def registration_draft(observation_id):
         # Read a fixed observation: live polling must not replace a draft under review.
@@ -360,6 +387,29 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
         except (ValueError,KeyError,TypeError,sqlite3.IntegrityError) as error:
             abort(400,description='登録内容を確認してください。同じナンバーは重複登録できません。')
         return jsonify(id=vehicle_id),201
+
+    @app.post('/api/vehicles/batch')
+    def add_vehicle_batch():
+        data = request.get_json()
+        items = data.get('items') if isinstance(data, dict) else None
+        if not isinstance(items, list) or not 1 <= len(items) <= 100:
+            abort(400, description='一括登録は1〜100件で指定してください。')
+        added, skipped = [], []
+        try:
+            with events.connection(manager.root) as db:
+                db.execute('BEGIN IMMEDIATE')
+                for item in items:
+                    try:
+                        identifier = events.register_vehicle(manager.root, item, database=db)
+                        added.append(dict(id=identifier, key=events.plate_key(item)))
+                    except sqlite3.IntegrityError:
+                        # Existing registrations, including disabled entries, are never overwritten.
+                        key = events.plate_key(item)
+                        if not db.execute('SELECT id FROM vehicles WHERE plate_key=?', (key,)).fetchone(): raise
+                        skipped.append(key)
+        except (ValueError, KeyError, TypeError, sqlite3.IntegrityError):
+            abort(400, description='登録内容が不正なため、一括登録を取り消しました。内容を確認してください。')
+        return jsonify(added=added, skipped=skipped), 201
 
     @app.post('/api/vehicles/<vehicle_id>')
     def update_vehicle(vehicle_id):
