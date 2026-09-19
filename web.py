@@ -321,6 +321,21 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
             result.append(item)
         return jsonify(items=result, total=total, page=page, page_size=30)
 
+    @app.get('/api/observations/<observation_id>/registration')
+    def registration_draft(observation_id):
+        # Read a fixed observation: live polling must not replace a draft under review.
+        with manager.connect() as db:
+            row = db.execute('SELECT details_json FROM observations WHERE id=?',
+                             (observation_id,)).fetchone()
+        if not row:
+            abort(404, description='読み取り結果が見つかりません。')
+        item = json.loads(row[0])
+        return jsonify(observation_id=item['id'], run_id=item['run_id'],
+                       processed_at=item['processed_at'], frame_index=item['frame_index'],
+                       vehicle_type=item['vehicle_type'], confidence=item['confidence'],
+                       plate_candidates=item.get('plate_candidates', []),
+                       has_image=bool(item.get('image_path')))
+
     @app.get('/api/observations/<observation_id>/image')
     def observation_image(observation_id):
         with manager.connect() as db:

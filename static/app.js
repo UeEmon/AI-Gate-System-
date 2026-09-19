@@ -49,7 +49,8 @@ async function renderObservations(){
     tr.append(cell(date(item.processed_at)),cell(item.vehicle_type_ja||item.vehicle_type));
     const td=cell(plate?.text||'読取候補なし','plate');const note=document.createElement('span');note.className='sub';note.textContent=plate?'要確認 · フレーム '+item.frame_index:'車両検出のみ';td.append(note);tr.append(td);
     tr.append(cell(pct(item.confidence)+' / '+pct(plate?.confidence)));
-    const image=cell('—');if(item.has_image){image.textContent='';const a=document.createElement('a');a.textContent='画像を確認';a.href='/api/observations/'+encodeURIComponent(item.id)+'/image';a.target='_blank';a.rel='noopener';image.append(a);}tr.append(image);$('results').append(tr);
+    const image=cell('');if(item.has_image){const a=document.createElement('a');a.textContent='画像を確認';a.href='/api/observations/'+encodeURIComponent(item.id)+'/image';a.target='_blank';a.rel='noopener';image.append(a);}
+    const register=document.createElement('button');register.type='button';register.className='registration-import';register.textContent='登録に取り込む';register.onclick=()=>importRegistration(item.id);image.append(register);tr.append(image);$('results').append(tr);
   }
   const pages=Math.max(1,Math.ceil(data.total/data.page_size));$('page-label').textContent=state.page+' / '+pages;$('prev').disabled=state.page<=1;$('next').disabled=state.page>=pages;
 }
@@ -80,11 +81,51 @@ refresh();setInterval(refresh,1500);
 let alertPage=1;
 const vehicleNames={car:'乗用車',motorcycle:'二輪車',bus:'バス',truck:'トラック'};
 const deliveryNames={pending:'送信待ち',sending:'送信中',sent:'SES受付済み',retry:'再試行待ち',failed:'失敗',disabled:'未設定',waiting:'保存待ち',uploaded:'S3保存済み'};
-function resetVehicle(){$('vehicle-form').reset();$('vehicle-id').value='';$('vehicle-enabled').checked=true;}
+let registrationDraft=null, registrationRequest=0;
+function resetVehicle(){
+  registrationRequest++;registrationDraft=null;
+  $('vehicle-form').reset();$('vehicle-id').value='';$('vehicle-enabled').checked=true;
+  $('registration-review').hidden=true;$('registration-image').hidden=true;$('registration-image').removeAttribute('src');
+  $('registration-candidate').replaceChildren();
+}
+function chooseRegistrationCandidate(){
+  const candidate=registrationDraft?.plate_candidates[Number($('registration-candidate').value)];
+  for(const id of ['region','category','kana','serial'])$(id).value=candidate?.fields?.[id]??'';
+  $('registration-confidence').textContent='車種の信頼度: '+pct(registrationDraft?.confidence)+' / OCR: '+pct(candidate?.confidence)+
+    (!candidate?.fields?' · ナンバーを読み取れません。再撮影または手入力してください。':candidate.confidence<.6?' · 信頼度が低いため、必ず修正・確認してください。':' · 内容を確認して登録してください。');
+}
+async function importRegistration(observationId){
+  const requestId=++registrationRequest;
+  try{
+    const draft=await api('/api/observations/'+encodeURIComponent(observationId)+'/registration');
+    if(requestId!==registrationRequest)return;
+    resetVehicle();registrationDraft=draft;
+    $('registered-type').value=draft.vehicle_type;
+    $('registration-source').textContent='取り込んだ読取結果: '+date(draft.processed_at)+' · フレーム '+draft.frame_index;
+    const options=draft.plate_candidates.map((c,i)=>new Option((i+1)+': '+(c.text||'候補')+' / '+pct(c.confidence),String(i)));
+    $('registration-candidate').replaceChildren(...(options.length?options:[new Option('候補なし — 手入力または再撮影','')]));
+    $('registration-candidate').disabled=!options.length;
+    $('registration-image').hidden=!draft.has_image;
+    if(draft.has_image)$('registration-image').src='/api/observations/'+encodeURIComponent(draft.observation_id)+'/image';
+    chooseRegistrationCandidate();$('registration-review').hidden=false;
+    $('vehicle-form').scrollIntoView({behavior:'smooth'});$('region').focus({preventScroll:true});
+    message('読み取り結果を取り込みました。内容を確認し「登録・更新」で保存してください。');
+  }catch(error){if(requestId===registrationRequest)message(error.message);}
+}
+$('registration-candidate').onchange=chooseRegistrationCandidate;
+$('registration-image').onerror=()=>{$('registration-image').hidden=true;};
+$('registration-camera').onclick=()=>{
+  const selected=document.querySelector('input[name="kind"]:checked');
+  if(selected?.value==='file'){
+    const camera=document.querySelector('input[name="kind"][value="browser"]');camera.checked=true;camera.dispatchEvent(new Event('change'));
+  }
+  $('start-form').scrollIntoView({behavior:'smooth'});
+  message('カメラを選んで認識を開始し、対象車両の履歴から「登録に取り込む」を押してください。');
+};
 $('vehicle-reset').onclick=resetVehicle;
 async function loadVehicles(){
   const data=await api('/api/vehicles');$('vehicle-list').replaceChildren();
-  for(const v of data.items){const row=document.createElement('div');row.className='job';const desc=document.createElement('div');desc.textContent=v.plate+' · '+vehicleNames[v.vehicle_type]+' · '+v.label+' · '+(v.enabled?'有効':'無効')+(v.watch?' · 通知対象':'');const edit=document.createElement('button');edit.textContent='編集';edit.onclick=()=>{const parts=v.plate_key.split('|');['region','category','kana','serial'].forEach((id,i)=>$(id).value=parts[i]);$('vehicle-id').value=v.id;$('registered-type').value=v.vehicle_type;$('vehicle-label').value=v.label;$('watch').checked=!!v.watch;$('vehicle-enabled').checked=!!v.enabled;$('vehicle-form').scrollIntoView({behavior:'smooth'});};row.append(desc,edit);$('vehicle-list').append(row);}
+  for(const v of data.items){const row=document.createElement('div');row.className='job';const desc=document.createElement('div');desc.textContent=v.plate+' · '+vehicleNames[v.vehicle_type]+' · '+v.label+' · '+(v.enabled?'有効':'無効')+(v.watch?' · 通知対象':'');const edit=document.createElement('button');edit.textContent='編集';edit.onclick=()=>{resetVehicle();const parts=v.plate_key.split('|');['region','category','kana','serial'].forEach((id,i)=>$(id).value=parts[i]);$('vehicle-id').value=v.id;$('registered-type').value=v.vehicle_type;$('vehicle-label').value=v.label;$('watch').checked=!!v.watch;$('vehicle-enabled').checked=!!v.enabled;$('vehicle-form').scrollIntoView({behavior:'smooth'});};row.append(desc,edit);$('vehicle-list').append(row);}
 }
 $('vehicle-form').onsubmit=async event=>{
   event.preventDefault();const payload={region:$('region').value,category:$('category').value,kana:$('kana').value,serial:$('serial').value,vehicle_type:$('registered-type').value,label:$('vehicle-label').value,watch:$('watch').checked,enabled:$('vehicle-enabled').checked};

@@ -96,6 +96,46 @@ class WebTests(unittest.TestCase):
     def test_failure(self):
         self.upload(); self.processes[0].code=1; self.processes[0].done.set(); self.idle()
         self.assertEqual(self.manager.list_jobs()[0]['status'],'failed')
+
+    def test_camera_registration_review_save_and_match(self):
+        import events
+        fields=dict(region='品川',category='300',kana='あ',serial='12-34')
+        for kind in ('camera','browser'):
+            with self.subTest(kind=kind):
+                record=dict(id=kind,processed_at='2026-09-19T00:00:00+00:00',run_id=kind,
+                    frame_index=10,media_ms=1000,vehicle_type='car',confidence=.9,
+                    image_path=None,plate_candidates=[dict(text='品川 300 あ 12-34',fields=fields,confidence=.85)])
+                with self.manager.connect() as db: save_observation(db,record)
+                response=self.client.get('/api/observations/'+kind+'/registration')
+                self.assertEqual(response.status_code,200)
+                draft=response.json
+                self.assertNotIn('image_path',draft)
+                self.assertEqual(draft['plate_candidates'][0]['fields'],fields)
+                self.assertEqual(draft['observation_id'],kind)
+        self.assertEqual(self.client.get('/api/vehicles').json['items'],[])
+        # User corrects the read before saving. The observation stays unchanged.
+        payload=dict(fields,serial='5678',vehicle_type='truck',label='初期登録',watch=True)
+        self.assertEqual(self.client.post('/api/vehicles',json=payload).status_code,403)
+        self.assertEqual(self.client.post('/api/vehicles',json=payload,headers=self.headers).status_code,201)
+        self.assertEqual(self.client.post('/api/vehicles',json=payload,headers=self.headers).status_code,400)
+        record.update(vehicle_type='truck',plate_candidates=[dict(fields=payload,confidence=.9)])
+        alert=events.evaluate(self.manager.root,record,2)
+        with events.connection(self.manager.root) as db:
+            self.assertEqual(db.execute('SELECT reason FROM alerts WHERE id=?',(alert,)).fetchone()[0],'watch')
+        self.assertEqual(self.client.get('/api/observations/camera/registration').json['plate_candidates'][0]['fields']['serial'],'12-34')
+
+    def test_registration_draft_missing_unreadable_and_multiple_candidates(self):
+        self.assertEqual(self.client.get('/api/observations/missing/registration').status_code,404)
+        record=dict(id='unread',processed_at='2026-09-19T00:00:00+00:00',run_id='camera',
+            frame_index=0,media_ms=0,vehicle_type='car',confidence=.8,image_path=None,plate_candidates=[])
+        with self.manager.connect() as db: save_observation(db,record)
+        self.assertEqual(self.client.get('/api/observations/unread/registration').json['plate_candidates'],[])
+        candidates=[dict(text='候補1',fields=None,confidence=.4),dict(text='候補2',fields=None,confidence=.3)]
+        record.update(id='multiple',plate_candidates=candidates)
+        with self.manager.connect() as db: save_observation(db,record)
+        self.assertEqual(self.client.get('/api/observations/multiple/registration').json['plate_candidates'],candidates)
+        secured=create_app(manager=self.manager,password='secret').test_client()
+        self.assertEqual(secured.get('/api/observations/multiple/registration').status_code,401)
     def test_restart_marks_interrupted(self):
         with self.manager.connect() as db:
             db.execute('INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?)',('a'*32,'camera','USB 0','running','2026-09-18',None,None,1,.4))
