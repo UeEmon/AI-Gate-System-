@@ -24,6 +24,8 @@ def initialize(root):
           bottom_text TEXT NOT NULL, split REAL NOT NULL, image BLOB NOT NULL,
           image_sha256 TEXT NOT NULL, created_at TEXT NOT NULL,
           UNIQUE(observation_id,candidate_index));
+        CREATE TABLE IF NOT EXISTS ocr_sample_fields (
+          sample_id TEXT PRIMARY KEY, fields_json TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS ocr_training_runs (
           id TEXT PRIMARY KEY, status TEXT NOT NULL, created_at TEXT NOT NULL,
           report_json TEXT, error TEXT);
@@ -58,6 +60,9 @@ def sample_image(root, observation_id, candidate_index, db):
     if not (0 <= x1 < x2 <= image.shape[1] and 0 <= y1 < y2 <= image.shape[0]):
         raise ValueError('候補の画像範囲が不正です。')
     plate = image[y1:y2, x1:x2]
+    if candidates[candidate_index].get('quad_in_vehicle') is not None:
+        from plate_geometry import warp_plate
+        plate = warp_plate(image, candidates[candidate_index]['quad_in_vehicle'], cv2)
     if plate.shape[0] < 24 or plate.shape[1] < 48:
         raise ValueError('学習画像が小さすぎます。近づいて再撮影してください。')
     ok, encoded = cv2.imencode('.png', plate)
@@ -69,7 +74,11 @@ def sample_image(root, observation_id, candidate_index, db):
 def save_sample(root, data, fields, db):
     from app import parse_plate
     if not isinstance(data, dict) or data.get('confirmed') is not True:
-        raise ValueError('上下段の画像と正解を確認してください。')
+        raise ValueError('各項目の画像と正解を確認してください。')
+    field_data = validate_fields(data.get('fields'), fields) if 'fields' in data else None
+    if field_data:
+        data = dict(data, top_text=field_data['region']['text'] + field_data['category']['text'],
+                    bottom_text=field_data['kana']['text'] + field_data['serial']['text'])
     top = unicodedata.normalize('NFKC', str(data.get('top_text', '')))
     bottom = unicodedata.normalize('NFKC', str(data.get('bottom_text', '')))
     top, bottom = re.sub(r'\s+', '', top), re.sub(r'\s+', '', bottom)
@@ -77,7 +86,7 @@ def save_sample(root, data, fields, db):
     if (not re.fullmatch(r'[一-龥ぁ-んァ-ヶ]{2,8}[0-9][0-9A-Z]{2}', top) or
             not re.fullmatch(r'[ぁ-ん][0-9・.\-]{1,7}', bottom) or not parsed or
             events.plate_key(parsed) != events.plate_key(fields)):
-        raise ValueError('学習用の上下段の正解と登録ナンバーを一致させてください。')
+        raise ValueError('学習用の正解と登録ナンバーを一致させてください。')
     split = data.get('split', .45)
     if type(split) not in (int, float) or not math.isfinite(split) or not .25 <= split <= .65:
         raise ValueError('上下段の境界を25〜65%で指定してください。')
@@ -93,8 +102,14 @@ def save_sample(root, data, fields, db):
         created_at=excluded.created_at''',
         (identifier, observation_id, index, events.plate_key(fields), original, top, bottom,
          float(split), sqlite3.Binary(image), hashlib.sha256(image).hexdigest(), events.utc()))
-    return db.execute('SELECT id FROM ocr_samples WHERE observation_id=? AND candidate_index=?',
-                      (observation_id, index)).fetchone()[0]
+    identifier = db.execute('SELECT id FROM ocr_samples WHERE observation_id=? AND candidate_index=?',
+                            (observation_id, index)).fetchone()[0]
+    if field_data:
+        db.execute('INSERT INTO ocr_sample_fields VALUES (?,?) ON CONFLICT(sample_id) DO UPDATE SET fields_json=excluded.fields_json',
+                   (identifier, json.dumps(field_data, ensure_ascii=False)))
+    else:
+        db.execute('DELETE FROM ocr_sample_fields WHERE sample_id=?', (identifier,))
+    return identifier
 
 
 def validation_group(key):
@@ -103,12 +118,12 @@ def validation_group(key):
 
 def dataset_snapshot(root):
     with events.connection(root) as db:
-        rows = [dict(r) for r in db.execute('SELECT * FROM ocr_samples ORDER BY id')]
+        rows = [dict(r) for r in db.execute('SELECT s.*,f.fields_json FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id ORDER BY s.id')]
     # Identical images with incompatible labels must never become supervision.
     seen = {}
     samples = []
     for row in rows:
-        signature = (row['top_text'], row['bottom_text'], row['split'])
+        signature = (row['top_text'], row['bottom_text'], row['split'], row['fields_json'])
         digest = row['image_sha256']
         if digest in seen:
             if seen[digest] != signature:
@@ -248,3 +263,44 @@ class TrainingManager:
         with self.lock:
             if self.process and self.process.poll() is None:
                 self.process.terminate()
+
+
+FIELD_NAMES = ('region', 'category', 'kana', 'serial')
+
+
+def validate_fields(value, registered):
+    if not isinstance(value, dict) or set(value) != set(FIELD_NAMES):
+        raise ValueError('地名・分類番号・ひらがな・一連指定番号の4項目を指定してください。')
+    normalized = {}
+    for name in FIELD_NAMES:
+        item = value[name]
+        if not isinstance(item, dict):
+            raise ValueError('項目ごとの正解と画像範囲を確認してください。')
+        text = re.sub(r'\s+', '', unicodedata.normalize('NFKC', str(item.get('text', ''))))
+        box = item.get('box')
+        if (not isinstance(box, list) or len(box) != 4 or
+                any(type(v) not in (int, float) or not math.isfinite(v) for v in box) or
+                not 0 <= box[0] < box[2] <= 1 or not 0 <= box[1] < box[3] <= 1 or
+                box[2]-box[0] < .03 or box[3]-box[1] < .1):
+            raise ValueError('学習画像の範囲が不正です。')
+        normalized[name] = dict(text=text, box=box)
+    if events.plate_key({k: normalized[k]['text'] for k in FIELD_NAMES}) != events.plate_key(registered):
+        raise ValueError('4項目の正解と登録ナンバーを一致させてください。')
+    return normalized
+
+
+def training_crops(sample, width, height):
+    fields = json.loads(sample.get('fields_json') or 'null')
+    if fields:
+        result = []
+        for name in FIELD_NAMES:
+            item = fields[name]
+            x1, y1, x2, y2 = item['box']
+            box = (round(x1*width), round(y1*height), round(x2*width), round(y2*height))
+            if box[2] <= box[0] or box[3] <= box[1]:
+                raise ValueError('学習範囲が小さすぎます。')
+            result.append((item['text'], box))
+        return result
+    boundary = round(height * sample['split'])
+    return [(sample['top_text'], (0, 0, width, boundary)),
+            (sample['bottom_text'], (0, boundary, width, height))]

@@ -142,7 +142,7 @@ $('registration-camera').onclick=()=>{
 $('vehicle-reset').onclick=resetVehicle;
 async function loadVehicles(){
   const data=await api('/api/vehicles');$('vehicle-list').replaceChildren();
-  for(const v of data.items){const row=document.createElement('div');row.className='job';const desc=document.createElement('div');desc.textContent=v.plate+' · '+vehicleNames[v.vehicle_type]+' · '+v.label+' · '+(v.enabled?'有効':'無効')+(v.watch?' · 通知対象':'');const edit=document.createElement('button');edit.textContent='編集';edit.onclick=()=>{resetVehicle();const parts=v.plate_key.split('|');['region','category','kana','serial'].forEach((id,i)=>$(id).value=parts[i]);$('vehicle-id').value=v.id;$('registered-type').value=v.vehicle_type;$('vehicle-label').value=v.label;$('watch').checked=!!v.watch;$('vehicle-enabled').checked=!!v.enabled;$('vehicle-form').scrollIntoView({behavior:'smooth'});};row.append(desc,edit);$('vehicle-list').append(row);}
+  for(const v of data.items){const row=document.createElement('div');row.className='job';const desc=document.createElement('div');desc.textContent=v.plate+' · '+vehicleNames[v.vehicle_type]+' · '+v.label+' · '+(v.enabled?'有効':'無効')+(v.watch?' · 通知対象':'');const edit=document.createElement('button');edit.textContent='編集';edit.onclick=()=>{resetVehicle();const parts=v.plate_key.split('|');['region','category','kana','serial'].forEach((id,i)=>$(id).value=parts[i]);$('vehicle-id').value=v.id;$('registered-type').value=v.vehicle_type;$('vehicle-label').value=v.label;$('watch').checked=!!v.watch;$('vehicle-enabled').checked=!!v.enabled;$('vehicle-form').scrollIntoView({behavior:'smooth'});};const remove=document.createElement('button');remove.textContent='削除';remove.onclick=()=>deleteVehicle(v);row.append(desc,edit,remove);$('vehicle-list').append(row);}
 }
 $('vehicle-form').onsubmit=async event=>{
   event.preventDefault();const payload={region:$('region').value,category:$('category').value,kana:$('kana').value,serial:$('serial').value,vehicle_type:$('registered-type').value,label:$('vehicle-label').value,watch:$('watch').checked,enabled:$('vehicle-enabled').checked};
@@ -167,3 +167,12 @@ async function renderAlerts(){
 }
 $('alerts-prev').onclick=()=>{alertPage--;renderAlerts().catch(e=>message(e.message));};$('alerts-next').onclick=()=>{alertPage++;renderAlerts().catch(e=>message(e.message));};
 loadVehicles().catch(e=>message(e.message));
+
+async function deleteVehicle(vehicle){
+  if(!confirm(vehicle.plate+' の登録を削除しますか？ 次回以降は未登録車両として扱われます。認識履歴と学習データは残ります。'))return;
+  try{
+    await api('/api/vehicles/'+encodeURIComponent(vehicle.id),{method:'DELETE'});
+    if($('vehicle-id').value===vehicle.id)resetVehicle();
+    await loadVehicles();message('登録車両を削除しました。');
+  }catch(error){message(error.message);}
+}

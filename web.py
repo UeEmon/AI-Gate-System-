@@ -191,7 +191,7 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
                 return ('ログインしてください。', 401, {'WWW-Authenticate': 'Basic realm="AI Gate System"'})
         elif request.remote_addr not in ('127.0.0.1', '::1') or urlsplit(request.host_url).hostname not in ('127.0.0.1', 'localhost', '::1'):
             abort(403, description='外部からのアクセスには管理パスワードの設定が必要です。')
-        if request.method == 'POST':
+        if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
             expected = session.get('csrf')
             if not expected or not hmac.compare_digest(expected, request.headers.get('X-CSRF-Token', '')):
                 abort(403, description='画面を再読み込みしてから操作してください。')
@@ -406,9 +406,11 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
     @app.get('/api/ocr-learning')
     def learning_status():
         with events.connection(manager.root) as db:
-            samples = [dict(r) for r in db.execute("SELECT id,plate_key,top_text,bottom_text,original_text,created_at FROM ocr_samples ORDER BY created_at DESC LIMIT 200")]
+            samples = [dict(r) for r in db.execute("SELECT s.id,s.observation_id,s.candidate_index,s.plate_key,s.top_text,s.bottom_text,s.original_text,s.created_at,f.fields_json FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id ORDER BY s.created_at DESC LIMIT 200")]
             count = db.execute('SELECT count(*) FROM ocr_samples').fetchone()[0]
             runs = [dict(r) for r in db.execute('SELECT * FROM ocr_training_runs ORDER BY created_at DESC LIMIT 20')]
+        for sample in samples:
+            sample['fields'] = json.loads(sample.pop('fields_json') or 'null')
         for run in runs:
             run['report'] = json.loads(run.pop('report_json') or 'null')
         return jsonify(samples=samples, count=count, runs=runs, active=ocr_learning.active_model(manager.root))
@@ -436,6 +438,7 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
     @app.delete('/api/ocr-learning/samples/<identifier>')
     def learning_delete(identifier):
         with events.connection(manager.root) as db:
+            db.execute('DELETE FROM ocr_sample_fields WHERE sample_id=?', (identifier,))
             db.execute('DELETE FROM ocr_samples WHERE id=?', (identifier,))
         return jsonify(status='deleted')
 
@@ -493,6 +496,14 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
         except (ValueError, KeyError, TypeError, sqlite3.IntegrityError):
             abort(400, description='登録内容が不正なため、一括登録を取り消しました。内容を確認してください。')
         return jsonify(added=added, skipped=skipped), 201
+
+    @app.delete('/api/vehicles/<vehicle_id>')
+    def delete_vehicle(vehicle_id):
+        with events.connection(manager.root) as db:
+            cursor = db.execute('DELETE FROM vehicles WHERE id=?', (vehicle_id,))
+            if cursor.rowcount == 0:
+                abort(404, description='登録車両が見つかりません。')
+        return jsonify(status='deleted')
 
     @app.post('/api/vehicles/<vehicle_id>')
     def update_vehicle(vehicle_id):

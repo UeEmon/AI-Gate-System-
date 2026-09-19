@@ -45,14 +45,18 @@
 <p class="hint">読取候補は未確定です。画像と実際の車両を確認してください。読み取れない項目は手入力できます。</p>
 <div id="learning-review" hidden>
 <h3>修正内容をOCR学習データにする</h3>
-<p class="hint">下の登録欄を修正した後、上下段の画像と正解を確認してください。ハイフン・中点は画像どおりに入力します。枠が違う・文字が切れている画像は保存せず再撮影してください。</p>
-<label class="field">上下段の境界（%）<input id="learning-split" type="range" min="25" max="65" value="45"></label>
-<div><canvas id="learning-top-image" style="max-width:100%;border:1px solid #bbb" aria-label="学習用上段画像"></canvas></div>
-<label class="field">上段の正解（地名・分類番号）<input id="learning-top" maxlength="11"></label>
-<div><canvas id="learning-bottom-image" style="max-width:100%;border:1px solid #bbb" aria-label="学習用下段画像"></canvas></div>
-<label class="field">下段の正解（かな・一連番号）<input id="learning-bottom" maxlength="8"></label>
+<p class="hint">角度補正後の画像から、地名・分類番号・ひらがな・一連指定番号を個別に確認します。範囲は画像全体に対する割合（%）で調整してください。文字が切れないようにし、ハイフン・中点も画像どおりに入力します。</p>
+<img id="learning-full-image" alt="学習対象のプレート全体" style="max-width:100%">
+<fieldset><legend>地名</legend><canvas id="learning-region-image" style="max-width:100%;border:1px solid #bbb" aria-label="地名の学習画像"></canvas>
+<label class="field">正解<input id="learning-region" maxlength="8"></label><div class="registry-fields"><label class="field">左（%）<input id="learning-region-x1" type="number" min="0" max="100" step="0.5"></label><label class="field">上（%）<input id="learning-region-y1" type="number" min="0" max="100" step="0.5"></label><label class="field">右（%）<input id="learning-region-x2" type="number" min="0" max="100" step="0.5"></label><label class="field">下（%）<input id="learning-region-y2" type="number" min="0" max="100" step="0.5"></label></div></fieldset>
+<fieldset><legend>分類番号</legend><canvas id="learning-category-image" style="max-width:100%;border:1px solid #bbb" aria-label="分類番号の学習画像"></canvas>
+<label class="field">正解<input id="learning-category" maxlength="3"></label><div class="registry-fields"><label class="field">左（%）<input id="learning-category-x1" type="number" min="0" max="100" step="0.5"></label><label class="field">上（%）<input id="learning-category-y1" type="number" min="0" max="100" step="0.5"></label><label class="field">右（%）<input id="learning-category-x2" type="number" min="0" max="100" step="0.5"></label><label class="field">下（%）<input id="learning-category-y2" type="number" min="0" max="100" step="0.5"></label></div></fieldset>
+<fieldset><legend>ひらがな</legend><canvas id="learning-kana-image" style="max-width:100%;border:1px solid #bbb" aria-label="ひらがなの学習画像"></canvas>
+<label class="field">正解<input id="learning-kana" maxlength="1"></label><div class="registry-fields"><label class="field">左（%）<input id="learning-kana-x1" type="number" min="0" max="100" step="0.5"></label><label class="field">上（%）<input id="learning-kana-y1" type="number" min="0" max="100" step="0.5"></label><label class="field">右（%）<input id="learning-kana-x2" type="number" min="0" max="100" step="0.5"></label><label class="field">下（%）<input id="learning-kana-y2" type="number" min="0" max="100" step="0.5"></label></div></fieldset>
+<fieldset><legend>一連指定番号</legend><canvas id="learning-serial-image" style="max-width:100%;border:1px solid #bbb" aria-label="一連指定番号の学習画像"></canvas>
+<label class="field">正解<input id="learning-serial" maxlength="7"></label><div class="registry-fields"><label class="field">左（%）<input id="learning-serial-x1" type="number" min="0" max="100" step="0.5"></label><label class="field">上（%）<input id="learning-serial-y1" type="number" min="0" max="100" step="0.5"></label><label class="field">右（%）<input id="learning-serial-x2" type="number" min="0" max="100" step="0.5"></label><label class="field">下（%）<input id="learning-serial-y2" type="number" min="0" max="100" step="0.5"></label></div></fieldset>
 <button id="learning-fill" type="button">修正した登録内容から正解を入力</button>
-<label><input id="learning-confirm" type="checkbox">上下段とも画像と正解が一致することを確認した</label>
+<label><input id="learning-confirm" type="checkbox">4項目すべての画像範囲と正解が一致することを確認した</label>
 <label><input id="learning-with-registration" type="checkbox">登録・更新と同時に学習データを保存する</label>
 <button id="learning-save" type="button">学習データのみ保存</button>
 <p class="hint">同じ認識結果の再保存は正解を更新します。連続取り込みの一括登録は学習データに自動追加しません。</p>
@@ -76,7 +80,7 @@
 <button id="learning-reset" type="button">標準OCRに戻す</button>
 <p id="learning-status" role="status"></p><div id="learning-runs"></div>
 <details><summary>確認済み学習データ（最新200件）</summary><div id="learning-samples"></div></details>
-<p class="hint">評価用の行画像で文字誤り率が改善し、行全体の一致率が悪化しなかったモデルだけ適用できます。適用後は認識処理を停止して再開してください。実カメラでの精度は別途確認が必要です。データの削除は今後の学習に反映され、過去のモデル・学習時点のコピーには反映されません。</p>
+<p class="hint">評価用の項目画像・従来の行画像で文字誤り率が改善し、項目・行全体の一致率が悪化しなかったモデルだけ適用できます。適用後は認識処理を停止して再開してください。実カメラでの精度は別途確認が必要です。データの削除は今後の学習に反映され、過去のモデル・学習時点のコピーには反映されません。</p>
 </section>
 <div class="workspace">
 <section class="panel controls"><h2><span class="number">01</span> 入力と認識</h2>

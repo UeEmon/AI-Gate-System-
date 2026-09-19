@@ -36,7 +36,7 @@ def train(root, run, baseline=None, epochs=10):
     import torch
     from easyocr.recognition import AlignCollate
     from easyocr.config import imgH
-    from ocr_learning import model_dir, load_weights
+    from ocr_learning import model_dir, load_weights, training_crops
 
     torch.set_num_threads(2)
     random.seed(42)
@@ -56,9 +56,7 @@ def train(root, run, baseline=None, epochs=10):
             raise ValueError('学習画像のチェックサムが一致しません。')
         with Image.open(path) as source:
             image = source.convert('L')
-        boundary = round(image.height * sample['split'])
-        for label, bounds in [(sample['top_text'], (0, 0, image.width, boundary)),
-                              (sample['bottom_text'], (0, boundary, image.width, image.height))]:
+        for label, bounds in training_crops(sample, image.width, image.height):
             unknown = sorted(set(label) - set(reader.character))
             if unknown:
                 raise ValueError('現在の日本語モデルで未対応の文字: ' + ''.join(unknown))
@@ -120,7 +118,7 @@ def train(root, run, baseline=None, epochs=10):
     report = dict(baseline=original, candidate=best, eligible=eligible(original, best),
                   best_epoch=best_epoch, epochs=epochs, history=history,
                   train_lines=len(training), validation_lines=len(validation), baseline_model=baseline,
-                  evaluation='held-out plate identities; reviewed line crops; greedy decoder',
+                  evaluation='held-out plate identities; reviewed field crops and legacy line crops; greedy decoder',
                   dataset_sha256=hashlib.sha256((directory / 'dataset.json').read_bytes()).hexdigest())
     (directory / 'report.json').write_text(json.dumps(report, ensure_ascii=False))
     return report

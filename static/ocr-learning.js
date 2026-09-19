@@ -1,40 +1,54 @@
 'use strict';
+const learningFields=['region','category','kana','serial'];
 let learningImage=null, learningGeneration=0;
 function resetLearning(){
   learningGeneration++;learningImage=null;
   $('learning-review').hidden=true;
   $('learning-confirm').checked=false;$('learning-with-registration').checked=false;
-  $('learning-top').value='';$('learning-bottom').value='';
+  for(const name of learningFields)$('learning-'+name).value='';
 }
+function fieldBox(name){return ['x1','y1','x2','y2'].map(part=>Number($('learning-'+name+'-'+part).value)/100);}
 function drawLearning(){
   $('learning-confirm').checked=false;
   if(!learningImage)return;
-  const split=Math.round(learningImage.height*Number($('learning-split').value)/100);
-  for(const [id,y,h] of [['learning-top-image',0,split],['learning-bottom-image',split,learningImage.height-split]]){
-    const canvas=$(id);canvas.width=learningImage.width;canvas.height=h;
-    canvas.getContext('2d').drawImage(learningImage,0,y,learningImage.width,h,0,0,canvas.width,h);
+  for(const name of learningFields){
+    const [x1,y1,x2,y2]=fieldBox(name);
+    const canvas=$('learning-'+name+'-image');
+    canvas.width=Math.max(1,Math.round((x2-x1)*learningImage.width));
+    canvas.height=Math.max(1,Math.round((y2-y1)*learningImage.height));
+    if(x2>x1&&y2>y1&&x1>=0&&y1>=0&&x2<=1&&y2<=1)
+      canvas.getContext('2d').drawImage(learningImage,Math.round(x1*learningImage.width),Math.round(y1*learningImage.height),
+        Math.round(x2*learningImage.width)-Math.round(x1*learningImage.width),Math.round(y2*learningImage.height)-Math.round(y1*learningImage.height),0,0,canvas.width,canvas.height);
   }
 }
-function prepareLearning(){
+function prepareLearning(savedFields=null){
   resetLearning();
   if(!registrationDraft?.has_image||!registrationDraft.plate_candidates.length)return;
+  const defaults={region:[0,0,.55,.45],category:[.55,0,1,.45],kana:[0,.45,.2,1],serial:[.2,.45,1,1]};
+  for(const name of learningFields){
+    const box=savedFields?.[name]?.box||defaults[name];
+    ['x1','y1','x2','y2'].forEach((part,i)=>$('learning-'+name+'-'+part).value=String(box[i]*100));
+    $('learning-'+name).value=savedFields?.[name]?.text||'';
+  }
   const generation=learningGeneration;
   const img=new Image();
-  img.onload=()=>{if(generation!==learningGeneration)return;learningImage=img;$('learning-review').hidden=false;$('learning-split').value='45';drawLearning();};
+  img.onload=()=>{if(generation!==learningGeneration)return;learningImage=img;$('learning-review').hidden=false;$('learning-full-image').src=img.src;drawLearning();};
   img.onerror=()=>{if(generation===learningGeneration)message('この候補は学習画像として取得できません。画像保存設定と候補枠を確認してください。');};
   img.src='/api/ocr-learning/preview/'+encodeURIComponent(registrationDraft.observation_id)+'/'+Number($('registration-candidate').value);
 }
 function learningPayload(){
-  if(!learningImage||!registrationDraft||!$('learning-confirm').checked)throw new Error('学習用画像と上下段の正解を確認してください。');
-  return {observation_id:registrationDraft.observation_id,candidate_index:Number($('registration-candidate').value),
-    top_text:$('learning-top').value,bottom_text:$('learning-bottom').value,
-    split:Number($('learning-split').value)/100,confirmed:true};
+  if(!learningImage||!registrationDraft||!$('learning-confirm').checked)throw new Error('4項目それぞれの学習画像と正解を確認してください。');
+  const fields={};
+  for(const name of learningFields)fields[name]={text:$('learning-'+name).value,box:fieldBox(name)};
+  return {observation_id:registrationDraft.observation_id,candidate_index:Number($('registration-candidate').value),fields,confirmed:true};
 }
-$('learning-split').oninput=drawLearning;
-for(const id of ['learning-top','learning-bottom','region','category','kana','serial'])$(id).addEventListener('input',()=>{$('learning-confirm').checked=false;});
+for(const name of learningFields){
+  for(const part of ['x1','y1','x2','y2'])$('learning-'+name+'-'+part).oninput=drawLearning;
+  $('learning-'+name).addEventListener('input',()=>{$('learning-confirm').checked=false;});
+  $(name).addEventListener('input',()=>{$('learning-confirm').checked=false;});
+}
 $('learning-fill').onclick=()=>{
-  $('learning-top').value=$('region').value+$('category').value;
-  $('learning-bottom').value=$('kana').value+$('serial').value;
+  for(const name of learningFields)$('learning-'+name).value=$(name).value;
   $('learning-confirm').checked=false;
 };
 $('learning-save').onclick=async()=>{
@@ -63,7 +77,7 @@ async function refreshLearning(){
       const row=document.createElement('div');
       const label=document.createElement('p');
       label.textContent=date(run.created_at)+' · '+(names[run.status]||run.status)+(run.error?' · '+run.error:'');
-      if(run.report){const r=run.report;label.textContent+=' · 比較元: '+(r.baseline_model||'標準OCR')+' · 評価 '+r.validation_lines+'行 · 文字誤り率 '+(r.baseline.cer*100).toFixed(1)+'% → '+(r.candidate.cer*100).toFixed(1)+'% · 行一致率 '+(r.baseline.line_accuracy*100).toFixed(1)+'% → '+(r.candidate.line_accuracy*100).toFixed(1)+'% · '+(r.eligible?'適用可能':'改善基準に未達');}
+      if(run.report){const r=run.report;label.textContent+=' · 比較元: '+(r.baseline_model||'標準OCR')+' · 評価 '+r.validation_lines+'画像 · 文字誤り率 '+(r.baseline.cer*100).toFixed(1)+'% → '+(r.candidate.cer*100).toFixed(1)+'% · 項目・行一致率 '+(r.baseline.line_accuracy*100).toFixed(1)+'% → '+(r.candidate.line_accuracy*100).toFixed(1)+'% · '+(r.eligible?'適用可能':'改善基準に未達');}
       row.append(label);
       if(run.report?.eligible){const button=document.createElement('button');button.textContent='このモデルを適用';button.disabled=data.active===run.id;button.onclick=()=>activateLearning(run.id);row.append(button);}
       $('learning-runs').append(row);
@@ -74,7 +88,16 @@ async function refreshLearning(){
       label.textContent=sample.top_text+' / '+sample.bottom_text+' （元のOCR: '+sample.original_text+'） ';
       const button=document.createElement('button');button.textContent='学習対象から削除';
       button.onclick=async()=>{try{await api('/api/ocr-learning/samples/'+sample.id,{method:'DELETE'});await refreshLearning();}catch(error){message(error.message);}};
-      row.append(label,button);$('learning-samples').append(row);
+      const edit=document.createElement('button');edit.textContent='正解・画像範囲を編集';
+      edit.onclick=async()=>{
+        await importRegistration(sample.observation_id);
+        if(registrationDraft?.observation_id!==sample.observation_id)return;
+        $('registration-candidate').value=String(sample.candidate_index);
+        const values=sample.plate_key.split('|');learningFields.forEach((name,i)=>$(name).value=values[i]);
+        prepareLearning(sample.fields);
+        if(!sample.fields)learningFields.forEach((name,i)=>$('learning-'+name).value=values[i]);
+      };
+      row.append(label,edit,button);$('learning-samples').append(row);
     }
   }finally{learningRefreshBusy=false;}
 }

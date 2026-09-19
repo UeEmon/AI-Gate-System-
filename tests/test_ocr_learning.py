@@ -42,6 +42,61 @@ class LearningTests(unittest.TestCase):
     def post(self, route, data=None):
         return self.client.post(route, json=data or self.data, headers=self.headers)
 
+    def field_payload(self):
+        return {name: dict(text=text, box=box) for name, text, box in [
+            ('region','品川',[0,0,.55,.45]), ('category','330',[.55,0,1,.45]),
+            ('kana','さ',[0,.45,.2,1]), ('serial','12-34',[.2,.45,1,1])]}
+
+    def test_four_fields_roundtrip_training_crops_and_edits(self):
+        self.data['learning']['fields'] = self.field_payload()
+        response = self.post('/api/ocr-learning/samples')
+        self.assertEqual(response.status_code, 201)
+        saved = self.client.get('/api/ocr-learning').json['samples'][0]
+        self.assertEqual(saved['fields']['serial']['text'], '12-34')
+        with events.connection(self.root) as db:
+            row = dict(db.execute('SELECT s.*,f.fields_json FROM ocr_samples s JOIN ocr_sample_fields f ON f.sample_id=s.id').fetchone())
+        crops = learning.training_crops(row, 200, 100)
+        self.assertEqual(crops, [('品川',(0,0,110,45)),('330',(110,0,200,45)),
+                                ('さ',(0,45,40,100)),('12-34',(40,45,200,100))])
+        self.data['learning']['fields']['category']['text'] = '331'
+        self.assertEqual(self.post('/api/ocr-learning/samples').status_code, 400)
+        self.data['category'] = '331'
+        self.assertEqual(self.post('/api/ocr-learning/samples').status_code, 201)
+        self.assertEqual(self.client.get('/api/ocr-learning').json['count'], 1)
+        self.data['learning']['fields']['region']['box'] = [-.1,0,.5,.45]
+        self.assertEqual(self.post('/api/ocr-learning/samples').status_code, 400)
+
+    def test_training_image_matches_inference_rectification(self):
+        from plate_geometry import warp_plate
+        with self.manager.connect() as db:
+            record = json.loads(db.execute('SELECT details_json FROM observations').fetchone()[0])
+            quad = [[12,12],[120,15],[118,65],[14,60]]
+            record['plate_candidates'][0]['quad_in_vehicle'] = quad
+            db.execute('UPDATE observations SET details_json=?', (json.dumps(record),))
+            encoded, _ = learning.sample_image(self.root, 'source', 0, db)
+        expected = warp_plate(cv2.imread(str(self.root/'images'/'source.jpg')), quad, cv2)
+        actual = cv2.imdecode(np.frombuffer(encoded,np.uint8),cv2.IMREAD_COLOR)
+        np.testing.assert_array_equal(actual, expected)
+
+    def test_delete_vehicle_preserves_history_and_learning_and_requires_csrf(self):
+        response = self.post('/api/vehicles')
+        identifier = response.json['id']
+        route = '/api/vehicles/' + identifier
+        observation = dict(id='check',run_id='check',vehicle_type='car',
+                           plate_candidates=[dict(fields=self.data,confidence=.9)])
+        self.assertIsNone(events.evaluate(self.root, observation, 0))
+        self.assertEqual(self.client.delete(route).status_code, 403)
+        self.assertEqual(self.client.delete(route, headers=self.headers).status_code, 200)
+        self.assertEqual(self.client.get('/api/vehicles').json['items'], [])
+        alert = events.evaluate(self.root, observation, 1)
+        with events.connection(self.root) as db:
+            self.assertEqual(db.execute('SELECT reason FROM alerts WHERE id=?',(alert,)).fetchone()[0], 'unknown')
+        self.assertEqual(self.client.get('/api/ocr-learning').json['count'], 1)
+        self.assertEqual(self.client.get('/api/observations/source/registration').status_code, 200)
+        self.assertEqual(self.client.delete(route, headers=self.headers).status_code, 404)
+        with events.connection(self.root) as db:
+            self.assertIsNone(db.execute('SELECT id FROM vehicles WHERE plate_key=?', ('品川|330|さ|1234',)).fetchone())
+
     def test_registration_and_sample_are_atomic_and_pixels_match(self):
         self.data['learning']['bottom_text'] = 'さ12-35'
         self.assertEqual(self.post('/api/vehicles').status_code, 400)

@@ -99,9 +99,8 @@ def read_plate(crop, reader, cv2):
     candidates = []
     height, width = crop.shape[:2]
     for x, y, w, h in plate_regions(crop, cv2):
-        # Keep a little context so characters touching the contour are not cut.
-        px, py = max(2, round(w * 0.04)), max(2, round(h * 0.04))
-        roi = crop[max(0, y-py):min(height, y+h+py), max(0, x-px):min(width, x+w+px)]
+        from plate_geometry import rectify_candidate
+        roi, quad, rectification = rectify_candidate(crop, [x, y, x+w, y+h], cv2)
         scale = max(1.0, min(4.0, 480 / roi.shape[1]))
         roi = cv2.resize(roi, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
         attempts = []
@@ -117,6 +116,7 @@ def read_plate(crop, reader, cv2):
             attempts.append({'bbox_in_vehicle': [x, y, x+w, y+h], 'text': text,
                              'confidence': confidence, 'fields': fields,
                              'preprocessing': 'clahe' if variant else 'color',
+                             'quad_in_vehicle': quad, 'rectification': rectification,
                              'status': 'candidate' if fields and confidence >= 0.6 else 'needs_review'})
             # Bound CPU cost: retry only incomplete or low-confidence readings.
             if fields and confidence >= 0.6:
