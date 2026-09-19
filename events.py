@@ -189,8 +189,14 @@ class Dispatcher:
                 if snapshot: body+=f"\n登録名: {snapshot['label']}\n登録車種: {snapshot['vehicle_type']}"
                 url=os.getenv('GATE_PUBLIC_URL','').rstrip('/')
                 if url: body+='\n管理画面: '+url+'/#alerts'
-                result=self.client('ses').send_email(Source=os.environ['GATE_EMAIL_FROM'],Destination={'ToAddresses':recipients},
-                    Message={'Subject':{'Data':subject,'Charset':'UTF-8'},'Body':{'Text':{'Data':body,'Charset':'UTF-8'}}})
+                backend=os.getenv('GATE_EMAIL_BACKEND','ses')
+                if backend=='smtp':
+                    from mail_delivery import send_smtp
+                    result=send_smtp(subject,body,recipients)
+                elif backend=='ses':
+                    result=self.client('ses').send_email(Source=os.environ['GATE_EMAIL_FROM'],Destination={'ToAddresses':recipients},
+                        Message={'Subject':{'Data':subject,'Charset':'UTF-8'},'Body':{'Text':{'Data':body,'Charset':'UTF-8'}}})
+                else: raise ValueError('Invalid email backend')
                 with connection(self.root) as db:
                     db.execute("UPDATE alerts SET email_status='sent',email_error=NULL,email_message_id=? WHERE id=?",(result['MessageId'],item['id']))
             except Exception as exc:

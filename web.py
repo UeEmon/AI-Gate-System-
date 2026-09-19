@@ -20,6 +20,7 @@ from flask import Flask, abort, jsonify, render_template, request, send_file, se
 from werkzeug.exceptions import HTTPException
 from app import open_database
 import events
+import registry_csv
 
 ROOT = Path(__file__).resolve().parent
 EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp', '.tif', '.tiff', '.mp4', '.avi', '.mov', '.mkv', '.m4v', '.webm'}
@@ -379,6 +380,24 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
         with events.connection(manager.root) as db:
             rows=db.execute('SELECT * FROM vehicles ORDER BY updated_at DESC').fetchall()
         return jsonify(items=[dict(r) for r in rows])
+
+    @app.get('/api/vehicles/export.csv')
+    def export_vehicles():
+        from io import BytesIO
+        return send_file(BytesIO(registry_csv.export_registry(manager.root)),
+                         mimetype='text/csv; charset=utf-8',as_attachment=True,download_name='vehicles.csv')
+
+    @app.post('/api/vehicles/import.csv')
+    def import_vehicles():
+        uploaded=request.files.get('file')
+        if not uploaded: abort(400,description='CSVファイルを選択してください。')
+        preview=request.form.get('preview','1')
+        if preview not in ('0','1'): abort(400,description='確認方式が不正です。')
+        try:
+            result=registry_csv.import_registry(manager.root,uploaded.stream.read(registry_csv.MAX_BYTES+1),
+                mode=request.form.get('mode','add'),preview=preview=='1')
+        except ValueError as exc: abort(400,description=str(exc))
+        return jsonify(result)
 
     @app.post('/api/vehicles')
     def add_vehicle():

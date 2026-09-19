@@ -80,7 +80,7 @@ refresh();setInterval(refresh,1500);
 
 let alertPage=1;
 const vehicleNames={car:'乗用車',motorcycle:'二輪車',bus:'バス',truck:'トラック'};
-const deliveryNames={pending:'送信待ち',sending:'送信中',sent:'SES受付済み',retry:'再試行待ち',failed:'失敗',disabled:'未設定',waiting:'保存待ち',uploaded:'S3保存済み'};
+const deliveryNames={pending:'送信待ち',sending:'送信中',sent:'メールサーバー受付済み',retry:'再試行待ち',failed:'失敗',disabled:'未設定',waiting:'保存待ち',uploaded:'S3保存済み'};
 let registrationDraft=null, registrationRequest=0;
 function resetVehicle(){
   registrationRequest++;registrationDraft=null;

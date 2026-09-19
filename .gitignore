@@ -9,3 +9,5 @@ data/
 .env
 models/
 .visual-check.html
+dist/
+wheelhouse/

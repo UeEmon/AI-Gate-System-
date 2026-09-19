@@ -1,0 +1,34 @@
+services:
+  gate:
+    build: ..
+    image: ai-gate-system:onprem
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 45s
+    ports:
+      - "${GATE_BIND_ADDRESS:-127.0.0.1}:8080:8080"
+    environment:
+      GATE_ADMIN_PASSWORD: ${GATE_ADMIN_PASSWORD:?Set an admin password}
+      GATE_OFFLINE: ${GATE_OFFLINE:-0}
+      GATE_EMAIL_BACKEND: smtp
+      GATE_EMAIL_FROM: ${GATE_EMAIL_FROM:-}
+      GATE_EMAIL_TO: ${GATE_EMAIL_TO:-}
+      GATE_SMTP_HOST: ${GATE_SMTP_HOST:-}
+      GATE_SMTP_PORT: ${GATE_SMTP_PORT:-587}
+      GATE_SMTP_TLS: ${GATE_SMTP_TLS:-starttls}
+      GATE_SMTP_USER: ${GATE_SMTP_USER:-}
+      GATE_SMTP_PASSWORD: ${GATE_SMTP_PASSWORD:-}
+      GATE_PUBLIC_URL: ${GATE_PUBLIC_URL:-http://localhost:8080}
+      GATE_S3_BUCKET: ""
+      AWS_EC2_METADATA_DISABLED: "true"
+    volumes:
+      - gate-data:/data
+      - gate-models:/models
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  gate-data:
+  gate-models:

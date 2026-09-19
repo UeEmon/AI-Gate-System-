@@ -1,0 +1,3 @@
+region,category,kana,serial,vehicle_type,label,watch,enabled
+品川,300,あ,1234,car,サンプル社用車,0,1
+横浜,100,い,5678,truck,通知対象サンプル,1,1

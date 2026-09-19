@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 <script src="{{ url_for('static', filename='registration-queue.js') }}" defer></script>
+<script src="{{ url_for('static', filename='registry-csv.js') }}" defer></script>
 </head>
 <body>
 <header><div class="brand"><span class="mark">G</span><div>AI GATE SYSTEM<small>車両認識・管理コンソール</small></div></div><span class="connection" id="connection">接続確認中</span></header>
@@ -23,6 +24,11 @@
 <div class="panel-title"><h2>登録車両・通知指定</h2><span class="hint">ナンバー全体と車種区分で照合</span></div>
 <p class="hint">初期登録：カメラで車両を読み取り、認識履歴の「登録に取り込む」を押してください。取り込んだナンバー・車種を確認、修正して「登録・更新」で保存できます。</p>
 <button id="registration-camera" type="button">カメラ入力へ</button>
+<div class="registration-review"><h3>CSV入出力</h3>
+<a href="/api/vehicles/export.csv">登録リストをCSV出力</a>
+<form id="csv-form"><label class="field">CSVファイル（UTF-8 / CP932、5MB・10000件まで）<input id="csv-file" type="file" accept=".csv" required></label>
+<label class="field">同じナンバーが登録済みの場合<select id="csv-mode"><option value="add">既存を保持して新規のみ追加</option><option value="update">CSVの内容で更新</option></select></label>
+<button id="csv-preview" type="submit">内容を検証</button><button id="csv-commit" type="button" disabled>検証したCSVを取り込む</button></form><p id="csv-result" role="status"></p></div>
 <div class="registration-review">
 <h3>連続取り込み</h3>
 <p class="hint">認識を開始し、処理モニターに表示中の処理から候補を連続で取り込みます。既存の履歴も対象です。同じナンバーは1件にまとめ、最大100件保持します。</p>

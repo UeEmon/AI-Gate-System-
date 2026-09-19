@@ -253,8 +253,11 @@ def main():
     import cv2
     import easyocr
     from ultralytics import YOLO
+    offline=os.getenv('GATE_OFFLINE')=='1'
+    if offline and not Path(args.model).is_file():
+        raise ValueError('オフライン用のYOLOモデルを事前に配置してください。')
     model = YOLO(args.model)
-    reader = easyocr.Reader(['ja', 'en'], gpu=False)
+    reader = easyocr.Reader(['ja', 'en'], gpu=False, download_enabled=not offline)
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
     run_id = args.run_id or uuid.uuid4().hex

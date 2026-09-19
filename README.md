@@ -39,6 +39,17 @@ WebサーバーはWaitress、認識処理は別のPythonプロセスで動作し
 
 ## 車両登録・通知・映像保存
 
+### CSV管理
+
+「登録リストをCSV出力」で全登録車両（無効を含む）をUTF-8 BOM付きCSVとして取得します。
+列順は `region,category,kana,serial,vehicle_type,label,watch,enabled` です。サンプルは `examples/vehicles.csv`。
+取り込みはUTF-8またはCP932、最大5MB・10000件です。車種は `car/motorcycle/bus/truck`、フラグは `0/1` または `true/false`。
+「内容を検証」で保存前の件数を確認し、「検証したCSVを取り込む」で確定します。
+既定は登録済みをスキップ。更新モードは同じナンバーの車種・登録名・通知指定・有効状態を更新します。
+CSV内の重複や不正な行があると全体を拒否し、行番号を表示します。CSVにない登録は削除しません。
+表計算ソフトの数式実行を防ぐため危険な先頭文字を持つセルはアポストロフィで保護し、この取込機能では復元します。
+Excelで編集する際は番号列を文字列として読み込んでください。検証後に別の管理者が変更すると、確定時の件数が変わる場合があります。
+
 ### カメラ読み取りによる初期登録
 
 連続登録では、認識を開始した後「連続取り込みを開始」を押します。表示中の処理に固定して、
@@ -100,6 +111,12 @@ SQLiteを使用するため、単一サーバー・単一管理プロセス構�
 
 [構築手順・環境変数・IAM設定・保存仕様](deploy/AWS.md) に従って設定してください。
 Dockerイメージのビルド、AWSへの配備と実メール送信は未検証です。
+
+## オンプレミスと配布
+
+[オンプレミス導入手順](onprem/README.md) にWindows/Linuxの起動スクリプト、Docker Compose、社内SMTP、閉域環境の準備手順を記載しています。
+[第三者ライセンス一覧](THIRD_PARTY_NOTICES.md) と [本体ライセンスの採用案](LICENSE-PROPOSAL.md) を追加しています。
+配布キットはソース導入用で、依存ライブラリ・モデル・OSのバイナリを含みません。本体ライセンスの正式採用は権利者の決定待ちです。
 
 ## 他のPC・タブレットから管理する
 
@@ -171,6 +188,7 @@ python app.py --source 0 --source-kind camera --every 1
 ```bash
 python -m unittest discover -s tests -v
 python -m compileall -q app.py web.py events.py evidence.py tests
+python -m compileall -q registry_csv.py mail_delivery.py scripts
 node --test tests/test_registration_ui.cjs
 node --test tests/test_registration_queue.cjs
 ```
@@ -185,6 +203,8 @@ Pythonの自動テストで以下を確認しています。
 - 実際のOpenCVを使用した日本語パスの画像読込・JPEG出力・動画のフレーム間引き。
 - 模擬カメラの最新フレーム選択と切断検知。
 - カメラ読み取り結果の登録フォーム用取得、読取不可・複数候補、確認後の登録・重複拒否。
+- CSVのUTF-8/CP932、検証時の非保存、追加/更新、式セル保護、全件拒否、認証とCSRF。
+- SMTPのSTARTTLS/SSL、認証、拒否時の失敗処理、AWSを呼ばない通知経路（模擬接続）。
 - 登録車両の正規化・照合・変更反映、通知指定、未読取、通知間隔。
 - 通知APIの認証・CSRF・確認済み操作・映像の部分取得とパス制限。
 - OpenCV/FFmpegによる前後映像保存・入力終了時の短縮保存・静止画保存。
