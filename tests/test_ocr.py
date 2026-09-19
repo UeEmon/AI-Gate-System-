@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 import cv2
 import numpy as np
 from app import (ocr_variants, plate_appearance, plate_text, read_plate,
-                 result_is_eligible, vehicle_type_from_plates)
+                 result_is_eligible, vehicle_type_from_plates, learned_plate_regions)
 
 
 def item(x, y, w, h, text, confidence=.9):
@@ -12,6 +12,12 @@ def item(x, y, w, h, text, confidence=.9):
 
 
 class OCRTests(unittest.TestCase):
+    def test_dedicated_plate_detector_boxes(self):
+        box = Mock(); box.xyxy = [np.array([10.2, 20.1, 110.4, 70.2])]
+        model = Mock(); model.predict.return_value = [Mock(boxes=[box])]
+        crop = np.zeros((100, 160, 3), np.uint8)
+        self.assertEqual(learned_plate_regions(crop, model), [(10, 20, 100, 50)])
+
     def test_processing_result_thresholds_are_inclusive(self):
         valid = dict(fields={'region':'品川'}, confidence=.7)
         self.assertTrue(result_is_eligible(.8, [valid]))
