@@ -87,6 +87,8 @@ async function refreshLearning(){
       const button=document.createElement('button');button.textContent='学習対象から削除';
       button.onclick=async()=>{try{await api('/api/ocr-learning/samples/'+sample.id,{method:'DELETE'});await refreshLearning();}catch(error){message(error.message);}};
       const edit=document.createElement('button');edit.textContent='正解・画像範囲を編集';
+      edit.disabled=!sample.has_observation;
+      if(!sample.has_observation)edit.title='元の認識履歴は削除されています。学習データ自体は保持されています。';
       edit.onclick=async()=>{
         await importRegistration(sample.observation_id);
         if(registrationDraft?.observation_id!==sample.observation_id)return;

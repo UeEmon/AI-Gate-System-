@@ -13,7 +13,10 @@ async function api(url, options={}) {
 function cell(text, className='') {const td=document.createElement('td');td.textContent=text;td.className=className;return td;}
 function date(value){return new Date(value).toLocaleString('ja-JP');}
 function pct(value){return Number.isFinite(value)?Math.round(value*100)+'%':'—';}
-function setControls(){ $('start').disabled=!!state.active||state.busy; $('stop').disabled=!state.active||state.busy; }
+function setControls(){
+  $('start').disabled=!!state.active||state.busy;$('stop').disabled=!state.active||state.busy;
+  $('delete-history').disabled=!!state.active||state.busy;
+}
 for(const input of document.querySelectorAll('input[name="kind"]'))input.addEventListener('change',()=>{
   const file=input.value==='file'&&input.checked;
   const browser=input.value==='browser'&&input.checked;
@@ -91,6 +94,28 @@ async function refresh(){
 }
 for(const id of ['job-filter','vehicle-filter'])$(id).addEventListener('change',()=>{state.page=1;refresh();});
 $('prev').onclick=()=>{state.page--;refresh();};$('next').onclick=()=>{state.page++;refresh();};$('refresh').onclick=refresh;
+async function deleteSelectedHistory(){
+  const scopes=[];
+  if($('delete-processing-history').checked)scopes.push('processing');
+  if($('delete-recognition-history').checked)scopes.push('recognition');
+  if(!scopes.length){message('削除する履歴を選択してください。');return;}
+  try{
+    const summary=await api('/api/history/summary');
+    const targets=[];
+    if(scopes.includes('processing'))targets.push('処理履歴 '+summary.processing+'件');
+    if(scopes.includes('recognition'))targets.push('認識履歴 '+summary.recognition+'件');
+    const retained='登録車両 '+summary.vehicles_retained+'件、通知 '+summary.alerts_retained+'件、OCR学習データ '+summary.learning_samples_retained+'件は残ります。';
+    if(!confirm(targets.join('、')+'を一括削除します。\n'+retained+'\nこの操作は元に戻せません。'))return;
+    state.busy=true;setControls();
+    const result=await api('/api/history',{method:'DELETE',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({scopes,confirmation:'DELETE HISTORY'})});
+    state.selected=null;state.page=1;$('job-filter').value='';
+    const warning=result.file_errors.length?' 一部ファイルを削除できませんでした: '+result.file_errors.join('、'):'';
+    message('処理履歴 '+result.deleted.processing+'件、認識履歴 '+result.deleted.recognition+'件を削除しました。'+warning);
+  }catch(error){message(error.message);}
+  finally{state.busy=false;await refresh();setControls();}
+}
+$('delete-history').onclick=deleteSelectedHistory;
 refresh();setInterval(refresh,1500);
 
 let alertPage=1;

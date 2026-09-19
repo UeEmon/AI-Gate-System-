@@ -1,4 +1,5 @@
 import io
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -102,6 +103,46 @@ class WebTests(unittest.TestCase):
     def test_failure(self):
         self.upload(); self.processes[0].code=1; self.processes[0].done.set(); self.idle()
         self.assertEqual(self.manager.list_jobs()[0]['status'],'failed')
+
+    def test_bulk_history_deletion_scopes_files_and_retained_data(self):
+        import events
+        job=self.upload().json['id'];folder=self.manager.folder(job)
+        endpoint='/api/history'
+        body={'scopes':['processing','recognition'],'confirmation':'DELETE HISTORY'}
+        self.assertEqual(self.client.delete(endpoint,json=body).status_code,403)
+        self.assertEqual(self.client.delete(endpoint,json=body,headers=self.headers).status_code,409)
+        self.processes[0].done.set();self.idle()
+        image=self.manager.root/'images'/'history.jpg';image.parent.mkdir();image.write_bytes(b'crop')
+        fields=dict(region='品川',category='300',kana='あ',serial='1234')
+        record=dict(id='history-source',processed_at='2026-09-19',run_id=job,frame_index=0,
+            media_ms=0,vehicle_type='car',confidence=.9,image_path=str(image),result_eligible=True,
+            plate_candidates=[dict(fields=fields,confidence=.9)])
+        with self.manager.connect() as db:save_observation(db,record)
+        events.register_vehicle(self.manager.root,dict(fields,serial='9999',vehicle_type='car'))
+        alert=events.evaluate(self.manager.root,record,0)
+        sample_image=b'sample'
+        with events.connection(self.manager.root) as db:
+            db.execute('INSERT INTO ocr_samples VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                ('sample','history-source',0,'品川|300|あ|1234','品川300あ1234','品川300','あ1234',.45,
+                 sample_image,hashlib.sha256(sample_image).hexdigest(),events.utc()))
+        summary=self.client.get('/api/history/summary').json
+        self.assertEqual((summary['processing'],summary['recognition']), (1,1))
+        self.assertEqual((summary['vehicles_retained'],summary['alerts_retained'],summary['learning_samples_retained']),(1,1,1))
+        self.assertEqual(self.client.delete(endpoint,json={'scopes':['recognition'],'confirmation':'wrong'},headers=self.headers).status_code,400)
+        result=self.client.delete(endpoint,json={'scopes':['recognition'],'confirmation':'DELETE HISTORY'},headers=self.headers).json
+        self.assertEqual(result['deleted'],{'processing':0,'recognition':1});self.assertEqual(result['file_errors'],[])
+        self.assertFalse(image.exists());self.assertTrue(folder.exists())
+        self.assertEqual(self.client.get('/api/jobs').json['jobs'][0]['id'],job)
+        learning=self.client.get('/api/ocr-learning').json
+        self.assertEqual(learning['count'],1);self.assertEqual(learning['samples'][0]['has_observation'],0)
+        with events.connection(self.manager.root) as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM vehicles').fetchone()[0],1)
+            self.assertIsNotNone(db.execute('SELECT id FROM alerts WHERE id=?',(alert,)).fetchone())
+        result=self.client.delete(endpoint,json={'scopes':['processing'],'confirmation':'DELETE HISTORY'},headers=self.headers).json
+        self.assertEqual(result['deleted'],{'processing':1,'recognition':0})
+        self.assertFalse(folder.exists());self.assertEqual(self.client.get('/api/jobs').json['jobs'],[])
+        for scopes in ([],['bad'],['processing','processing']):
+            self.assertEqual(self.client.delete(endpoint,json={'scopes':scopes,'confirmation':'DELETE HISTORY'},headers=self.headers).status_code,400)
 
     def test_registration_feed_cursor_and_existing_filter(self):
         import events

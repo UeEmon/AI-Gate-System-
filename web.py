@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import signal
 import sqlite3
 import subprocess
@@ -169,6 +170,53 @@ class JobManager:
             result.append(item)
         return result
 
+    def history_summary(self):
+        with self.connect() as db:
+            return {
+                'processing': db.execute('SELECT count(*) FROM jobs').fetchone()[0],
+                'recognition': db.execute('SELECT count(*) FROM observations').fetchone()[0]
+            }
+
+    def delete_history(self, scopes):
+        """Delete selected history tables and their narrowly scoped files."""
+        with self.lock:
+            if self.active_id:
+                raise BusyError('認識処理を停止してから履歴を削除してください。')
+            with self.connect() as db:
+                job_ids = ([row[0] for row in db.execute('SELECT id FROM jobs')]
+                           if 'processing' in scopes else [])
+                image_paths = ([row[0] for row in db.execute(
+                    'SELECT DISTINCT image_path FROM observations WHERE image_path IS NOT NULL')]
+                    if 'recognition' in scopes else [])
+                deleted = {'processing': len(job_ids),
+                           'recognition': db.execute('SELECT count(*) FROM observations').fetchone()[0]
+                           if 'recognition' in scopes else 0}
+                if 'recognition' in scopes:
+                    db.execute('DELETE FROM observations')
+                if 'processing' in scopes:
+                    db.execute('DELETE FROM jobs')
+            errors = []
+            jobs_root = (self.root / 'jobs').resolve()
+            images_root = (self.root / 'images').resolve()
+            for job_id in job_ids:
+                try:
+                    folder = self.folder(job_id).resolve()
+                    if not folder.is_relative_to(jobs_root):
+                        raise ValueError('処理フォルダーが管理範囲外です。')
+                    if folder.exists():
+                        shutil.rmtree(folder)
+                except (OSError, ValueError) as exc:
+                    errors.append(f'処理 {job_id}: {type(exc).__name__}')
+            for value in image_paths:
+                try:
+                    path = Path(value).resolve()
+                    if not path.is_relative_to(images_root):
+                        raise ValueError('認識画像が管理範囲外です。')
+                    path.unlink(missing_ok=True)
+                except (OSError, ValueError) as exc:
+                    errors.append(f'認識画像: {type(exc).__name__}')
+            return dict(deleted=deleted, file_errors=errors)
+
 
 def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None):
     app = Flask(__name__)
@@ -221,6 +269,30 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
     @app.get('/api/jobs')
     def jobs():
         return jsonify(jobs=manager.list_jobs(), active_id=manager.active_id)
+
+    @app.get('/api/history/summary')
+    def history_summary():
+        summary = manager.history_summary()
+        with events.connection(manager.root) as db:
+            summary['alerts_retained'] = db.execute('SELECT count(*) FROM alerts').fetchone()[0]
+            summary['learning_samples_retained'] = db.execute('SELECT count(*) FROM ocr_samples').fetchone()[0]
+            summary['vehicles_retained'] = db.execute('SELECT count(*) FROM vehicles').fetchone()[0]
+        return jsonify(summary)
+
+    @app.delete('/api/history')
+    def delete_history():
+        data = request.get_json(silent=True)
+        scopes = data.get('scopes') if isinstance(data, dict) else None
+        if (not isinstance(scopes, list) or not scopes or len(scopes) != len(set(scopes)) or
+                not set(scopes) <= {'processing', 'recognition'}):
+            abort(400, description='削除対象は処理履歴・認識履歴から選択してください。')
+        if data.get('confirmation') != 'DELETE HISTORY':
+            abort(400, description='削除確認が一致しません。')
+        try:
+            result = manager.delete_history(set(scopes))
+        except BusyError as exc:
+            abort(409, description=str(exc))
+        return jsonify(result)
 
     @app.post('/api/jobs')
     def start():
@@ -407,7 +479,7 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
     @app.get('/api/ocr-learning')
     def learning_status():
         with events.connection(manager.root) as db:
-            samples = [dict(r) for r in db.execute("SELECT s.id,s.observation_id,s.candidate_index,s.plate_key,s.top_text,s.bottom_text,s.original_text,s.created_at,f.fields_json FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id ORDER BY s.created_at DESC LIMIT 200")]
+            samples = [dict(r) for r in db.execute("SELECT s.id,s.observation_id,s.candidate_index,s.plate_key,s.top_text,s.bottom_text,s.original_text,s.created_at,f.fields_json,CASE WHEN o.id IS NULL THEN 0 ELSE 1 END AS has_observation FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id LEFT JOIN observations o ON o.id=s.observation_id ORDER BY s.created_at DESC LIMIT 200")]
             count = db.execute('SELECT count(*) FROM ocr_samples').fetchone()[0]
             runs = [dict(r) for r in db.execute('SELECT * FROM ocr_training_runs ORDER BY created_at DESC LIMIT 20')]
         for sample in samples:
