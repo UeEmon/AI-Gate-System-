@@ -105,9 +105,10 @@ function resetVehicle(){
   $('registration-candidate').replaceChildren();
 }
 function chooseRegistrationCandidate(){
-  if(typeof prepareLearning==='function')prepareLearning();
   const candidate=registrationDraft?.plate_candidates[Number($('registration-candidate').value)];
   for(const id of ['region','category','kana','serial'])$(id).value=candidate?.fields?.[id]??'';
+  // Initialize the learning answers after the selected OCR values are shown.
+  if(typeof prepareLearning==='function')prepareLearning();
   $('registration-confidence').textContent='車種の信頼度: '+pct(registrationDraft?.confidence)+' / OCR: '+pct(candidate?.confidence)+
     (!candidate?.fields?' · ナンバーを読み取れません。再撮影または手入力してください。':candidate.confidence<.6?' · 信頼度が低いため、必ず修正・確認してください。':' · 内容を確認して登録してください。');
 }

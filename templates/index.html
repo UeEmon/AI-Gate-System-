@@ -45,7 +45,7 @@
 <p class="hint">読取候補は未確定です。画像と実際の車両を確認してください。読み取れない項目は手入力できます。</p>
 <div id="learning-review" hidden>
 <h3>修正内容をOCR学習データにする</h3>
-<p class="hint">角度補正後の画像から、地名・分類番号・ひらがな・一連指定番号を個別に確認します。範囲は画像全体に対する割合（%）で調整してください。文字が切れないようにし、ハイフン・中点も画像どおりに入力します。</p>
+<p class="hint">角度補正後の画像から、地名・分類番号・ひらがな・一連指定番号を個別に確認します。各正解欄には選択したOCR候補の検出値が修正前データとして入ります。誤認識した項目だけ訂正してください。範囲は画像全体に対する割合（%）で調整し、文字が切れないことも確認します。</p>
 <img id="learning-full-image" alt="学習対象のプレート全体" style="max-width:100%">
 <fieldset><legend>地名</legend><canvas id="learning-region-image" style="max-width:100%;border:1px solid #bbb" aria-label="地名の学習画像"></canvas>
 <label class="field">正解<input id="learning-region" maxlength="8"></label><div class="registry-fields"><label class="field">左（%）<input id="learning-region-x1" type="number" min="0" max="100" step="0.5"></label><label class="field">上（%）<input id="learning-region-y1" type="number" min="0" max="100" step="0.5"></label><label class="field">右（%）<input id="learning-region-x2" type="number" min="0" max="100" step="0.5"></label><label class="field">下（%）<input id="learning-region-y2" type="number" min="0" max="100" step="0.5"></label></div></fieldset>

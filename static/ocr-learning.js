@@ -24,11 +24,13 @@ function drawLearning(){
 function prepareLearning(savedFields=null){
   resetLearning();
   if(!registrationDraft?.has_image||!registrationDraft.plate_candidates.length)return;
+  const candidate=registrationDraft.plate_candidates[Number($('registration-candidate').value)];
+  const detected=candidate?.fields||{};
   const defaults={region:[0,0,.55,.45],category:[.55,0,1,.45],kana:[0,.45,.2,1],serial:[.2,.45,1,1]};
   for(const name of learningFields){
     const box=savedFields?.[name]?.box||defaults[name];
     ['x1','y1','x2','y2'].forEach((part,i)=>$('learning-'+name+'-'+part).value=String(box[i]*100));
-    $('learning-'+name).value=savedFields?.[name]?.text||'';
+    $('learning-'+name).value=savedFields?.[name]?.text??detected[name]??'';
   }
   const generation=learningGeneration;
   const img=new Image();

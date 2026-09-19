@@ -6,7 +6,7 @@ const vm=require('node:vm');
 const path=require('node:path');
 const script=fs.readFileSync(path.join(__dirname,'../static/app.js'),'utf8');
 const handlers=script.slice(script.indexOf('let registrationDraft='),script.indexOf("$('vehicle-reset').onclick"));
-function setup(api){
+function setup(api,extras={}){
   const elements=new Map();
   const $=id=>{
     if(!elements.has(id))elements.set(id,{value:'',hidden:false,checked:false,
@@ -16,7 +16,7 @@ function setup(api){
     return elements.get(id);
   };
   const context=vm.createContext({$,api,message(){},date:x=>x,pct:x=>typeof x==='number'?Math.round(x*100)+'%':'—',
-    Option:function(text,value){this.text=text;this.value=value;}});
+    Option:function(text,value){this.text=text;this.value=value;},...extras});
   vm.runInContext(handlers,context);
   return {context,$};
 }
@@ -33,6 +33,18 @@ test('import clears edit identity, fills fields, shows source and allows candida
   assert.deepEqual(calls,['/api/observations/a/registration']);
   $('registration-candidate').value='1';context.chooseRegistrationCandidate();
   assert.equal($('serial').value,'5678');assert.match($('registration-confidence').textContent,/信頼度が低い/);
+});
+test('learning form initialization sees the selected OCR values',async()=>{
+  let observed;
+  const holder={};
+  const {context,$}=setup(async()=>draft,{prepareLearning(){
+    observed=['region','category','kana','serial'].map(id=>holder.$(id).value);
+  }});
+  holder.$=$;
+  await context.importRegistration('a');
+  assert.deepEqual(observed,['品川','300','あ','1234']);
+  $('registration-candidate').value='1';context.chooseRegistrationCandidate();
+  assert.deepEqual(observed,['品川','300','あ','5678']);
 });
 test('unreadable input clears old plate and remains editable',async()=>{
   const {context,$}=setup(async()=>({...draft,has_image:false,plate_candidates:[]}));
