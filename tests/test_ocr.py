@@ -35,8 +35,9 @@ class OCRTests(unittest.TestCase):
         black[:, :20] = (0, 220, 240)
         appearance = plate_appearance(black, cv2)
         self.assertEqual(appearance['style'], 'kei_black')
-        self.assertEqual([name for name, _ in ocr_variants(black, appearance, cv2)][:4],
-                         ['color', 'clahe', 'otsu_inverted', 'otsu'])
+        names = [name for name, _ in ocr_variants(black, appearance, cv2)]
+        self.assertEqual(names[:4], ['color', 'clahe', 'denoised', 'sharpened'])
+        self.assertLess(names.index('otsu_inverted'), names.index('otsu'))
 
     def test_graphic_plate_uses_extra_preprocessing_without_forcing_kei(self):
         graphic = np.full((80, 160, 3), 230, np.uint8)
@@ -44,7 +45,7 @@ class OCRTests(unittest.TestCase):
         appearance = plate_appearance(graphic, cv2)
         self.assertEqual(appearance['style'], 'graphic_candidate')
         self.assertFalse(appearance['kei_candidate'])
-        self.assertEqual(len(ocr_variants(graphic, appearance, cv2)), 5)
+        self.assertEqual(len(ocr_variants(graphic, appearance, cv2)), 8)
 
     def test_tall_lower_digits_do_not_join_upper_row(self):
         fragments = [item(50, 5, 80, 60, '12-34'),
@@ -55,8 +56,9 @@ class OCRTests(unittest.TestCase):
     @patch('app.plate_regions', return_value=[(0, 0, 100, 50)])
     def test_contrast_retry_and_edge_padding(self, regions):
         reader = Mock()
-        reader.readtext.side_effect = [[item(0, 0, 100, 30, '12-34')],
-                                      [item(0, 0, 100, 30, '品川330さ12-34', .8)]]
+        reader.readtext.side_effect = ([[item(0, 0, 100, 30, '12-34')],
+                                       [item(0, 0, 100, 30, '品川330さ12-34', .8)]] +
+                                      [[item(0, 0, 100, 30, '12-34')]] * 6)
         result = read_plate(np.full((60, 110, 3), 100, np.uint8), reader, cv2)[0]
         self.assertEqual(result['fields']['serial'], '1234')
         self.assertEqual(result['preprocessing'], 'clahe')
@@ -66,11 +68,15 @@ class OCRTests(unittest.TestCase):
         self.assertEqual(reader.readtext.call_args_list[1].args[0].ndim, 2)
 
     @patch('app.plate_regions', return_value=[(5, 5, 100, 50)])
-    def test_good_read_skips_retry(self, regions):
+    def test_consensus_across_preprocessing_variants(self, regions):
         reader = Mock()
-        reader.readtext.return_value = [item(0, 0, 100, 30, '品川330さ12-34')]
-        self.assertEqual(read_plate(np.zeros((80, 120, 3), np.uint8), reader, cv2)[0]['status'], 'candidate')
-        reader.readtext.assert_called_once()
+        reader.readtext.side_effect = [
+            [item(0, 0, 100, 30, '品川330さ5678', .95)],
+            *[[item(0, 0, 100, 30, '品川330さ12-34', .8)]] * 7]
+        result=read_plate(np.zeros((80, 120, 3), np.uint8), reader, cv2)[0]
+        self.assertEqual(result['fields']['serial'], '1234')
+        self.assertEqual(result['variant_votes'], 7)
+        self.assertEqual(reader.readtext.call_count,8)
 
     @patch('app.plate_regions', return_value=[(0, 0, 100, 50)])
     def test_low_confidence_not_promoted_and_empty_not_emitted(self, regions):

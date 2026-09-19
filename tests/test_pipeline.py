@@ -12,8 +12,10 @@ import numpy as np
 import app
 
 class FakeModel:
+    last_kwargs=None
     def __init__(self,name): pass
     def predict(self,*args,**kwargs):
+        FakeModel.last_kwargs=kwargs
         box=types.SimpleNamespace(cls=np.array(0),conf=np.array(.9),xyxy=np.array([[0,0,160,100]]))
         return [types.SimpleNamespace(names={0:'car'},boxes=[box])]
 
@@ -35,6 +37,8 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(record['plate_status'],'unreadable')
             self.assertFalse(record['result_eligible'])
             self.assertEqual(record['result_thresholds'], {'vehicle': .8, 'ocr': .7})
+            self.assertEqual(FakeModel.last_kwargs['imgsz'],960)
+            self.assertEqual(FakeModel.last_kwargs['iou'],.55)
             import events
             with events.connection(root) as db:
                 alert=dict(db.execute('SELECT * FROM alerts').fetchone())

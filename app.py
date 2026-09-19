@@ -58,8 +58,20 @@ def save_observation(db, record):
 def plate_regions(crop, cv2):
     """Heuristic rectangle candidates; no trained plate detector is bundled."""
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    edges = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 60, 180)
-    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blurred, 50, 170)
+    # Dense vertical character strokes recover low-contrast plates whose
+    # outer border is not strong enough for Canny alone.
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (17, 5))
+    blackhat = cv2.morphologyEx(blurred, cv2.MORPH_BLACKHAT, kernel)
+    gradient = cv2.convertScaleAbs(cv2.Sobel(blackhat, cv2.CV_32F, 1, 0, ksize=3))
+    _, strokes = cv2.threshold(gradient, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    strokes = cv2.morphologyEx(strokes, cv2.MORPH_CLOSE, kernel)
+    strokes = cv2.dilate(strokes, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
+    contours = []
+    for mask in (edges, strokes):
+        found, _ = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        contours.extend(found)
     height, width = gray.shape
     boxes = []
     for contour in sorted(contours, key=cv2.contourArea, reverse=True):
@@ -68,7 +80,7 @@ def plate_regions(crop, cv2):
             continue
         if not 0.002 <= w * h / (width * height) <= 0.3:
             continue
-        if cv2.contourArea(contour) / (w * h) < 0.45:
+        if cv2.contourArea(contour) / (w * h) < 0.20:
             continue
         # Suppress almost identical nested contours.
         if any(abs(x-a) < 10 and abs(y-b) < 10 and abs(w-c) < 15 and abs(h-d) < 15
@@ -138,12 +150,15 @@ def ocr_variants(roi, appearance, cv2):
     _, otsu = cv2.threshold(clahe, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     adaptive = cv2.adaptiveThreshold(clahe, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                      cv2.THRESH_BINARY, 31, 9)
-    variants = [('color', roi), ('clahe', clahe)]
+    denoised = cv2.fastNlMeansDenoising(clahe, None, 7, 7, 21)
+    sharpened = cv2.addWeighted(clahe, 1.7, cv2.GaussianBlur(clahe, (0, 0), 1.2), -.7, 0)
+    variants = [('color', roi), ('clahe', clahe), ('denoised', denoised),
+                ('sharpened', sharpened)]
     if appearance['style'] in ('kei_black', 'commercial_green'):
         variants += [('otsu_inverted', cv2.bitwise_not(otsu)), ('otsu', otsu)]
     else:
         variants += [('otsu', otsu), ('otsu_inverted', cv2.bitwise_not(otsu))]
-    variants.append(('adaptive', adaptive))
+    variants += [('adaptive', adaptive), ('adaptive_inverted', cv2.bitwise_not(adaptive))]
     return variants
 
 
@@ -186,10 +201,19 @@ def read_plate(crop, reader, cv2):
                              'kei_strength': appearance['kei_strength'],
                              'appearance_ratios': appearance['ratios'],
                              'status': 'candidate' if fields and confidence >= OCR_RESULT_CONFIDENCE else 'needs_review'})
-            # Bound CPU cost: retry only incomplete or low-confidence readings.
-            if fields and confidence >= OCR_RESULT_CONFIDENCE:
-                break
-        best = max(attempts, key=lambda c: (c['fields'] is not None, c['confidence']))
+        # Prefer a valid result independently reproduced by image variants.
+        # Confidence remains EasyOCR's measured value and is not inflated.
+        votes = {}
+        for attempt in attempts:
+            if attempt['fields']:
+                key = tuple(attempt['fields'][name] for name in ('region','category','kana','serial'))
+                votes[key] = votes.get(key, 0) + 1
+        for attempt in attempts:
+            key = (tuple(attempt['fields'][name] for name in ('region','category','kana','serial'))
+                   if attempt['fields'] else None)
+            attempt['variant_votes'] = votes.get(key, 0)
+        best = max(attempts, key=lambda c: (c['fields'] is not None,
+                                            c['variant_votes'], c['confidence']))
         if best['text']:
             candidates.append(best)
     return sorted(candidates, key=lambda c: (c['fields'] is not None, c['confidence']), reverse=True)
@@ -331,6 +355,8 @@ def main():
     parser.add_argument('--output', default='data')
     parser.add_argument('--every', type=int, default=10, help='動画・カメラをNフレームごとに処理')
     parser.add_argument('--confidence', type=float, default=0.4)
+    parser.add_argument('--imgsz', type=int, default=960,
+                        help='YOLO入力画像サイズ。小さい車両の検出精度を優先する既定値は960')
     parser.add_argument('--save-images', action='store_true', help='検出した車両の切り抜き画像を保存')
     parser.add_argument('--source-kind', choices=['auto', 'file', 'camera', 'browser'], default='auto')
     parser.add_argument('--run-id', default=None)
@@ -338,8 +364,8 @@ def main():
     parser.add_argument('--progress', default=None, help='Web管理用の進捗JSON')
     parser.add_argument('--preview', default=None, help='最新の処理済みフレームJPEG')
     args = parser.parse_args()
-    if args.every < 1 or not 0 < args.confidence <= 1:
-        parser.error('--every は1以上、--confidence は0より大きく1以下です。')
+    if args.every < 1 or not 0 < args.confidence <= 1 or not 320 <= args.imgsz <= 1920:
+        parser.error('--every は1以上、--confidence は0より大きく1以下、--imgsz は320〜1920です。')
     if args.progress:
         atomic_json(args.progress, {'phase': 'loading', 'frames_processed': 0, 'observations': 0})
     import cv2
@@ -377,7 +403,8 @@ def main():
         for index, media_ms, frame in stream:
             if stopped.is_set(): break
             canvas = frame.copy() if args.preview else None
-            result = model.predict(frame, conf=args.confidence, device='cpu', verbose=False)[0]
+            result = model.predict(frame, conf=args.confidence, imgsz=args.imgsz,
+                                   iou=.55, device='cpu', verbose=False)[0]
             for box in result.boxes:
                 label = result.names[int(box.cls.item())]
                 if label not in VEHICLES:
