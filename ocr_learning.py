@@ -170,6 +170,8 @@ def set_active(root, identifier):
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps({'id': identifier}))
     os.replace(temporary, path)
+    # A benchmark made before changing EasyOCR weights is no longer valid.
+    (learning_dir(root) / 'benchmark.json').unlink(missing_ok=True)
 
 
 def load_weights(reader, directory):

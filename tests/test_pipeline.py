@@ -1,5 +1,6 @@
 """Real OpenCV I/O; fake inference does not assess recognition accuracy."""
 import json
+import os
 from pathlib import Path
 import sqlite3
 import sys
@@ -29,7 +30,7 @@ class PipelineTests(unittest.TestCase):
             argv=['app.py','--source',str(source),'--source-kind','file','--output',str(root),'--run-id','test-run',
                   '--vehicle-threshold','.65','--ocr-threshold','.55','--alerts','--save-images',
                   '--preview',str(root/'preview.jpg'),'--progress',str(root/'progress.json')]
-            with patch.dict(sys.modules,modules),patch.object(sys,'argv',argv),patch('builtins.print'): app.main()
+            with patch.dict(sys.modules,modules),patch.dict(os.environ,{'GATE_OCR_BACKEND':'easyocr'}),patch.object(sys,'argv',argv),patch('builtins.print'): app.main()
             progress=json.loads((root/'progress.json').read_text())
             self.assertEqual(progress['frames_processed'],1); self.assertEqual(progress['observations'],0)
             self.assertIsNotNone(cv2.imread(str(root/'preview.jpg')))

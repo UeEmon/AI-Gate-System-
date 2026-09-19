@@ -16,6 +16,29 @@
 
 ## デプロイ手順
 
+### 自動準備（CloudFormation）
+
+`cloudformation-ec2.yaml` は、既存VPC・サブネット上に、暗号化EBS、EC2、IAMインスタンスロール、
+管理用セキュリティグループを作成します。実行前に `aws-preflight.sh` で認証状態を確認してください。
+EC2作成後の初期設定（Docker、Git、リポジトリ取得）はUserDataで行います。
+
+```bash
+export AWS_REGION=ap-northeast-1
+export GATE_VPC_ID=vpc-xxxxxxxx
+export GATE_SUBNET_ID=subnet-xxxxxxxx
+export GATE_AVAILABILITY_ZONE=ap-northeast-1a
+export GATE_KEY_NAME=your-key-pair
+export GATE_ADMIN_CIDR=203.0.113.10/32
+# 任意：既存の非公開S3バケット
+export GATE_S3_BUCKET=your-private-bucket
+sh deploy/aws-preflight.sh
+sh deploy/aws-prepare.sh
+```
+
+`GATE_ADMIN_CIDR` は管理端末の固定グローバルIPに限定してください。CloudFormationは
+S3バケット自体を作成しません。既存バケットを使う場合は `GATE_S3_BUCKET` を指定し、SES送信元を
+検証してから `deploy/.env` を設定してください。既存VPC・サブネット・キーペアは利用者が用意します。
+
 1. EC2と暗号化EBSを用意し、Docker EngineとCompose v2を導入する。
    EBSのスナップショット・保持設定を行う。コンテナやホストを入れ替えてもデータを保持する運用にする。
 2. Elastic IP等の安定したアドレスとDNS名を割り当てる。セキュリティグループの443は管理端末の送信元範囲に限定する。
@@ -57,7 +80,7 @@ AWSリソース作成・Dockerビルド・実送信は、このリポジトリ�
 - 登録番号に一致し車種も一致し、通知指定あり：指定車両通知。
 - 番号一致、車種不一致：不一致通知。登録内容のスナップショットをイベントに保存。
 - 有効な登録がない番号：未登録通知。未使用/無効化した登録は未登録として扱う。
-- OCR信頼度0.6未満、未読、形式不正：未登録とは断定せず「ナンバー要確認」通知。
+- 処理ごとのOCR信頼度未満、未読、形式不正：未登録とは断定せず「ナンバー要確認」通知。
 - 同じ処理・理由・番号・車種は映像時間60秒につき1件に抑制。ジョブが変わると別イベント。
   読取不可は同じ車種をまとめるため、別車両の通知がまとまる場合がある。車両追跡の代替ではない。
 - 判定はOCRの候補値。複数フレームの確定判定・車種モデル名識別は未実装。

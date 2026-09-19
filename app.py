@@ -92,6 +92,17 @@ def plate_regions(crop, cv2):
     return boxes
 
 
+def learned_plate_regions(crop, model):
+    """Plate boxes from a dedicated one-class YOLO model."""
+    result = model.predict(crop, conf=.20, imgsz=960, iou=.5, device='cpu', verbose=False)[0]
+    boxes = []
+    for box in result.boxes:
+        x1, y1, x2, y2 = [round(v) for v in box.xyxy[0].tolist()]
+        if x2 > x1 and y2 > y1:
+            boxes.append((x1, y1, x2-x1, y2-y1))
+    return boxes[:5]
+
+
 def plate_text(items):
     """Read two rows without merging a tall lower digit into the upper row."""
     rows = []
@@ -179,30 +190,33 @@ def result_is_eligible(vehicle_confidence, candidates,
         for candidate in candidates)
 
 
-def read_plate(crop, reader, cv2, ocr_threshold=OCR_RESULT_CONFIDENCE):
+def read_plate(crop, reader, cv2, ocr_threshold=OCR_RESULT_CONFIDENCE, plate_model=None):
     candidates = []
     height, width = crop.shape[:2]
-    for x, y, w, h in plate_regions(crop, cv2):
+    regions = learned_plate_regions(crop, plate_model) if plate_model else plate_regions(crop, cv2)
+    readers = reader if isinstance(reader, list) else [('easyocr', reader)]
+    for x, y, w, h in regions:
         from plate_geometry import rectify_candidate
         roi, quad, rectification = rectify_candidate(crop, [x, y, x+w, y+h], cv2)
         scale = max(1.0, min(4.0, 480 / roi.shape[1]))
         roi = cv2.resize(roi, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
         appearance = plate_appearance(roi, cv2)
         attempts = []
-        for preprocessing, image in ocr_variants(roi, appearance, cv2):
-            items = reader.readtext(image, detail=1, paragraph=False,
-                                    decoder='beamsearch', beamWidth=5)
-            text, confidence = plate_text(items)
-            fields = parse_plate(text)
-            attempts.append({'bbox_in_vehicle': [x, y, x+w, y+h], 'text': text,
-                             'confidence': confidence, 'fields': fields,
-                             'preprocessing': preprocessing,
-                             'quad_in_vehicle': quad, 'rectification': rectification,
-                             'plate_style': appearance['style'],
-                             'kei_candidate': appearance['kei_candidate'],
-                             'kei_strength': appearance['kei_strength'],
-                             'appearance_ratios': appearance['ratios'],
-                             'status': 'candidate' if fields and confidence >= ocr_threshold else 'needs_review'})
+        for backend, active_reader in readers:
+            for preprocessing, image in ocr_variants(roi, appearance, cv2):
+                items = active_reader.readtext(image, detail=1, paragraph=False,
+                                               decoder='beamsearch', beamWidth=5)
+                text, confidence = plate_text(items)
+                fields = parse_plate(text)
+                attempts.append({'bbox_in_vehicle': [x, y, x+w, y+h], 'text': text,
+                                 'confidence': confidence, 'fields': fields,
+                                 'ocr_backend': backend, 'preprocessing': preprocessing,
+                                 'quad_in_vehicle': quad, 'rectification': rectification,
+                                 'plate_style': appearance['style'],
+                                 'kei_candidate': appearance['kei_candidate'],
+                                 'kei_strength': appearance['kei_strength'],
+                                 'appearance_ratios': appearance['ratios'],
+                                 'status': 'candidate' if fields and confidence >= ocr_threshold else 'needs_review'})
         # Prefer a valid result independently reproduced by image variants.
         # Confidence remains EasyOCR's measured value and is not inflated.
         votes = {}
@@ -353,7 +367,9 @@ def atomic_json(path, value):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', required=True, help='写真、動画のパス、カメラ番号（0）またはRTSP URL')
-    parser.add_argument('--model', default='yolo11n.pt', help='COCOクラス名を持つUltralytics検出モデル')
+    parser.add_argument('--model', default='yolo26s.pt', help='COCOクラス名を持つUltralytics検出モデル')
+    parser.add_argument('--plate-model', default=os.getenv('GATE_PLATE_MODEL'),
+                        help='追加学習した一クラスのナンバープレートYOLOモデル')
     parser.add_argument('--output', default='data')
     parser.add_argument('--every', type=int, default=10, help='動画・カメラをNフレームごとに処理')
     parser.add_argument('--confidence', type=float, default=0.4)
@@ -381,10 +397,11 @@ def main():
     if offline and not Path(args.model).is_file():
         raise ValueError('オフライン用のYOLOモデルを事前に配置してください。')
     model = YOLO(args.model)
+    plate_model = YOLO(args.plate_model) if args.plate_model else None
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
-    from ocr_learning import make_reader
-    reader = make_reader(out, easyocr, offline)
+    from ocr_backends import make_readers
+    reader = make_readers(out, easyocr, offline)
     run_id = args.run_id or uuid.uuid4().hex
     db = open_database(out / 'gate.db')
     is_live = args.source_kind in ('camera', 'browser') or (args.source_kind == 'auto' and
@@ -424,7 +441,7 @@ def main():
                 if x2 <= x1 or y2 <= y1:
                     continue
                 crop = frame[y1:y2, x1:x2]
-                plates = read_plate(crop, reader, cv2, args.ocr_threshold)
+                plates = read_plate(crop, reader, cv2, args.ocr_threshold, plate_model)
                 vehicle_type = vehicle_type_from_plates(label, plates, args.ocr_threshold)
                 result_eligible = result_is_eligible(vehicle_confidence, plates,
                                                      args.vehicle_threshold, args.ocr_threshold)

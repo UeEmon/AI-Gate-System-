@@ -70,7 +70,7 @@ Excelで編集する際は番号列を文字列として読み込んでくださ
 「選択した車両を一括登録」で保存します。取り込み停止はカメラの認識を停止しません。
 
 - 同じナンバーは1件に集約。登録済み（無効化済みを含む）はスキップし、上書きしません。
-- OCR信頼度0.6以上で通常形式の番号を解析できた候補を取り込みます。未読取・低信頼度は個別の認識履歴から確認します。
+- 処理開始時に指定したOCR信頼度以上で通常形式を解析できた候補を取り込みます。未読取・低信頼度は個別の認識履歴から確認します。
 - 同じナンバーで車種が変わった候補は一括登録不可。「個別確認・修正」から確認して保存します。
 - 最大100件で取り込みを一時停止。登録後に再開すると、続きの認識結果から取得します。
 - 一括登録の登録名は空欄、通知指定はオフ、有効状態はオンです。変更は個別確認か登録後の編集で行います。
@@ -168,7 +168,7 @@ HTTPのBasic認証自体は通信を暗号化しないため、LAN以外への�
 ## オプション
 
 ```bash
-python web.py --port 8080 --data data --model yolo11n.pt
+python web.py --port 8080 --data data --model yolo26s.pt
 # 従来のコマンドラインも利用可能
 python app.py --source car.jpg --source-kind file --save-images
 python app.py --source gate.mp4 --source-kind file --every 1
@@ -181,7 +181,7 @@ python app.py --source 0 --source-kind camera --every 1
 - 処理間隔：`1` は毎フレーム。ファイルはその順番を保ち、カメラでは処理待ちの古いフレームを捨てます。
 - プレビュー：約1.5秒間隔で取得する処理済みJPEGです。入力カメラと同じFPSを保証するものではありません。
 - カメラ切断時は処理失敗になります。自動再接続はありません。
-- CPUで認識します。YOLO・EasyOCRの重みは初回にインターネットから取得します。
+- CPUで認識します。YOLO・PaddleOCR（比較時はEasyOCR）の重みは初回に取得します。
 
 ## 保存データ
 
@@ -203,8 +203,10 @@ python app.py --source 0 --source-kind camera --every 1
 `details_json` の `plate_candidates` にOCR原文・信頼度・候補枠・解析結果を保存します。
 
 OCRでは候補枠の周囲に余白を加え、幅480pxを目安に最大4倍まで拡大し、上下段を分けて読みます。
-通常画像で形式を解析できない場合や信頼度0.6未満の場合だけ、CLAHEによるコントラスト補正で再試行します。
-`preprocessing` は選択された処理（`color` / `clahe`）です。信頼度を引き上げたり、推測で文字を置換したりはしません。
+PaddleOCR PP-OCRv6-mediumを既定とし、複数の前処理結果の合意を優先します。信頼度を引き上げたり、
+推測で文字を置換したりはしません。`GATE_OCR_BACKEND=easyocr|paddle|compare|auto` で切替でき、
+`compare` は両方を実行、`auto` は `accuracy_benchmark.py` の固定評価結果を使用します。比較前はPaddleOCR、
+画面で追加学習済みEasyOCRを適用した直後はEasyOCRを選び、再比較後は成績の良い方へ切り替えます。
 Webカメラは1920×1080を希望解像度として要求し、横幅最大1920px・JPEG品質92%で送信します。
 実際の解像度はカメラとブラウザに依存します。送信は同時に1件までです。
 
@@ -221,6 +223,17 @@ YOLOの車体検出では軽自動車を乗用車として検出し、ナンバ�
 `kei`（軽自動車）へ補正します。黄色地は自家用軽、黒地に黄色文字は事業用軽の候補です。
 白地の図柄入り軽ナンバーは黄色枠を候補情報に記録しますが、図柄にも黄色が含まれ得るため
 自動的には軽自動車へ変更せず、登録画面で確認します。
+
+### 高精度モデルの学習と評価
+
+- 車両モデル: `python vision_train.py --task vehicle --data vehicle-dataset.yaml --output models/vehicle-yolo26s.pt`
+- プレートモデル: `python vision_train.py --task plate --data plate-dataset.yaml --output models/plate-yolo26n.pt`
+- プレートモデル適用: `GATE_PLATE_MODEL=models/plate-yolo26n.pt`
+- OCR比較: `python accuracy_benchmark.py --root data`
+
+YOLOデータはUltralytics形式で、車両は5区分、プレートは一クラスで作成します。OCR比較は修正・確認済み
+データをナンバー単位で分離した評価集合に限定し、CERと完全一致率で採用バックエンドを決定します。
+専用重みがない場合、プレート位置はOpenCVによる候補抽出へフォールバックします。
 
 ご当地ナンバーの複数文字の地名（例: 富士山、伊勢志摩）は通常の地名と同じ形式で解析します。
 図柄入りプレートでは、カラー・CLAHE・大津二値化・反転・適応二値化を順に試し、形式と信頼度が

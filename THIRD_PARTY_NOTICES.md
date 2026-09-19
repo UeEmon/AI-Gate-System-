@@ -8,6 +8,7 @@
 |---|---|---|
 | Ultralytics / YOLOモデル | [AGPL-3.0またはEnterprise](https://www.ultralytics.com/license) | AGPL案では対応するソースとライセンス。非公開組込みを希望する場合はEnterprise条件を確認 |
 | EasyOCR | [Apache-2.0](https://github.com/JaidedAI/EasyOCR/blob/master/LICENSE) | ライセンス・著作権・NOTICEを保持。OCRモデルも実際に取得した配布元を記録 |
+| PaddleOCR / PaddlePaddle | [Apache-2.0](https://github.com/PaddlePaddle/PaddleOCR/blob/main/LICENSE) | ライセンス・NOTICEを保持。取得したPP-OCRモデル名・版・SHA-256を記録 |
 | OpenCV | [Apache-2.0](https://github.com/opencv/opencv/blob/4.x/LICENSE) | wheel内に含む第三者ライブラリの条件も確認 |
 | opencv-pythonパッケージ | [配布ライセンス](https://github.com/opencv/opencv-python/blob/master/LICENSE.txt) | パッケージと同梱バイナリは同一条件とは限らない |
 | NumPy | [BSD-3-Clause等](https://github.com/numpy/numpy/blob/main/LICENSE.txt) | 同梱BLASなどの表示も保持 |

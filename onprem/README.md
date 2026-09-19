@@ -72,7 +72,7 @@ SMTP設定時にSESを呼び出しません。S3未設定では映像はロー�
 ## 閉域・オフライン運用の準備
 
 1. 接続可能な同一OS・CPU・Pythonの準備端末でセットアップと実際の認識を一度完了させます。
-2. `models/yolo11n.pt` と `models/easyocr/` のモデル一式を保存し、取得元とSHA-256を記録します。
+2. `models/yolo26s.pt`、PaddleOCRモデル、必要なら `models/plate-yolo26n.pt` とEasyOCR比較用モデルを保存し、取得元とSHA-256を記録します。
 3. `data/dependencies/installed-versions.txt` を基に同一環境用wheelを準備します。
    `python -m pip download -r data/dependencies/installed-versions.txt -d wheelhouse` を準備端末で実行します。
 4. 閉域側でPython・OS共有ライブラリを導入し、仮想環境に `pip install --no-index --find-links wheelhouse -r installed-versions.txt` で導入します。
