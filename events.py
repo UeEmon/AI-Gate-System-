@@ -100,8 +100,9 @@ def email_configured():
 
 def evaluate(root, observation, source_seconds, cooldown=60):
     """One alert for a recognized pair per job/cooldown. Unreadable has its own category."""
+    ocr_threshold = observation.get('result_thresholds', {}).get('ocr', OCR_RESULT_CONFIDENCE)
     candidate=next((c for c in observation.get('plate_candidates',[]) if c.get('fields')
-                    and c.get('confidence',0)>=OCR_RESULT_CONFIDENCE), None)
+                    and c.get('confidence',0)>=ocr_threshold), None)
     key=None
     if candidate:
         try: key=plate_key(candidate['fields'])

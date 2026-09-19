@@ -27,7 +27,8 @@ class PipelineTests(unittest.TestCase):
             reader=types.SimpleNamespace(readtext=lambda *a,**k:[])
             modules={'ultralytics':types.SimpleNamespace(YOLO=FakeModel),'easyocr':types.SimpleNamespace(Reader=lambda *a,**k:reader)}
             argv=['app.py','--source',str(source),'--source-kind','file','--output',str(root),'--run-id','test-run',
-                  '--alerts','--save-images','--preview',str(root/'preview.jpg'),'--progress',str(root/'progress.json')]
+                  '--vehicle-threshold','.65','--ocr-threshold','.55','--alerts','--save-images',
+                  '--preview',str(root/'preview.jpg'),'--progress',str(root/'progress.json')]
             with patch.dict(sys.modules,modules),patch.object(sys,'argv',argv),patch('builtins.print'): app.main()
             progress=json.loads((root/'progress.json').read_text())
             self.assertEqual(progress['frames_processed'],1); self.assertEqual(progress['observations'],0)
@@ -36,7 +37,7 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(record['run_id'],'test-run'); self.assertTrue(Path(record['image_path']).is_file())
             self.assertEqual(record['plate_status'],'unreadable')
             self.assertFalse(record['result_eligible'])
-            self.assertEqual(record['result_thresholds'], {'vehicle': .8, 'ocr': .7})
+            self.assertEqual(record['result_thresholds'], {'vehicle': .65, 'ocr': .55})
             self.assertEqual(FakeModel.last_kwargs['imgsz'],960)
             self.assertEqual(FakeModel.last_kwargs['iou'],.55)
             import events

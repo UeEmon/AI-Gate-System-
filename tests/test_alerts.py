@@ -70,6 +70,9 @@ class AlertTests(unittest.TestCase):
         self.assertIsNotNone(events.evaluate(self.root,observation(run_id='other'),0))
         low=observation(plate_candidates=[dict(fields=FIELDS,confidence=.699)])
         self.assertEqual(self.row(events.evaluate(self.root,low,1))['reason'],'unreadable')
+        adjustable=observation(run_id='adjustable',result_thresholds={'vehicle':.8,'ocr':.6},
+                               plate_candidates=[dict(fields=FIELDS,confidence=.6)])
+        self.assertEqual(self.row(events.evaluate(self.root,adjustable,1))['reason'],'unknown')
         self.assertIsNone(events.evaluate(self.root,observation(plate_candidates=[]),2))
     @patch.dict('os.environ',{'GATE_EMAIL_FROM':'from@example.test','GATE_EMAIL_TO':'one@example.test,two@example.test','GATE_S3_BUCKET':'evidence-test'})
     def test_email_and_s3_success(self):

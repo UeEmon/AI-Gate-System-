@@ -18,6 +18,9 @@ class OCRTests(unittest.TestCase):
         self.assertFalse(result_is_eligible(.7999, [valid]))
         self.assertFalse(result_is_eligible(.8, [dict(valid, confidence=.6999)]))
         self.assertFalse(result_is_eligible(.8, [dict(valid, fields=None)]))
+        self.assertTrue(result_is_eligible(.65, [dict(valid, confidence=.55)], .65, .55))
+        self.assertFalse(result_is_eligible(.649, [dict(valid, confidence=.55)], .65, .55))
+        self.assertFalse(result_is_eligible(.65, [dict(valid, confidence=.549)], .65, .55))
 
     def test_kei_yellow_and_black_plate_hints(self):
         yellow = np.full((80, 160, 3), (0, 220, 240), np.uint8)

@@ -61,7 +61,9 @@ class JobManager:
                 id TEXT PRIMARY KEY, kind TEXT NOT NULL, label TEXT NOT NULL,
                 status TEXT NOT NULL, created_at TEXT NOT NULL,
                 ended_at TEXT, error TEXT, every INTEGER NOT NULL,
-                confidence REAL NOT NULL)''')
+                confidence REAL NOT NULL, ocr_confidence REAL NOT NULL DEFAULT 0.7)''')
+            if 'ocr_confidence' not in {row[1] for row in db.execute('PRAGMA table_info(jobs)')}:
+                db.execute('ALTER TABLE jobs ADD COLUMN ocr_confidence REAL NOT NULL DEFAULT 0.7')
             db.execute("UPDATE jobs SET status='interrupted', ended_at=?, error=? WHERE status IN ('starting','running','stopping')",
                        (now(), 'サーバー再起動により処理状態をリセットしました。'))
 
@@ -91,7 +93,8 @@ class JobManager:
             raise ValueError('処理IDが不正です。')
         return self.root / 'jobs' / job_id
 
-    def start(self, kind, source, label, every, confidence, upload=None):
+    def start(self, kind, source, label, every, confidence, upload=None,
+              ocr_confidence=OCR_RESULT_CONFIDENCE):
         with self.lock:
             active_kinds = [value[1] for value in self.processes.values()]
             if kind == 'file' and self.processes:
@@ -113,11 +116,14 @@ class JobManager:
                 source = folder / ('input' + Path(upload.filename).suffix.lower())
                 upload.save(source)
             with self.connect() as db:
-                db.execute('INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?)',
-                           (job_id, kind, label, 'starting', now(), None, None, every, confidence))
+                db.execute('''INSERT INTO jobs(id,kind,label,status,created_at,ended_at,error,every,
+                           confidence,ocr_confidence) VALUES (?,?,?,?,?,?,?,?,?,?)''',
+                           (job_id, kind, label, 'starting', now(), None, None, every,
+                            confidence, ocr_confidence))
             command = [sys.executable, '-u', str(ROOT / 'app.py'), '--source', str(source),
                        '--source-kind', kind, '--output', str(self.root), '--run-id', job_id,
                        '--model', self.model, '--every', str(every), '--confidence', str(confidence),
+                       '--vehicle-threshold', str(confidence), '--ocr-threshold', str(ocr_confidence),
                        '--save-images', '--alerts', '--progress', str(folder / 'progress.json'),
                        '--preview', str(folder / 'preview.jpg')]
             log = (folder / 'worker.log').open('wb')
@@ -333,11 +339,12 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
             abort(400, description='入力方式を選択してください。')
         try:
             every = int(request.form.get('every', '1'))
-            confidence = float(request.form.get('confidence', '0.4'))
-            if not 1 <= every <= 1000 or not 0 < confidence <= 1:
+            confidence = float(request.form.get('vehicle_confidence', request.form.get('confidence', '0.8')))
+            ocr_confidence = float(request.form.get('ocr_confidence', '0.7'))
+            if not 1 <= every <= 1000 or not 0 < confidence <= 1 or not 0 < ocr_confidence <= 1:
                 raise ValueError
         except ValueError:
-            abort(400, description='処理間隔は1〜1000、検出しきい値は0より大きく1以下です。')
+            abort(400, description='処理間隔は1〜1000、車両検出・OCR信頼度は1〜100%で指定してください。')
         upload = None
         if kind == 'file':
             upload = request.files.get('file')
@@ -361,7 +368,8 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
             source = None
             label = '操作端末のWebカメラ'
         try:
-            job_id = manager.start(kind, source, label, every, confidence, upload)
+            job_id = manager.start(kind, source, label, every, confidence, upload,
+                                   ocr_confidence=ocr_confidence)
         except BusyError as error:
             abort(409, description=str(error))
         except Exception:
@@ -445,9 +453,10 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
             items = []
             for row in rows:
                 record = json.loads(row['details_json'])
+                threshold = record.get('result_thresholds', {}).get('ocr', OCR_RESULT_CONFIDENCE)
                 item = dict(cursor=row['cursor'], draft=None)
                 for candidate in record.get('plate_candidates', []):
-                    if not candidate.get('fields') or candidate.get('confidence', 0) < OCR_RESULT_CONFIDENCE: continue
+                    if not candidate.get('fields') or candidate.get('confidence', 0) < threshold: continue
                     try: key = events.plate_key(candidate['fields'])
                     except (ValueError, KeyError, TypeError): continue
                     registered = db.execute('SELECT id FROM vehicles WHERE plate_key=?', (key,)).fetchone()
@@ -470,6 +479,8 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
         return jsonify(observation_id=item['id'], run_id=item['run_id'],
                        processed_at=item['processed_at'], frame_index=item['frame_index'],
                        vehicle_type=item['vehicle_type'], confidence=item['confidence'],
+                       result_thresholds=item.get('result_thresholds',
+                                                  {'vehicle': .8, 'ocr': OCR_RESULT_CONFIDENCE}),
                        plate_candidates=item.get('plate_candidates', []),
                        has_image=bool(item.get('image_path')))
 

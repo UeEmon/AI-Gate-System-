@@ -41,6 +41,8 @@ class WebTests(unittest.TestCase):
         r=self.upload('../../日本語.jpg'); self.assertEqual(r.status_code,201)
         job=r.json['id']; self.assertTrue((self.manager.folder(job)/'input.jpg').is_file())
         cmd=self.commands[0]; self.assertEqual(cmd[cmd.index('--source-kind')+1],'file')
+        self.assertEqual(cmd[cmd.index('--vehicle-threshold')+1],'0.8')
+        self.assertEqual(cmd[cmd.index('--ocr-threshold')+1],'0.7')
         self.processes[0].done.set(); self.idle()
         self.assertEqual(JobManager(self.tmp.name).list_jobs()[0]['status'],'completed')
     def test_multiple_cameras_stop_independently_and_file_is_busy(self):
@@ -87,6 +89,8 @@ class WebTests(unittest.TestCase):
             self.assertEqual(self.camera(source).status_code,400)
         self.assertEqual(self.camera(every='0').status_code,400)
         self.assertEqual(self.camera(confidence='nan').status_code,400)
+        self.assertEqual(self.camera(vehicle_confidence='0').status_code,400)
+        self.assertEqual(self.camera(ocr_confidence='1.1').status_code,400)
         self.app.config['MAX_CONTENT_LENGTH']=10
         self.assertEqual(self.upload().status_code,413)
     def test_auth_and_host(self):
@@ -246,5 +250,6 @@ class WebTests(unittest.TestCase):
         self.assertEqual(secured.get('/api/observations/multiple/registration').status_code,401)
     def test_restart_marks_interrupted(self):
         with self.manager.connect() as db:
-            db.execute('INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?)',('a'*32,'camera','USB 0','running','2026-09-18',None,None,1,.4))
+            db.execute('''INSERT INTO jobs(id,kind,label,status,created_at,ended_at,error,every,confidence)
+                       VALUES (?,?,?,?,?,?,?,?,?)''',('a'*32,'camera','USB 0','running','2026-09-18',None,None,1,.4))
         self.assertEqual(JobManager(self.tmp.name).list_jobs()[0]['status'],'interrupted')

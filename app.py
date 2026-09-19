@@ -162,22 +162,24 @@ def ocr_variants(roi, appearance, cv2):
     return variants
 
 
-def vehicle_type_from_plates(detected_type, candidates):
+def vehicle_type_from_plates(detected_type, candidates, ocr_threshold=OCR_RESULT_CONFIDENCE):
     """Only strong plate-color evidence may refine a COCO car to kei."""
     if detected_type == 'car' and any(c.get('kei_strength') == 'strong' and c.get('fields')
-                                      and c.get('confidence', 0) >= OCR_RESULT_CONFIDENCE
+                                      and c.get('confidence', 0) >= ocr_threshold
                                       for c in candidates):
         return 'kei'
     return detected_type
 
 
-def result_is_eligible(vehicle_confidence, candidates):
-    return vehicle_confidence >= VEHICLE_RESULT_CONFIDENCE and any(
-        candidate.get('fields') and candidate.get('confidence', 0) >= OCR_RESULT_CONFIDENCE
+def result_is_eligible(vehicle_confidence, candidates,
+                       vehicle_threshold=VEHICLE_RESULT_CONFIDENCE,
+                       ocr_threshold=OCR_RESULT_CONFIDENCE):
+    return vehicle_confidence >= vehicle_threshold and any(
+        candidate.get('fields') and candidate.get('confidence', 0) >= ocr_threshold
         for candidate in candidates)
 
 
-def read_plate(crop, reader, cv2):
+def read_plate(crop, reader, cv2, ocr_threshold=OCR_RESULT_CONFIDENCE):
     candidates = []
     height, width = crop.shape[:2]
     for x, y, w, h in plate_regions(crop, cv2):
@@ -200,7 +202,7 @@ def read_plate(crop, reader, cv2):
                              'kei_candidate': appearance['kei_candidate'],
                              'kei_strength': appearance['kei_strength'],
                              'appearance_ratios': appearance['ratios'],
-                             'status': 'candidate' if fields and confidence >= OCR_RESULT_CONFIDENCE else 'needs_review'})
+                             'status': 'candidate' if fields and confidence >= ocr_threshold else 'needs_review'})
         # Prefer a valid result independently reproduced by image variants.
         # Confidence remains EasyOCR's measured value and is not inflated.
         votes = {}
@@ -355,6 +357,8 @@ def main():
     parser.add_argument('--output', default='data')
     parser.add_argument('--every', type=int, default=10, help='動画・カメラをNフレームごとに処理')
     parser.add_argument('--confidence', type=float, default=0.4)
+    parser.add_argument('--vehicle-threshold', type=float, default=VEHICLE_RESULT_CONFIDENCE)
+    parser.add_argument('--ocr-threshold', type=float, default=OCR_RESULT_CONFIDENCE)
     parser.add_argument('--imgsz', type=int, default=960,
                         help='YOLO入力画像サイズ。小さい車両の検出精度を優先する既定値は960')
     parser.add_argument('--save-images', action='store_true', help='検出した車両の切り抜き画像を保存')
@@ -364,8 +368,10 @@ def main():
     parser.add_argument('--progress', default=None, help='Web管理用の進捗JSON')
     parser.add_argument('--preview', default=None, help='最新の処理済みフレームJPEG')
     args = parser.parse_args()
-    if args.every < 1 or not 0 < args.confidence <= 1 or not 320 <= args.imgsz <= 1920:
-        parser.error('--every は1以上、--confidence は0より大きく1以下、--imgsz は320〜1920です。')
+    if (args.every < 1 or not 0 < args.confidence <= 1 or
+            not 0 < args.vehicle_threshold <= 1 or not 0 < args.ocr_threshold <= 1 or
+            not 320 <= args.imgsz <= 1920):
+        parser.error('処理間隔・信頼度・入力画像サイズを確認してください。')
     if args.progress:
         atomic_json(args.progress, {'phase': 'loading', 'frames_processed': 0, 'observations': 0})
     import cv2
@@ -410,7 +416,7 @@ def main():
                 if label not in VEHICLES:
                     continue
                 vehicle_confidence = float(box.conf.item())
-                if vehicle_confidence < VEHICLE_RESULT_CONFIDENCE:
+                if vehicle_confidence < args.vehicle_threshold:
                     continue
                 x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
                 height, width = frame.shape[:2]
@@ -418,9 +424,10 @@ def main():
                 if x2 <= x1 or y2 <= y1:
                     continue
                 crop = frame[y1:y2, x1:x2]
-                plates = read_plate(crop, reader, cv2)
-                vehicle_type = vehicle_type_from_plates(label, plates)
-                result_eligible = result_is_eligible(vehicle_confidence, plates)
+                plates = read_plate(crop, reader, cv2, args.ocr_threshold)
+                vehicle_type = vehicle_type_from_plates(label, plates, args.ocr_threshold)
+                result_eligible = result_is_eligible(vehicle_confidence, plates,
+                                                     args.vehicle_threshold, args.ocr_threshold)
                 observation_id = uuid.uuid4().hex
                 image_path = None
                 if args.save_images:
@@ -439,8 +446,8 @@ def main():
                               bbox=[x1, y1, x2, y2], plate_candidates=plates,
                               plate_status='unreadable' if not plates else 'needs_review',
                               image_path=image_path, result_eligible=result_eligible,
-                              result_thresholds={'vehicle': VEHICLE_RESULT_CONFIDENCE,
-                                                 'ocr': OCR_RESULT_CONFIDENCE})
+                              result_thresholds={'vehicle': args.vehicle_threshold,
+                                                 'ocr': args.ocr_threshold})
                 if canvas is not None:
                     cv2.rectangle(canvas, (x1, y1), (x2, y2), (100, 220, 70), 2)
                     cv2.putText(canvas, vehicle_type + ' ' + format(record['confidence'], '.2f'),
