@@ -594,12 +594,14 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
 
     @app.get('/api/alerts')
     def alerts():
-        try: page=max(1,int(request.args.get('page','1')))
-        except ValueError: abort(400)
         with events.connection(manager.root) as db:
             total=db.execute('SELECT count(*) FROM alerts').fetchone()[0]
             unread=db.execute('SELECT count(*) FROM alerts WHERE acknowledged=0').fetchone()[0]
-            rows=db.execute('SELECT * FROM alerts ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET ?',((page-1)*30,)).fetchall()
+            # Limit by recency first, then put unacknowledged items first within
+            # those ten while retaining newest-first order in each group.
+            rows=db.execute('''SELECT * FROM (
+                SELECT * FROM alerts ORDER BY created_at DESC,id DESC LIMIT 10
+                ) recent ORDER BY acknowledged ASC,created_at DESC,id DESC''').fetchall()
         items=[]
         for row in rows:
             item=dict(row)
@@ -607,8 +609,14 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
             item['has_media']=bool(item.pop('media_path'))
             item.pop('dedupe_key')
             items.append(item)
-        return jsonify(items=items,total=total,unread=unread,page=page,page_size=30,
+        return jsonify(items=items,total=total,unread=unread,hidden=max(0,total-len(items)),limit=10,
                        email_configured=events.email_configured(),s3_configured=bool(os.getenv('GATE_S3_BUCKET')))
+
+    @app.post('/api/alerts/ack-all')
+    def acknowledge_all():
+        with events.connection(manager.root) as db:
+            changed=db.execute('UPDATE alerts SET acknowledged=1 WHERE acknowledged=0').rowcount
+        return jsonify(status='acknowledged', changed=changed)
 
     @app.post('/api/alerts/<alert_id>/ack')
     def acknowledge(alert_id):

@@ -162,3 +162,30 @@ class AlertTests(unittest.TestCase):
             self.assertEqual(client.post('/api/alerts/'+identifier+'/retry-email',auth=auth,headers=headers).status_code,200)
             self.assertEqual(client.post('/api/alerts/'+identifier+'/retry-email',auth=auth,headers=headers).status_code,409)
         manager.shutdown()
+
+    def test_recent_alert_limit_unread_order_and_acknowledge_all(self):
+        manager=JobManager(self.root); app=create_app(manager=manager,password='secret'); app.testing=True
+        client=app.test_client(); auth=('admin','secret')
+        client.get('/',auth=auth)
+        with client.session_transaction() as session: headers={'X-CSRF-Token':session['csrf']}
+        with events.connection(self.root) as db:
+            for index in range(12):
+                db.execute('''INSERT INTO alerts(
+                    id,observation_id,run_id,created_at,reason,vehicle_type,
+                    dedupe_key,source_seconds,acknowledged)
+                    VALUES (?,?,?,?,?,?,?,?,?)''',
+                    (f'alert-{index:02}',f'observation-{index:02}','run',
+                     f'2026-01-01T00:{index:02}:00+00:00','unknown','car',
+                     f'unknown-{index:02}',index,int(index in {8,10})))
+
+        payload=client.get('/api/alerts',auth=auth).json
+        self.assertEqual((payload['total'],payload['unread'],payload['hidden'],payload['limit']),(12,10,2,10))
+        self.assertEqual([item['id'] for item in payload['items']],
+                         ['alert-11','alert-09','alert-07','alert-06','alert-05',
+                          'alert-04','alert-03','alert-02','alert-10','alert-08'])
+        self.assertEqual(client.post('/api/alerts/ack-all',auth=auth).status_code,403)
+        response=client.post('/api/alerts/ack-all',auth=auth,headers=headers)
+        self.assertEqual(response.status_code,200); self.assertEqual(response.json['changed'],10)
+        self.assertEqual(client.get('/api/alerts',auth=auth).json['unread'],0)
+        self.assertEqual(client.post('/api/alerts/ack-all',auth=auth,headers=headers).json['changed'],0)
+        manager.shutdown()

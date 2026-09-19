@@ -118,7 +118,6 @@ async function deleteSelectedHistory(){
 $('delete-history').onclick=deleteSelectedHistory;
 refresh();setInterval(refresh,1500);
 
-let alertPage=1;
 const vehicleNames={car:'乗用車',kei:'軽自動車',motorcycle:'二輪車',bus:'バス',truck:'トラック'};
 const deliveryNames={pending:'送信待ち',sending:'送信中',sent:'メールサーバー受付済み',retry:'再試行待ち',failed:'失敗',disabled:'未設定',waiting:'保存待ち',uploaded:'S3保存済み'};
 let registrationDraft=null, registrationRequest=0;
@@ -177,7 +176,9 @@ $('vehicle-form').onsubmit=async event=>{
   try{if(typeof learningPayload==='function'&&$('learning-with-registration').checked)payload.learning=learningPayload();await api('/api/vehicles'+($('vehicle-id').value?'/'+$('vehicle-id').value:''),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});resetVehicle();await loadVehicles();message(payload.learning?'登録車両と学習データを保存しました。再学習後にモデルへ反映できます。':'登録車両を保存しました。');}catch(error){message(error.message);}
 };
 async function renderAlerts(){
-  const data=await api('/api/alerts?page='+alertPage);$('unread-count').textContent=data.unread+'件 未確認';
+  const data=await api('/api/alerts');$('unread-count').textContent=data.unread+'件 未確認';
+  $('ack-all-alerts').disabled=data.unread===0;
+  $('alert-hidden-count').textContent=data.hidden?('直近10件を表示・ほか'+data.hidden+'件は非表示'):'直近'+data.items.length+'件を表示';
   $('delivery-state').textContent='メール: '+(data.email_configured?'設定済み':'未設定')+' / S3: '+(data.s3_configured?'設定済み':'未設定');
   $('alert-list').replaceChildren();if(!data.items.length)$('alert-list').textContent='通知はありません';
   for(const item of data.items){
@@ -191,9 +192,13 @@ async function renderAlerts(){
     if(data.email_configured&&['failed','disabled'].includes(item.email_status)){const retry=document.createElement('button');retry.textContent='メール再送';retry.onclick=async()=>{try{await api('/api/alerts/'+item.id+'/retry-email',{method:'POST'});await renderAlerts();}catch(error){message(error.message);}};actions.append(retry);}
     card.append(heading,detail,actions);$('alert-list').append(card);
   }
-  const pages=Math.max(1,Math.ceil(data.total/data.page_size));$('alerts-page').textContent=alertPage+' / '+pages;$('alerts-prev').disabled=alertPage<=1;$('alerts-next').disabled=alertPage>=pages;
 }
-$('alerts-prev').onclick=()=>{alertPage--;renderAlerts().catch(e=>message(e.message));};$('alerts-next').onclick=()=>{alertPage++;renderAlerts().catch(e=>message(e.message));};
+$('ack-all-alerts').onclick=async()=>{
+  try{
+    const result=await api('/api/alerts/ack-all',{method:'POST'});
+    message(result.changed+'件の通知を確認済みにしました。');await renderAlerts();
+  }catch(error){message(error.message);}
+};
 loadVehicles().catch(e=>message(e.message));
 
 async function deleteVehicle(vehicle){
