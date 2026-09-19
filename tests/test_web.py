@@ -47,6 +47,14 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.upload().status_code,409)
         self.assertEqual(self.client.post('/api/jobs/'+r.json['id']+'/stop',headers=self.headers).status_code,200)
         self.idle(); self.assertEqual(self.manager.list_jobs()[0]['status'],'stopped')
+
+    def test_browser_camera_frame_endpoint(self):
+        response=self.client.post('/api/jobs',data={'kind':'browser','every':'1','confidence':'0.4'},headers=self.headers)
+        self.assertEqual(response.status_code,201)
+        job=response.json['id']
+        self.assertEqual(self.client.post('/api/jobs/'+job+'/browser-frame',data=b'x'*100,content_type='image/jpeg',headers=self.headers).status_code,200)
+        self.processes[0].done.set(); self.idle()
+        self.assertEqual(self.client.post('/api/jobs/'+job+'/browser-frame',data=b'jpeg',content_type='image/jpeg',headers=self.headers).status_code,409)
     def test_rtsp_redaction(self):
         self.assertEqual(self.camera('rtsp://user:secret@192.0.2.1/live').status_code,201)
         text=self.client.get('/api/jobs').get_data(as_text=True)

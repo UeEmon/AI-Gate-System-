@@ -1,0 +1,6 @@
+{$GATE_DOMAIN} {
+    request_body {
+        max_size 512MB
+    }
+    reverse_proxy gate:8080
+}

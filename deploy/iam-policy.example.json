@@ -1,0 +1,18 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SendGateAlerts",
+      "Effect": "Allow",
+      "Action": "ses:SendEmail",
+      "Resource": "arn:aws:ses:ap-northeast-1:ACCOUNT_ID:identity/verified-sender@example.com",
+      "Condition": {"StringEquals": {"ses:FromAddress": "verified-sender@example.com"}}
+    },
+    {
+      "Sid": "SaveEvidenceOnly",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:AbortMultipartUpload"],
+      "Resource": "arn:aws:s3:::YOUR_BUCKET/events/*"
+    }
+  ]
+}

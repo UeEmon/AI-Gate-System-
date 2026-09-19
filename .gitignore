@@ -7,3 +7,5 @@ data/
 *.pt
 *.onnx
 .env
+models/
+.visual-check.html

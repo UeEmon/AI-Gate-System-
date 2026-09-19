@@ -16,16 +16,26 @@ function pct(value){return Number.isFinite(value)?Math.round(value*100)+'%':'—
 function setControls(){ $('start').disabled=!!state.active||state.busy; $('stop').disabled=!state.active||state.busy; }
 for(const input of document.querySelectorAll('input[name="kind"]'))input.addEventListener('change',()=>{
   const file=input.value==='file'&&input.checked;
-  $('file-fields').hidden=!file;$('camera-fields').hidden=file;
+  const browser=input.value==='browser'&&input.checked;
+  $('file-fields').hidden=!file;$('camera-fields').hidden=file||browser;$('browser-fields').hidden=!browser;
 });
+let browserStream=null,browserTimer=null,browserJob=null;
+async function stopBrowserCamera(){if(browserTimer){clearInterval(browserTimer);browserTimer=null;}if(browserStream){browserStream.getTracks().forEach(track=>track.stop());browserStream=null;}browserJob=null;}
+async function startBrowserCamera(jobId){
+  if(!navigator.mediaDevices?.getUserMedia)throw new Error('このブラウザはWebカメラ入力に対応していません。HTTPSまたはlocalhostで開いてください。');
+  browserStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
+  const video=$('browser-camera');video.hidden=false;video.srcObject=browserStream;await video.play();browserJob=jobId;
+  const canvas=document.createElement('canvas');const context=canvas.getContext('2d',{willReadFrequently:false});
+  browserTimer=setInterval(async()=>{if(!browserJob||video.readyState<2)return;canvas.width=Math.min(video.videoWidth,1280);canvas.height=Math.round(video.videoHeight*canvas.width/video.videoWidth);context.drawImage(video,0,0,canvas.width,canvas.height);canvas.toBlob(async blob=>{if(!blob||!browserJob)return;try{await fetch('/api/jobs/'+browserJob+'/browser-frame',{method:'POST',headers:{'Content-Type':'image/jpeg','X-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content},body:blob});}catch(error){message('Webカメラ映像の送信に失敗しました。');}},'image/jpeg',.78);},200);
+}
 $('start-form').addEventListener('submit',async event=>{
   event.preventDefault();state.busy=true;setControls();message();
-  try{const data=await api('/api/jobs',{method:'POST',body:new FormData(event.target)});state.selected=data.id;state.active=data.id;state.page=1;}
-  catch(error){message(error.message);}finally{state.busy=false;await refresh();setControls();}
+  try{const form=new FormData(event.target);const data=await api('/api/jobs',{method:'POST',body:form});state.selected=data.id;state.active=data.id;state.page=1;if(form.get('kind')==='browser')await startBrowserCamera(data.id);}
+  catch(error){if(state.active&&browserJob===null){try{await api('/api/jobs/'+state.active+'/stop',{method:'POST'});}catch(_ignored){}}message(error.message);}finally{state.busy=false;await refresh();setControls();}
 });
 $('stop').addEventListener('click',async()=>{
   if(!state.active)return;state.busy=true;setControls();
-  try{await api('/api/jobs/'+state.active+'/stop',{method:'POST'});message('停止を要求しました。');}
+  try{const job=state.active;await api('/api/jobs/'+job+'/stop',{method:'POST'});if(browserJob===job)await stopBrowserCamera();message('停止を要求しました。');}
   catch(error){message(error.message);}finally{state.busy=false;await refresh();setControls();}
 });
 async function renderObservations(){
@@ -54,15 +64,48 @@ async function refresh(){
     $('job-filter').replaceChildren(...options);$('job-filter').value=existing;
     $('jobs').replaceChildren();
     if(!data.jobs.length){const p=document.createElement('p');p.textContent='処理履歴はありません';p.className='hint';$('jobs').append(p);}
-    for(const job of data.jobs){const row=document.createElement('div');row.className='job';const detail=document.createElement('div');const title=document.createElement('strong');title.textContent=job.label;const info=document.createElement('small');info.className='sub';info.textContent=date(job.created_at)+' · '+(job.kind==='camera'?'カメラ':'ファイル')+' · '+labels[job.status];detail.append(title,info);
+    for(const job of data.jobs){const row=document.createElement('div');row.className='job';const detail=document.createElement('div');const title=document.createElement('strong');title.textContent=job.label;const info=document.createElement('small');info.className='sub';info.textContent=date(job.created_at)+' · '+(job.kind==='camera'?'カメラ':job.kind==='browser'?'端末Webカメラ':'ファイル')+' · '+labels[job.status];detail.append(title,info);
       if(job.error){const error=document.createElement('p');error.className='error-text';error.textContent=job.error;detail.append(error);}const button=document.createElement('button');button.textContent='表示';button.onclick=()=>{state.selected=job.id;$('job-filter').value=job.id;state.page=1;refresh();};row.append(detail,button);$('jobs').append(row);}
     $('job-status').textContent=current?(current.status==='running'&&current.progress.phase==='loading'?'モデル準備中':labels[current.status]):'待機中';
     $('frame-count').textContent=current?.progress.frames_processed??'—';$('observation-count').textContent=current?.progress.observations??'—';$('source-label').textContent=current?.label||'未選択';
     const show=!!current?.has_preview;$('preview').hidden=!show;$('preview-empty').hidden=show;
     if(show)$('preview').src='/api/jobs/'+current.id+'/preview?t='+Date.now();
-    await renderObservations();$('connection').textContent='接続中';
+    await renderObservations(); await renderAlerts();$('connection').textContent='接続中';
   }catch(error){$('connection').textContent='接続エラー';message(error.message);}finally{state.refreshing=false;setControls();}
 }
 for(const id of ['job-filter','vehicle-filter'])$(id).addEventListener('change',()=>{state.page=1;refresh();});
 $('prev').onclick=()=>{state.page--;refresh();};$('next').onclick=()=>{state.page++;refresh();};$('refresh').onclick=refresh;
 refresh();setInterval(refresh,1500);
+
+let alertPage=1;
+const vehicleNames={car:'乗用車',motorcycle:'二輪車',bus:'バス',truck:'トラック'};
+const deliveryNames={pending:'送信待ち',sending:'送信中',sent:'SES受付済み',retry:'再試行待ち',failed:'失敗',disabled:'未設定',waiting:'保存待ち',uploaded:'S3保存済み'};
+function resetVehicle(){$('vehicle-form').reset();$('vehicle-id').value='';$('vehicle-enabled').checked=true;}
+$('vehicle-reset').onclick=resetVehicle;
+async function loadVehicles(){
+  const data=await api('/api/vehicles');$('vehicle-list').replaceChildren();
+  for(const v of data.items){const row=document.createElement('div');row.className='job';const desc=document.createElement('div');desc.textContent=v.plate+' · '+vehicleNames[v.vehicle_type]+' · '+v.label+' · '+(v.enabled?'有効':'無効')+(v.watch?' · 通知対象':'');const edit=document.createElement('button');edit.textContent='編集';edit.onclick=()=>{const parts=v.plate_key.split('|');['region','category','kana','serial'].forEach((id,i)=>$(id).value=parts[i]);$('vehicle-id').value=v.id;$('registered-type').value=v.vehicle_type;$('vehicle-label').value=v.label;$('watch').checked=!!v.watch;$('vehicle-enabled').checked=!!v.enabled;$('vehicle-form').scrollIntoView({behavior:'smooth'});};row.append(desc,edit);$('vehicle-list').append(row);}
+}
+$('vehicle-form').onsubmit=async event=>{
+  event.preventDefault();const payload={region:$('region').value,category:$('category').value,kana:$('kana').value,serial:$('serial').value,vehicle_type:$('registered-type').value,label:$('vehicle-label').value,watch:$('watch').checked,enabled:$('vehicle-enabled').checked};
+  try{await api('/api/vehicles'+($('vehicle-id').value?'/'+$('vehicle-id').value:''),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});resetVehicle();await loadVehicles();message('登録車両を保存しました。');}catch(error){message(error.message);}
+};
+async function renderAlerts(){
+  const data=await api('/api/alerts?page='+alertPage);$('unread-count').textContent=data.unread+'件 未確認';
+  $('delivery-state').textContent='メール: '+(data.email_configured?'設定済み':'未設定')+' / S3: '+(data.s3_configured?'設定済み':'未設定');
+  $('alert-list').replaceChildren();if(!data.items.length)$('alert-list').textContent='通知はありません';
+  for(const item of data.items){
+    const card=document.createElement('article');card.className='alert-card '+item.reason+(item.acknowledged?' acknowledged':'');
+    const heading=document.createElement('div');heading.className='alert-title';const title=document.createElement('strong');title.textContent=item.reason_label+' · '+(item.plate||'読取不可')+' · '+vehicleNames[item.vehicle_type];const time=document.createElement('small');time.textContent=date(item.created_at);heading.append(title,time);
+    const detail=document.createElement('div');detail.className='alert-detail';detail.textContent='映像: '+({recording:'録画中',ready:'保存済み',partial:'短縮保存（入力終了・停止）',failed:'保存失敗'}[item.media_status])+' / メール: '+deliveryNames[item.email_status]+' / S3: '+deliveryNames[item.s3_status];
+    if(item.media_error)detail.textContent+=' / '+item.media_error;if(item.email_error)detail.textContent+=' / メールエラー: '+item.email_error;
+    const actions=document.createElement('div');actions.className='alert-actions';
+    if(item.has_media){const link=document.createElement('a');link.href='/api/alerts/'+item.id+'/media';link.target='_blank';link.rel='noopener';link.textContent='保存映像・画像を開く';actions.append(link);}
+    if(!item.acknowledged){const button=document.createElement('button');button.textContent='確認済みにする';button.onclick=async()=>{try{await api('/api/alerts/'+item.id+'/ack',{method:'POST'});await renderAlerts();}catch(error){message(error.message);}};actions.append(button);}
+    if(data.email_configured&&['failed','disabled'].includes(item.email_status)){const retry=document.createElement('button');retry.textContent='メール再送';retry.onclick=async()=>{try{await api('/api/alerts/'+item.id+'/retry-email',{method:'POST'});await renderAlerts();}catch(error){message(error.message);}};actions.append(retry);}
+    card.append(heading,detail,actions);$('alert-list').append(card);
+  }
+  const pages=Math.max(1,Math.ceil(data.total/data.page_size));$('alerts-page').textContent=alertPage+' / '+pages;$('alerts-prev').disabled=alertPage<=1;$('alerts-next').disabled=alertPage>=pages;
+}
+$('alerts-prev').onclick=()=>{alertPage--;renderAlerts().catch(e=>message(e.message));};$('alerts-next').onclick=()=>{alertPage++;renderAlerts().catch(e=>message(e.message));};
+loadVehicles().catch(e=>message(e.message));

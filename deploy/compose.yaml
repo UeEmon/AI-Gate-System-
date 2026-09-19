@@ -1,0 +1,37 @@
+services:
+  gate:
+    build: ..
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 45s
+    environment:
+      GATE_ADMIN_PASSWORD: ${GATE_ADMIN_PASSWORD:?Set a strong admin password}
+      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
+      GATE_EMAIL_FROM: ${GATE_EMAIL_FROM:-}
+      GATE_EMAIL_TO: ${GATE_EMAIL_TO:-}
+      GATE_S3_BUCKET: ${GATE_S3_BUCKET:-}
+      GATE_PUBLIC_URL: https://${GATE_DOMAIN:?Set the public DNS name}
+    volumes:
+      - /srv/ai-gate/data:/data
+      - /srv/ai-gate/models:/models
+    expose:
+      - "8080"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      GATE_DOMAIN: ${GATE_DOMAIN:?Set the public DNS name}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /srv/ai-gate/caddy-data:/data
+      - /srv/ai-gate/caddy-config:/config
+    depends_on:
+      - gate

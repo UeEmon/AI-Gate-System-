@@ -9,6 +9,8 @@ import unicodedata
 import uuid
 import os
 import threading
+import time
+import signal
 
 VEHICLES = {'car': '乗用車', 'motorcycle': '二輪車', 'bus': 'バス', 'truck': 'トラック'}
 
@@ -101,13 +103,14 @@ def read_plate(crop, reader, cv2):
     return sorted(candidates, key=lambda c: (c['fields'] is not None, c['confidence']), reverse=True)
 
 
-def frames(source, cv2, every):
+def frames(source, cv2, every, on_frame=None):
     path = Path(source)
     if path.suffix.lower() in {'.jpg', '.jpeg', '.png', '.bmp', '.webp', '.tif', '.tiff'}:
         import numpy as np
         frame = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR)
         if frame is None:
             raise ValueError('画像を読み込めません。')
+        if on_frame: on_frame(frame, 0.0)
         yield 0, None, frame
         return
     capture = cv2.VideoCapture(int(source) if source.isdecimal() else source)
@@ -115,6 +118,8 @@ def frames(source, cv2, every):
         capture.release()
         raise ValueError('動画またはカメラを開けません。入力と接続を確認してください。')
     index = 0
+    fps = float(capture.get(cv2.CAP_PROP_FPS))
+    if not 0 < fps < 1000: fps = 25.0
     try:
         while True:
             ok, frame = capture.read()
@@ -122,18 +127,19 @@ def frames(source, cv2, every):
                 if index == 0:
                     raise ValueError('入力を開きましたがフレームを取得できません。')
                 break
+            seconds = index / fps
+            if on_frame: on_frame(frame, seconds)
             if index % every == 0:
-                media_ms = float(capture.get(cv2.CAP_PROP_POS_MSEC)) if path.is_file() else None
-                yield index, media_ms, frame
+                yield index, seconds * 1000, frame
             index += 1
     finally:
         capture.release()
 
 
-def live_frames(source, cv2, every):
+def live_frames(source, cv2, every, on_frame=None, stop_event=None):
     """Read continuously and keep one latest frame, rather than a backlog."""
     condition = threading.Condition()
-    stop = threading.Event()
+    stop = stop_event or threading.Event()
     state = {'item': None, 'done': False, 'error': None}
 
     def capture_loop():
@@ -143,13 +149,16 @@ def live_frames(source, cv2, every):
             if not capture.isOpened():
                 raise ValueError('カメラを開けません。接続と設定を確認してください。')
             index = 0
+            started = time.monotonic()
             while not stop.is_set():
                 ok, frame = capture.read()
                 if not ok:
                     raise ValueError('カメラ映像の取得が停止しました。再接続して開始してください。')
+                seconds = time.monotonic() - started
+                if on_frame: on_frame(frame, seconds)
                 if index % every == 0:
                     with condition:
-                        state['item'] = (index, None, frame)
+                        state['item'] = (index, seconds * 1000, frame)
                         condition.notify_all()
                 index += 1
         except Exception as exc:
@@ -167,7 +176,8 @@ def live_frames(source, cv2, every):
     try:
         while True:
             with condition:
-                condition.wait_for(lambda: state['item'] is not None or state['done'])
+                condition.wait_for(lambda: state['item'] is not None or state['done'] or stop.is_set(), timeout=0.5)
+                if stop.is_set(): return
                 item = state['item']
                 state['item'] = None
                 done, error = state['done'], state['error']
@@ -180,6 +190,38 @@ def live_frames(source, cv2, every):
     finally:
         stop.set()
         thread.join(timeout=1)
+
+
+def browser_frames(directory, cv2, every, on_frame=None, stop_event=None):
+    """Read the latest JPEG uploaded by the operator's browser camera."""
+    import numpy as np
+    folder = Path(directory)
+    stop = stop_event or threading.Event()
+    last_mtime = 0
+    index = 0
+    try:
+        while not stop.is_set():
+            image = folder / 'latest.jpg'
+            try:
+                stamp = image.stat().st_mtime_ns
+            except FileNotFoundError:
+                stop.wait(.1)
+                continue
+            if stamp == last_mtime:
+                stop.wait(.05)
+                continue
+            last_mtime = stamp
+            frame = cv2.imdecode(np.fromfile(image, dtype=np.uint8), cv2.IMREAD_COLOR)
+            if frame is None:
+                continue
+            seconds = time.monotonic()
+            if on_frame:
+                on_frame(frame, seconds)
+            if index % every == 0:
+                yield index, seconds * 1000, frame
+            index += 1
+    finally:
+        stop.set()
 
 
 def atomic_json(path, value):
@@ -198,8 +240,9 @@ def main():
     parser.add_argument('--every', type=int, default=10, help='動画・カメラをNフレームごとに処理')
     parser.add_argument('--confidence', type=float, default=0.4)
     parser.add_argument('--save-images', action='store_true', help='検出した車両の切り抜き画像を保存')
-    parser.add_argument('--source-kind', choices=['auto', 'file', 'camera'], default='auto')
+    parser.add_argument('--source-kind', choices=['auto', 'file', 'camera', 'browser'], default='auto')
     parser.add_argument('--run-id', default=None)
+    parser.add_argument('--alerts', action='store_true', help='登録車両照合・通知イベント・映像保存')
     parser.add_argument('--progress', default=None, help='Web管理用の進捗JSON')
     parser.add_argument('--preview', default=None, help='最新の処理済みフレームJPEG')
     args = parser.parse_args()
@@ -216,12 +259,27 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     run_id = args.run_id or uuid.uuid4().hex
     db = open_database(out / 'gate.db')
-    is_live = args.source_kind == 'camera' or (args.source_kind == 'auto' and
+    is_live = args.source_kind in ('camera', 'browser') or (args.source_kind == 'auto' and
               (args.source.isdecimal() or args.source.lower().startswith(('rtsp://', 'rtsps://'))))
-    stream = live_frames(args.source, cv2, args.every) if is_live else frames(args.source, cv2, args.every)
+    stream = (browser_frames(args.source, cv2, args.every) if args.source_kind == 'browser' else
+              live_frames(args.source, cv2, args.every) if is_live else frames(args.source, cv2, args.every))
+    recorder = None
+    stopped = threading.Event()
+    old_term = None
+    if args.alerts:
+        import events
+        from evidence import EvidenceRecorder
+        events.initialize(out)
+        recorder = EvidenceRecorder(out, still=Path(args.source).suffix.lower() in
+                    {'.jpg','.jpeg','.png','.bmp','.webp','.tif','.tiff'} and not is_live)
+        old_term = signal.signal(signal.SIGTERM, lambda *a: stopped.set())
+        stream = (browser_frames(args.source, cv2, args.every, recorder.feed, stopped) if args.source_kind == 'browser' else
+                  live_frames(args.source, cv2, args.every, recorder.feed, stopped) if is_live else
+                  frames(args.source, cv2, args.every, recorder.feed))
     processed, observations = 0, 0
     try:
         for index, media_ms, frame in stream:
+            if stopped.is_set(): break
             canvas = frame.copy() if args.preview else None
             result = model.predict(frame, conf=args.confidence, device='cpu', verbose=False)[0]
             for box in result.boxes:
@@ -262,6 +320,12 @@ def main():
                         cv2.rectangle(canvas, (x1+a, y1+b), (x1+c, y1+d), (0,200,255), 2)
                 save_observation(db, record)
                 observations += 1
+                if recorder:
+                    event_id = events.evaluate(out, record, (media_ms or 0) / 1000)
+                    if event_id:
+                        try: recorder.trigger(event_id, (media_ms or 0) / 1000, frame)
+                        except Exception as error:
+                            events.set_media(out,event_id,'failed',error=type(error).__name__)
                 print(json.dumps(record, ensure_ascii=False), flush=True)
             processed += 1
             if args.preview:
@@ -280,8 +344,12 @@ def main():
                 atomic_json(args.progress, dict(phase='processing', frames_processed=processed,
                             observations=observations, frame_index=index, media_ms=media_ms))
     finally:
-        stream.close()
-        db.close()
+        try:
+            stream.close()
+            if recorder: recorder.close()
+        finally:
+            if old_term is not None: signal.signal(signal.SIGTERM, old_term)
+            db.close()
 
 
 if __name__ == '__main__':

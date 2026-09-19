@@ -1,0 +1,12 @@
+.git
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+.env
+.env.*
+data
+models
+*.pt
+*.db
+.visual-check.html

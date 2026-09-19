@@ -12,14 +12,35 @@
 <main>
 <div class="intro"><div class="eyebrow">VEHICLE RECOGNITION</div><h1>映像から、車両を記録。</h1><p>カメラのリアルタイム認識と、保存した画像・動画のファイル処理をひとつの画面で。</p></div>
 <div id="message" role="status" hidden></div>
+<section class="panel" id="alerts" aria-live="polite">
+<div class="panel-title"><h2>検知通知 <span class="badge" id="unread-count">0件 未確認</span></h2><span class="hint" id="delivery-state"></span></div>
+<p class="hint">未登録・車種不一致・指定車両・読取不可を通知します。認識結果は候補です。映像と照合してください。</p>
+<div id="alert-list">通知はありません</div>
+<div class="pagination"><button id="alerts-prev">前へ</button><span id="alerts-page">1 / 1</span><button id="alerts-next">次へ</button></div>
+</section>
+<section class="panel registry">
+<div class="panel-title"><h2>登録車両・通知指定</h2><span class="hint">ナンバー全体と車種区分で照合</span></div>
+<form id="vehicle-form"><input type="hidden" id="vehicle-id">
+<div class="registry-fields">
+<label class="field">地名<input id="region" placeholder="品川" required maxlength="8"></label>
+<label class="field">分類番号<input id="category" placeholder="330" required maxlength="3"></label>
+<label class="field">ひらがな<input id="kana" placeholder="さ" required maxlength="1"></label>
+<label class="field">一連指定番号<input id="serial" placeholder="12-34" required maxlength="7"></label>
+<label class="field">車種区分<select id="registered-type"><option value="car">乗用車</option><option value="motorcycle">二輪車</option><option value="truck">トラック</option><option value="bus">バス</option></select></label>
+<label class="field">登録名<input id="vehicle-label" placeholder="社用車01" maxlength="120"></label>
+</div>
+<div class="registry-actions"><label><input type="checkbox" id="watch">この車両の検知時に通知する</label><label><input type="checkbox" id="vehicle-enabled" checked>登録を有効にする</label><button class="primary" type="submit">登録・更新</button><button id="vehicle-reset" type="button">入力クリア</button></div>
+</form><div id="vehicle-list" class="job-list"></div></section>
 <div class="workspace">
 <section class="panel controls"><h2><span class="number">01</span> 入力と認識</h2>
 <form id="start-form">
 <div class="tabs" role="group" aria-label="入力方式">
 <label><input type="radio" name="kind" value="camera" checked><span>カメラ</span></label>
+<label><input type="radio" name="kind" value="browser"><span>端末Webカメラ</span></label>
 <label><input type="radio" name="kind" value="file"><span>ファイル</span></label>
 </div>
-<div id="camera-fields"><label class="field">カメラ番号 / RTSP URL<input name="source" placeholder="0 または rtsp://…" value="0" autocomplete="off"></label><p class="hint">処理PCに接続したUSBカメラ、またはネットワークカメラ。閲覧端末のカメラではありません。</p></div>
+<div id="camera-fields"><label class="field">カメラ番号 / RTSP URL<input name="source" placeholder="0 または rtsp://…" value="0" autocomplete="off"></label><p class="hint">処理PCに接続したUSBカメラ、またはネットワークカメラ。</p></div>
+<div id="browser-fields" hidden><p class="hint">このブラウザのカメラ映像をHTTPS（またはlocalhost）でサーバーへ送信します。ブラウザの許可が必要です。</p><video id="browser-camera" autoplay muted playsinline hidden></video></div>
 <div id="file-fields" hidden><label class="upload">画像・動画を選択<input type="file" name="file" accept=".jpg,.jpeg,.png,.bmp,.webp,.tif,.tiff,.mp4,.avi,.mov,.mkv,.m4v,.webm"></label><p class="hint">JPEG・PNG・MP4など / 最大512MB / 1ファイルずつ処理</p></div>
 <div class="settings"><label class="field">処理間隔（フレーム）<input type="number" name="every" value="1" min="1" max="1000" required></label><label class="field">車両検出しきい値<input type="number" name="confidence" value="0.4" min="0.01" max="1" step="0.01" required></label></div>
 <p class="hint">カメラは最新フレームを優先。ファイルは指定間隔で順番に処理します。</p>
@@ -36,5 +57,5 @@
 <div class="pagination"><button id="prev" disabled>前へ</button><span id="page-label">1 / 1</span><button id="next" disabled>次へ</button></div>
 </section>
 <section class="panel jobs"><div class="panel-title"><h2><span class="number">04</span> 処理履歴</h2><span class="hint">直近100件</span></div><div id="jobs" class="job-list"><p class="hint">処理履歴はありません</p></div></section>
-<footer>AI Gate System · OpenCV / 車両区分・ナンバー認識 <span>番号の確定・ゲート開閉は行いません</span></footer>
+<footer>AI Gate System · OpenCV / 車両区分・ナンバー認識 <span>登録照合・検知通知 / ゲート開閉は行いません</span></footer>
 </main></body></html>

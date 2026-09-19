@@ -25,7 +25,7 @@ class PipelineTests(unittest.TestCase):
             reader=types.SimpleNamespace(readtext=lambda *a,**k:[])
             modules={'ultralytics':types.SimpleNamespace(YOLO=FakeModel),'easyocr':types.SimpleNamespace(Reader=lambda *a,**k:reader)}
             argv=['app.py','--source',str(source),'--source-kind','file','--output',str(root),'--run-id','test-run',
-                  '--save-images','--preview',str(root/'preview.jpg'),'--progress',str(root/'progress.json')]
+                  '--alerts','--save-images','--preview',str(root/'preview.jpg'),'--progress',str(root/'progress.json')]
             with patch.dict(sys.modules,modules),patch.object(sys,'argv',argv),patch('builtins.print'): app.main()
             progress=json.loads((root/'progress.json').read_text())
             self.assertEqual(progress['frames_processed'],1); self.assertEqual(progress['observations'],1)
@@ -33,6 +33,12 @@ class PipelineTests(unittest.TestCase):
             db=sqlite3.connect(root/'gate.db'); record=json.loads(db.execute('SELECT details_json FROM observations').fetchone()[0]); db.close()
             self.assertEqual(record['run_id'],'test-run'); self.assertTrue(Path(record['image_path']).is_file())
             self.assertEqual(record['plate_status'],'unreadable')
+            import events
+            with events.connection(root) as db:
+                alert=dict(db.execute('SELECT * FROM alerts').fetchone())
+            self.assertEqual(alert['reason'],'unreadable')
+            self.assertEqual(alert['media_status'],'ready')
+            self.assertIsNotNone(cv2.imread(alert['media_path']))
     def test_video_interval_eof(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'clip.avi'; writer=cv2.VideoWriter(str(path),cv2.VideoWriter_fourcc(*'MJPG'),10,(160,100))
@@ -52,3 +58,11 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'取得が停止'):
             while True: seen.append(next(stream)[0])
         self.assertEqual(seen[-1],99); self.assertTrue(capture.released)
+
+    def test_browser_frames_reads_uploaded_jpeg(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder=Path(directory); image=folder/'latest.jpg'
+            cv2.imencode('.jpg',np.full((20,30,3),100,dtype=np.uint8))[1].tofile(image)
+            stream=app.browser_frames(folder,cv2,1)
+            row=next(stream); stream.close()
+            self.assertEqual(row[0],0); self.assertEqual(row[2].shape[:2],(20,30))
