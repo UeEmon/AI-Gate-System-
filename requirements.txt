@@ -1,7 +1,7 @@
 # Python 3.11 recommended. Compatible ranges; not a lockfile.
 opencv-python>=4.10,<5
 ultralytics>=8.3,<9
-easyocr>=1.7.2,<2
+easyocr==1.7.2
 numpy>=1.26,<3
 Flask>=3.1,<4
 waitress>=3.0,<4

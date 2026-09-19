@@ -281,9 +281,10 @@ def main():
     if offline and not Path(args.model).is_file():
         raise ValueError('オフライン用のYOLOモデルを事前に配置してください。')
     model = YOLO(args.model)
-    reader = easyocr.Reader(['ja', 'en'], gpu=False, download_enabled=not offline)
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
+    from ocr_learning import make_reader
+    reader = make_reader(out, easyocr, offline)
     run_id = args.run_id or uuid.uuid4().hex
     db = open_database(out / 'gate.db')
     is_live = args.source_kind in ('camera', 'browser') or (args.source_kind == 'auto' and

@@ -21,6 +21,7 @@ from werkzeug.exceptions import HTTPException
 from app import open_database
 import events
 import registry_csv
+import ocr_learning
 
 ROOT = Path(__file__).resolve().parent
 EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp', '.tif', '.tiff', '.mp4', '.avi', '.mov', '.mkv', '.m4v', '.webm'}
@@ -174,6 +175,9 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
                       SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Strict')
     manager = manager or JobManager(data_dir, model)
     app.extensions['jobs'] = manager
+    trainer = ocr_learning.TrainingManager(manager.root)
+    app.extensions['ocr_training'] = trainer
+    atexit.register(trainer.shutdown)
     password = password if password is not None else os.environ.get('GATE_ADMIN_PASSWORD')
 
     @app.before_request
@@ -399,12 +403,72 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
         except ValueError as exc: abort(400,description=str(exc))
         return jsonify(result)
 
+    @app.get('/api/ocr-learning')
+    def learning_status():
+        with events.connection(manager.root) as db:
+            samples = [dict(r) for r in db.execute("SELECT id,plate_key,top_text,bottom_text,original_text,created_at FROM ocr_samples ORDER BY created_at DESC LIMIT 200")]
+            count = db.execute('SELECT count(*) FROM ocr_samples').fetchone()[0]
+            runs = [dict(r) for r in db.execute('SELECT * FROM ocr_training_runs ORDER BY created_at DESC LIMIT 20')]
+        for run in runs:
+            run['report'] = json.loads(run.pop('report_json') or 'null')
+        return jsonify(samples=samples, count=count, runs=runs, active=ocr_learning.active_model(manager.root))
+
+    @app.get('/api/ocr-learning/preview/<observation_id>/<int:candidate_index>')
+    def learning_preview(observation_id, candidate_index):
+        from io import BytesIO
+        try:
+            with events.connection(manager.root) as db:
+                image, _ = ocr_learning.sample_image(manager.root, observation_id, candidate_index, db)
+        except ValueError as exc:
+            abort(400, description=str(exc))
+        return send_file(BytesIO(image), mimetype='image/png')
+
+    @app.post('/api/ocr-learning/samples')
+    def learning_save():
+        data = request.get_json() or {}
+        try:
+            with events.connection(manager.root) as db:
+                identifier = ocr_learning.save_sample(manager.root, data.get('learning'), data, db)
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            abort(400, description=str(exc))
+        return jsonify(id=identifier), 201
+
+    @app.delete('/api/ocr-learning/samples/<identifier>')
+    def learning_delete(identifier):
+        with events.connection(manager.root) as db:
+            db.execute('DELETE FROM ocr_samples WHERE id=?', (identifier,))
+        return jsonify(status='deleted')
+
+    @app.post('/api/ocr-learning/train')
+    def learning_train():
+        try:
+            identifier = trainer.start()
+        except ValueError as exc:
+            abort(400, description=str(exc))
+        return jsonify(id=identifier), 202
+
+    @app.post('/api/ocr-learning/activate')
+    def learning_activate():
+        data = request.get_json()
+        if not isinstance(data, dict) or 'id' not in data:
+            abort(400, description='適用するモデルを指定してください。')
+        try:
+            with trainer.lock:
+                ocr_learning.set_active(manager.root, data['id'])
+        except ValueError as exc:
+            abort(400, description=str(exc))
+        return jsonify(active=data['id'], message='次に開始する認識処理から適用します。')
+
     @app.post('/api/vehicles')
     def add_vehicle():
+        data = request.get_json() or {}
         try:
-            vehicle_id=events.register_vehicle(manager.root, request.get_json() or {})
+            with events.connection(manager.root) as db:
+                vehicle_id = events.register_vehicle(manager.root, data, database=db)
+                if data.get('learning') is not None:
+                    ocr_learning.save_sample(manager.root, data['learning'], data, db)
         except (ValueError,KeyError,TypeError,sqlite3.IntegrityError) as error:
-            abort(400,description='登録内容を確認してください。同じナンバーは重複登録できません。')
+            abort(400,description='登録できません: ' + str(error))
         return jsonify(id=vehicle_id),201
 
     @app.post('/api/vehicles/batch')
@@ -435,7 +499,11 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
         with events.connection(manager.root) as db:
             if not db.execute('SELECT id FROM vehicles WHERE id=?',(vehicle_id,)).fetchone(): abort(404)
         try:
-            events.register_vehicle(manager.root,request.get_json() or {},vehicle_id)
+            data = request.get_json() or {}
+            with events.connection(manager.root) as db:
+                events.register_vehicle(manager.root, data, vehicle_id, database=db)
+                if data.get('learning') is not None:
+                    ocr_learning.save_sample(manager.root, data['learning'], data, db)
         except (ValueError,KeyError,TypeError,sqlite3.IntegrityError):
             abort(400,description='登録内容を確認してください。同じナンバーは重複登録できません。')
         return jsonify(id=vehicle_id)

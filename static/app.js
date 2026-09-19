@@ -99,11 +99,13 @@ const deliveryNames={pending:'送信待ち',sending:'送信中',sent:'メール�
 let registrationDraft=null, registrationRequest=0;
 function resetVehicle(){
   registrationRequest++;registrationDraft=null;
+  if(typeof resetLearning==='function')resetLearning();
   $('vehicle-form').reset();$('vehicle-id').value='';$('vehicle-enabled').checked=true;
   $('registration-review').hidden=true;$('registration-image').hidden=true;$('registration-image').removeAttribute('src');
   $('registration-candidate').replaceChildren();
 }
 function chooseRegistrationCandidate(){
+  if(typeof prepareLearning==='function')prepareLearning();
   const candidate=registrationDraft?.plate_candidates[Number($('registration-candidate').value)];
   for(const id of ['region','category','kana','serial'])$(id).value=candidate?.fields?.[id]??'';
   $('registration-confidence').textContent='車種の信頼度: '+pct(registrationDraft?.confidence)+' / OCR: '+pct(candidate?.confidence)+
@@ -144,7 +146,7 @@ async function loadVehicles(){
 }
 $('vehicle-form').onsubmit=async event=>{
   event.preventDefault();const payload={region:$('region').value,category:$('category').value,kana:$('kana').value,serial:$('serial').value,vehicle_type:$('registered-type').value,label:$('vehicle-label').value,watch:$('watch').checked,enabled:$('vehicle-enabled').checked};
-  try{await api('/api/vehicles'+($('vehicle-id').value?'/'+$('vehicle-id').value:''),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});resetVehicle();await loadVehicles();message('登録車両を保存しました。');}catch(error){message(error.message);}
+  try{if(typeof learningPayload==='function'&&$('learning-with-registration').checked)payload.learning=learningPayload();await api('/api/vehicles'+($('vehicle-id').value?'/'+$('vehicle-id').value:''),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});resetVehicle();await loadVehicles();message(payload.learning?'登録車両と学習データを保存しました。再学習後にモデルへ反映できます。':'登録車両を保存しました。');}catch(error){message(error.message);}
 };
 async function renderAlerts(){
   const data=await api('/api/alerts?page='+alertPage);$('unread-count').textContent=data.unread+'件 未確認';
