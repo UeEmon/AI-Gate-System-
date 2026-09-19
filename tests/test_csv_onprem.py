@@ -47,6 +47,15 @@ class CSVTests(unittest.TestCase):
         for data in [payload([ROW,invalid]),payload([ROW,ROW]),b'bad,columns\n',b'\x00',b'x'*(registry_csv.MAX_BYTES+1)]:
             with self.assertRaises(ValueError):registry_csv.import_registry(self.root,data,preview=False)
         self.assertEqual(self.records(),[])
+    def test_plate_kana_and_ascii_serial_rules_apply_to_csv(self):
+        for kana in ['ぁ','が','ぱ','し']:
+            row=ROW.copy();row[2]=kana
+            with self.subTest(kana=kana), self.assertRaises(ValueError):
+                registry_csv.parse_registry(payload([row]))
+        for serial in ['１２３４','12-34','12345']:
+            row=ROW.copy();row[3]=serial
+            with self.subTest(serial=serial), self.assertRaises(ValueError):
+                registry_csv.parse_registry(payload([row]))
     def test_csv_api_auth_csrf_preview_and_commit(self):
         manager=JobManager(self.root);app=create_app(manager=manager,password='secret');client=app.test_client();auth=('admin','secret')
         self.assertEqual(client.get('/api/vehicles/export.csv').status_code,401)

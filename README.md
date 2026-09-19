@@ -77,6 +77,10 @@ Excelで編集する際は番号列を文字列として読み込んでくださ
 保存後の認識から登録内容を照合に使用します。過去の通知は変更しません。
 
 Web画面の「登録車両」で、地名・分類番号・ひらがな・一連指定番号と車種区分を登録します。
+ひらがなはナンバープレートで使用される通常文字1文字に限定し、小書き・濁音・半濁音と
+`お・し・へ・ん` は受け付けません。一連指定番号は区切り記号を含まない半角数字1〜4桁です。
+OCR原文に含まれる全角数字・中点・ハイフンは候補解析時だけ正規化し、修正・登録・CSV・学習の
+正解値には半角数字だけを使用します。
 ナンバーと車種を組み合わせて照合し、以下を通知一覧に表示します。
 
 | 検知結果 | 通知・証拠保存 |
@@ -197,7 +201,7 @@ Webカメラは1920×1080を希望解像度として要求し、横幅最大1920
 
 ```bash
 python -m unittest discover -s tests -v
-python -m compileall -q app.py web.py events.py evidence.py tests
+python -m compileall -q app.py web.py events.py evidence.py plate_rules.py tests
 python -m compileall -q registry_csv.py mail_delivery.py scripts
 node --test tests/test_registration_ui.cjs
 node --test tests/test_registration_queue.cjs

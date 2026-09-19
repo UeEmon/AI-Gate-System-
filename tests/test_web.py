@@ -122,7 +122,7 @@ class WebTests(unittest.TestCase):
     def test_batch_registration_deduplication_and_atomic_rollback(self):
         vehicle=dict(region='品川',category='300',kana='あ',serial='1234',vehicle_type='car',label='元の登録',watch=True)
         first=self.client.post('/api/vehicles',json=vehicle,headers=self.headers).json['id']
-        duplicate=dict(vehicle,serial='１２-３４',label='上書きしない',watch=False)
+        duplicate=dict(vehicle,serial='1234',label='上書きしない',watch=False)
         new=dict(vehicle,serial='5678')
         endpoint='/api/vehicles/batch'
         self.assertEqual(self.client.post(endpoint,json={'items':[new]}).status_code,403)
@@ -140,7 +140,7 @@ class WebTests(unittest.TestCase):
 
     def test_camera_registration_review_save_and_match(self):
         import events
-        fields=dict(region='品川',category='300',kana='あ',serial='12-34')
+        fields=dict(region='品川',category='300',kana='あ',serial='1234')
         for kind in ('camera','browser'):
             with self.subTest(kind=kind):
                 record=dict(id=kind,processed_at='2026-09-19T00:00:00+00:00',run_id=kind,
@@ -163,7 +163,7 @@ class WebTests(unittest.TestCase):
         alert=events.evaluate(self.manager.root,record,2)
         with events.connection(self.manager.root) as db:
             self.assertEqual(db.execute('SELECT reason FROM alerts WHERE id=?',(alert,)).fetchone()[0],'watch')
-        self.assertEqual(self.client.get('/api/observations/camera/registration').json['plate_candidates'][0]['fields']['serial'],'12-34')
+        self.assertEqual(self.client.get('/api/observations/camera/registration').json['plate_candidates'][0]['fields']['serial'],'1234')
 
     def test_registration_draft_missing_unreadable_and_multiple_candidates(self):
         self.assertEqual(self.client.get('/api/observations/missing/registration').status_code,404)

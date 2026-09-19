@@ -11,6 +11,8 @@ import time
 import unicodedata
 import uuid
 
+from plate_rules import valid_kana, valid_serial
+
 TYPES = {'car', 'motorcycle', 'bus', 'truck'}
 REASONS = {'unknown': '未登録ナンバー', 'type_mismatch': '登録車種と不一致',
            'watch': '指定車両を検知', 'unreadable': 'ナンバー要確認'}
@@ -61,13 +63,15 @@ def plate_key(fields):
     region=unicodedata.normalize('NFKC',str(fields['region'])).strip()
     category=unicodedata.normalize('NFKC',str(fields['category'])).upper().strip()
     kana=unicodedata.normalize('NFKC',str(fields['kana'])).strip()
-    serial=unicodedata.normalize('NFKC',str(fields['serial']))
-    serial=re.sub(r'[\s・.\-−ー]', '', serial)
+    # Corrected/registered values are canonical ASCII digits. OCR punctuation
+    # is normalized by parse_plate before it reaches this boundary.
+    serial=str(fields['serial']).strip()
     if not re.fullmatch(r'[一-龥ぁ-んァ-ヶ]{2,8}',region) or not re.fullmatch(r'[0-9][0-9A-Z]{2}',category):
         raise ValueError('地名・分類番号を確認してください。')
-    if not re.fullmatch(r'[ぁ-ん]',kana) or not re.fullmatch(r'[0-9]{1,4}',serial):
-        raise ValueError('ひらがな・一連指定番号を確認してください。')
-    if int(serial)==0: raise ValueError('一連指定番号は1以上にしてください。')
+    if not valid_kana(kana):
+        raise ValueError('ひらがなはナンバープレートで使用される通常文字を1文字入力してください。')
+    if not valid_serial(serial):
+        raise ValueError('一連指定番号は半角数字1〜4桁（1以上）で入力してください。')
     return '|'.join((region,category,kana,str(int(serial))))
 
 

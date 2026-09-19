@@ -33,7 +33,7 @@ class LearningTests(unittest.TestCase):
             save_observation(db, record)
         self.data = dict(region='品川', category='330', kana='さ', serial='1234', vehicle_type='car',
                          learning=dict(observation_id='source', candidate_index=0, top_text='品川330',
-                                       bottom_text='さ12-34', split=.45, confirmed=True))
+                                       bottom_text='さ1234', split=.45, confirmed=True))
 
     def tearDown(self):
         self.manager.shutdown()
@@ -45,19 +45,19 @@ class LearningTests(unittest.TestCase):
     def field_payload(self):
         return {name: dict(text=text, box=box) for name, text, box in [
             ('region','品川',[0,0,.55,.45]), ('category','330',[.55,0,1,.45]),
-            ('kana','さ',[0,.45,.2,1]), ('serial','12-34',[.2,.45,1,1])]}
+            ('kana','さ',[0,.45,.2,1]), ('serial','1234',[.2,.45,1,1])]}
 
     def test_four_fields_roundtrip_training_crops_and_edits(self):
         self.data['learning']['fields'] = self.field_payload()
         response = self.post('/api/ocr-learning/samples')
         self.assertEqual(response.status_code, 201)
         saved = self.client.get('/api/ocr-learning').json['samples'][0]
-        self.assertEqual(saved['fields']['serial']['text'], '12-34')
+        self.assertEqual(saved['fields']['serial']['text'], '1234')
         with events.connection(self.root) as db:
             row = dict(db.execute('SELECT s.*,f.fields_json FROM ocr_samples s JOIN ocr_sample_fields f ON f.sample_id=s.id').fetchone())
         crops = learning.training_crops(row, 200, 100)
         self.assertEqual(crops, [('品川',(0,0,110,45)),('330',(110,0,200,45)),
-                                ('さ',(0,45,40,100)),('12-34',(40,45,200,100))])
+                                ('さ',(0,45,40,100)),('1234',(40,45,200,100))])
         self.data['learning']['fields']['category']['text'] = '331'
         self.assertEqual(self.post('/api/ocr-learning/samples').status_code, 400)
         self.data['category'] = '331'
@@ -101,12 +101,12 @@ class LearningTests(unittest.TestCase):
         self.data['learning']['bottom_text'] = 'さ12-35'
         self.assertEqual(self.post('/api/vehicles').status_code, 400)
         self.assertEqual(self.client.get('/api/vehicles').json['items'], [])
-        self.data['learning']['bottom_text'] = 'さ12-34'
+        self.data['learning']['bottom_text'] = 'さ1234'
         self.assertEqual(self.post('/api/vehicles').status_code, 201)
         with events.connection(self.root) as db:
             row = dict(db.execute('SELECT * FROM ocr_samples').fetchone())
         self.assertEqual(row['original_text'], '品川330さ12-35')
-        self.assertEqual(row['bottom_text'], 'さ12-34')
+        self.assertEqual(row['bottom_text'], 'さ1234')
         image = cv2.imdecode(np.frombuffer(row['image'], np.uint8), cv2.IMREAD_COLOR)
         self.assertEqual(image.shape, (60, 120, 3))
         self.assertEqual(row['image_sha256'], hashlib.sha256(row['image']).hexdigest())
@@ -114,12 +114,12 @@ class LearningTests(unittest.TestCase):
 
     def test_repeat_save_updates_label_and_delete_removes_future_training(self):
         first = self.post('/api/ocr-learning/samples')
-        self.data['serial'] = '5678'; self.data['learning']['bottom_text'] = 'さ56-78'
+        self.data['serial'] = '5678'; self.data['learning']['bottom_text'] = 'さ5678'
         second = self.post('/api/ocr-learning/samples')
         self.assertEqual(first.json['id'], second.json['id'])
         result = self.client.get('/api/ocr-learning').json
         self.assertEqual(result['count'], 1)
-        self.assertEqual(result['samples'][0]['bottom_text'], 'さ56-78')
+        self.assertEqual(result['samples'][0]['bottom_text'], 'さ5678')
         self.client.delete('/api/ocr-learning/samples/'+first.json['id'], headers=self.headers)
         self.assertEqual(self.client.get('/api/ocr-learning').json['count'], 0)
 

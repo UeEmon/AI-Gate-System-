@@ -12,6 +12,8 @@ import threading
 import time
 import signal
 
+from plate_rules import KANA_PATTERN
+
 VEHICLES = {'car': '乗用車', 'motorcycle': '二輪車', 'bus': 'バス', 'truck': 'トラック'}
 
 
@@ -19,7 +21,9 @@ def parse_plate(text):
     """Conservative ordinary Japanese plate parser; a match is NOT verification."""
     normalized = unicodedata.normalize('NFKC', text)
     compact = re.sub(r'\s+', '', normalized).replace('−', '-').replace('ー', '-')
-    match = re.fullmatch(r'([一-龥ぁ-んァ-ヶ]{2,8})([0-9][0-9A-Z]{2})([ぁ-ん])([0-9・.\-]{1,7})', compact)
+    match = re.fullmatch(
+        rf'([一-龥ぁ-んァ-ヶ]{{2,8}})([0-9][0-9A-Z]{{2}})({KANA_PATTERN})([0-9・.\-]{{1,7}})',
+        compact)
     if not match:
         return None
     region, category, kana, serial = match.groups()

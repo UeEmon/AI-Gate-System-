@@ -6,7 +6,7 @@ from pathlib import Path
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[1]
-FILES=['app.py','web.py','events.py','evidence.py','registry_csv.py','mail_delivery.py','ocr_learning.py','ocr_train.py','plate_geometry.py','requirements.txt','Dockerfile','README.md','THIRD_PARTY_NOTICES.md','LICENSE-PROPOSAL.md','.dockerignore']
+FILES=['app.py','web.py','events.py','evidence.py','registry_csv.py','mail_delivery.py','ocr_learning.py','ocr_train.py','plate_geometry.py','plate_rules.py','requirements.txt','Dockerfile','README.md','THIRD_PARTY_NOTICES.md','LICENSE-PROPOSAL.md','.dockerignore']
 DIRS=['templates','static','onprem','scripts','licenses','tests','deploy','examples']
 SUFFIXES={'.py','.js','.cjs','.html','.css','.md','.txt','.yaml','.json','.ps1','.sh','.csv'}
 

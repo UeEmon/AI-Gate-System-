@@ -9,7 +9,7 @@ import events
 from evidence import EvidenceRecorder
 from web import JobManager, create_app
 
-FIELDS=dict(region='品川',category='３００',kana='あ',serial='１２-３４')
+FIELDS=dict(region='品川',category='３００',kana='あ',serial='1234')
 
 def observation(**changes):
     value=dict(id='observation',run_id='run',vehicle_type='car',
@@ -43,7 +43,12 @@ class AlertTests(unittest.TestCase):
         self.assertEqual(self.row(events.evaluate(self.root,observation(),3))['reason'],'unknown')
     def test_normalization_and_duplicate_validation(self):
         self.assertEqual(events.plate_key(FIELDS),'品川|300|あ|1234')
-        self.assertEqual(events.plate_key(dict(FIELDS,serial='・・ 12')),'品川|300|あ|12')
+        for serial in ['１２３４', '12-34', '・・12', '12345']:
+            with self.subTest(serial=serial), self.assertRaises(ValueError):
+                events.plate_key(dict(FIELDS, serial=serial))
+        for kana in ['ぁ', 'が', 'ぱ', 'お', 'し', 'へ', 'ん']:
+            with self.subTest(kana=kana), self.assertRaises(ValueError):
+                events.plate_key(dict(FIELDS, kana=kana))
         self.register()
         import sqlite3
         with self.assertRaises(sqlite3.IntegrityError): self.register(serial='1234',category='300')

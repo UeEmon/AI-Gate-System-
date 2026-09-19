@@ -17,7 +17,8 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(parse_plate('千葉500あ・・12')['serial'], '12')
 
     def test_incomplete_and_unrelated_text(self):
-        for text in ['TOYOTA', '12-34', '', '品川330さ12345', '品川330さ・・・']:
+        for text in ['TOYOTA', '12-34', '', '品川330さ12345', '品川330さ・・・',
+                     '品川330ぁ1234', '品川330が1234', '品川330し1234']:
             with self.subTest(text=text):
                 self.assertIsNone(parse_plate(text))
 

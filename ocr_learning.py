@@ -13,6 +13,7 @@ import unicodedata
 import uuid
 
 import events
+from plate_rules import KANA_PATTERN
 
 
 def initialize(root):
@@ -84,7 +85,7 @@ def save_sample(root, data, fields, db):
     top, bottom = re.sub(r'\s+', '', top), re.sub(r'\s+', '', bottom)
     parsed = parse_plate(top + bottom)
     if (not re.fullmatch(r'[一-龥ぁ-んァ-ヶ]{2,8}[0-9][0-9A-Z]{2}', top) or
-            not re.fullmatch(r'[ぁ-ん][0-9・.\-]{1,7}', bottom) or not parsed or
+            not re.fullmatch(rf'{KANA_PATTERN}[0-9]{{1,4}}', bottom) or not parsed or
             events.plate_key(parsed) != events.plate_key(fields)):
         raise ValueError('学習用の正解と登録ナンバーを一致させてください。')
     split = data.get('split', .45)
