@@ -83,15 +83,21 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/jobs/'+job+'/preview').data,b'preview')
         image=self.manager.root/'images'/'test.jpg'; image.parent.mkdir(); image.write_bytes(b'crop')
         with self.manager.connect() as db:
+            fields=dict(region='品川',category='300',kana='あ',serial='1234')
             for i in range(31):
                 save_observation(db,dict(id=str(i),processed_at='2026-09-18T00:00:00+00:00',run_id=job,
-                    frame_index=i,media_ms=0,vehicle_type='car',confidence=.8,image_path=str(image),plate_candidates=[]))
+                    frame_index=i,media_ms=0,vehicle_type='car',confidence=.8,image_path=str(image),
+                    result_eligible=True,plate_candidates=[dict(fields=fields,confidence=.7)]))
+            save_observation(db,dict(id='hidden',processed_at='2026-09-18T00:00:00+00:00',run_id=job,
+                frame_index=32,media_ms=0,vehicle_type='car',confidence=.8,image_path=str(image),
+                result_eligible=False,plate_candidates=[dict(fields=fields,confidence=.699)]))
         data=self.client.get('/api/observations?job='+job+'&vehicle=car&page=2').json
         self.assertEqual(data['total'],31); self.assertEqual(len(data['items']),1)
         self.assertNotIn('image_path',data['items'][0])
         with self.client.get('/api/observations/0/image') as response:
             self.assertEqual(response.data,b'crop')
         self.assertEqual(self.client.get('/api/observations?vehicle=truck').json['total'],0)
+        self.assertEqual(self.client.get('/api/observations?job='+job).json['total'],31)
         self.assertEqual(self.client.get('/api/jobs/bad/preview').status_code,404)
     def test_failure(self):
         self.upload(); self.processes[0].code=1; self.processes[0].done.set(); self.idle()

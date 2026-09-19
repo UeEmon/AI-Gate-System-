@@ -28,11 +28,13 @@ class PipelineTests(unittest.TestCase):
                   '--alerts','--save-images','--preview',str(root/'preview.jpg'),'--progress',str(root/'progress.json')]
             with patch.dict(sys.modules,modules),patch.object(sys,'argv',argv),patch('builtins.print'): app.main()
             progress=json.loads((root/'progress.json').read_text())
-            self.assertEqual(progress['frames_processed'],1); self.assertEqual(progress['observations'],1)
+            self.assertEqual(progress['frames_processed'],1); self.assertEqual(progress['observations'],0)
             self.assertIsNotNone(cv2.imread(str(root/'preview.jpg')))
             db=sqlite3.connect(root/'gate.db'); record=json.loads(db.execute('SELECT details_json FROM observations').fetchone()[0]); db.close()
             self.assertEqual(record['run_id'],'test-run'); self.assertTrue(Path(record['image_path']).is_file())
             self.assertEqual(record['plate_status'],'unreadable')
+            self.assertFalse(record['result_eligible'])
+            self.assertEqual(record['result_thresholds'], {'vehicle': .8, 'ocr': .7})
             import events
             with events.connection(root) as db:
                 alert=dict(db.execute('SELECT * FROM alerts').fetchone())

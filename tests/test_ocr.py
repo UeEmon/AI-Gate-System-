@@ -3,7 +3,8 @@ import unittest
 from unittest.mock import Mock, patch
 import cv2
 import numpy as np
-from app import plate_appearance, ocr_variants, plate_text, read_plate, vehicle_type_from_plates
+from app import (ocr_variants, plate_appearance, plate_text, read_plate,
+                 result_is_eligible, vehicle_type_from_plates)
 
 
 def item(x, y, w, h, text, confidence=.9):
@@ -11,6 +12,13 @@ def item(x, y, w, h, text, confidence=.9):
 
 
 class OCRTests(unittest.TestCase):
+    def test_processing_result_thresholds_are_inclusive(self):
+        valid = dict(fields={'region':'品川'}, confidence=.7)
+        self.assertTrue(result_is_eligible(.8, [valid]))
+        self.assertFalse(result_is_eligible(.7999, [valid]))
+        self.assertFalse(result_is_eligible(.8, [dict(valid, confidence=.6999)]))
+        self.assertFalse(result_is_eligible(.8, [dict(valid, fields=None)]))
+
     def test_kei_yellow_and_black_plate_hints(self):
         yellow = np.full((80, 160, 3), (0, 220, 240), np.uint8)
         appearance = plate_appearance(yellow, cv2)
@@ -20,7 +28,7 @@ class OCRTests(unittest.TestCase):
                      'fields': {'region': '品川'}, 'confidence': .9}
         self.assertEqual(vehicle_type_from_plates('car', [candidate]), 'kei')
         self.assertEqual(vehicle_type_from_plates('truck', [candidate]), 'truck')
-        self.assertEqual(vehicle_type_from_plates('car', [dict(candidate, confidence=.59)]), 'car')
+        self.assertEqual(vehicle_type_from_plates('car', [dict(candidate, confidence=.699)]), 'car')
         self.assertEqual(vehicle_type_from_plates('car', [dict(candidate, fields=None)]), 'car')
 
         black = np.zeros((80, 160, 3), np.uint8)

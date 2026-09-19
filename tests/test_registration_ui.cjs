@@ -32,7 +32,7 @@ test('import clears edit identity, fills fields, shows source and allows candida
   assert.equal($('registration-image').src,'/api/observations/a/image');
   assert.deepEqual(calls,['/api/observations/a/registration']);
   $('registration-candidate').value='1';context.chooseRegistrationCandidate();
-  assert.equal($('serial').value,'5678');assert.match($('registration-confidence').textContent,/信頼度が低い/);
+  assert.equal($('serial').value,'5678');assert.match($('registration-confidence').textContent,/70%未満/);
 });
 test('shows strong and review-only kei plate hints',async()=>{
   const {context,$}=setup(async()=>({...draft,vehicle_type:'kei',plate_candidates:[

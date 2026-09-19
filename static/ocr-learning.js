@@ -5,7 +5,6 @@ function resetLearning(){
   learningGeneration++;learningImage=null;
   $('learning-review').hidden=true;
   $('learning-confirm').checked=false;$('learning-with-registration').checked=false;
-  for(const name of learningFields)$('learning-'+name).value='';
 }
 function fieldBox(name){return ['x1','y1','x2','y2'].map(part=>Number($('learning-'+name+'-'+part).value)/100);}
 function drawLearning(){
@@ -30,7 +29,9 @@ function prepareLearning(savedFields=null){
   for(const name of learningFields){
     const box=savedFields?.[name]?.box||defaults[name];
     ['x1','y1','x2','y2'].forEach((part,i)=>$('learning-'+name+'-'+part).value=String(box[i]*100));
-    $('learning-'+name).value=savedFields?.[name]?.text??detected[name]??'';
+    // Registration fields are also the learning answers. OCR values are the
+    // initial before-correction data; saved reviews take precedence.
+    $(name).value=savedFields?.[name]?.text??detected[name]??$(name).value;
   }
   const generation=learningGeneration;
   const img=new Image();
@@ -41,18 +42,13 @@ function prepareLearning(savedFields=null){
 function learningPayload(){
   if(!learningImage||!registrationDraft||!$('learning-confirm').checked)throw new Error('4項目それぞれの学習画像と正解を確認してください。');
   const fields={};
-  for(const name of learningFields)fields[name]={text:$('learning-'+name).value,box:fieldBox(name)};
+  for(const name of learningFields)fields[name]={text:$(name).value,box:fieldBox(name)};
   return {observation_id:registrationDraft.observation_id,candidate_index:Number($('registration-candidate').value),fields,confirmed:true};
 }
 for(const name of learningFields){
   for(const part of ['x1','y1','x2','y2'])$('learning-'+name+'-'+part).oninput=drawLearning;
-  $('learning-'+name).addEventListener('input',()=>{$('learning-confirm').checked=false;});
   $(name).addEventListener('input',()=>{$('learning-confirm').checked=false;});
 }
-$('learning-fill').onclick=()=>{
-  for(const name of learningFields)$('learning-'+name).value=$(name).value;
-  $('learning-confirm').checked=false;
-};
 $('learning-save').onclick=async()=>{
   try{
     const payload={learning:learningPayload()};
@@ -97,7 +93,6 @@ async function refreshLearning(){
         $('registration-candidate').value=String(sample.candidate_index);
         const values=sample.plate_key.split('|');learningFields.forEach((name,i)=>$(name).value=values[i]);
         prepareLearning(sample.fields);
-        if(!sample.fields)learningFields.forEach((name,i)=>$('learning-'+name).value=values[i]);
       };
       row.append(label,edit,button);$('learning-samples').append(row);
     }

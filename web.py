@@ -22,6 +22,7 @@ from app import open_database
 import events
 import registry_csv
 import ocr_learning
+from plate_rules import OCR_RESULT_CONFIDENCE
 
 ROOT = Path(__file__).resolve().parent
 EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp', '.tif', '.tiff', '.mp4', '.avi', '.mov', '.mkv', '.m4v', '.webm'}
@@ -309,7 +310,7 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
             page = max(1, int(request.args.get('page', 1)))
         except ValueError:
             abort(400, description='ページ番号が不正です。')
-        clauses, values = [], []
+        clauses, values = ["json_extract(details_json,'$.result_eligible') = 1"], []
         for argument, column in [('job', 'run_id'), ('vehicle', 'vehicle_type')]:
             if request.args.get(argument):
                 clauses.append(column + ' = ?')
@@ -342,7 +343,7 @@ def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None)
                 record = json.loads(row['details_json'])
                 item = dict(cursor=row['cursor'], draft=None)
                 for candidate in record.get('plate_candidates', []):
-                    if not candidate.get('fields') or candidate.get('confidence', 0) < .6: continue
+                    if not candidate.get('fields') or candidate.get('confidence', 0) < OCR_RESULT_CONFIDENCE: continue
                     try: key = events.plate_key(candidate['fields'])
                     except (ValueError, KeyError, TypeError): continue
                     registered = db.execute('SELECT id FROM vehicles WHERE plate_key=?', (key,)).fetchone()

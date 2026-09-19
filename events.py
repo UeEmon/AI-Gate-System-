@@ -11,7 +11,7 @@ import time
 import unicodedata
 import uuid
 
-from plate_rules import valid_kana, valid_serial
+from plate_rules import OCR_RESULT_CONFIDENCE, valid_kana, valid_serial
 
 TYPES = {'car', 'kei', 'motorcycle', 'bus', 'truck'}
 REASONS = {'unknown': '未登録ナンバー', 'type_mismatch': '登録車種と不一致',
@@ -101,7 +101,7 @@ def email_configured():
 def evaluate(root, observation, source_seconds, cooldown=60):
     """One alert for a recognized pair per job/cooldown. Unreadable has its own category."""
     candidate=next((c for c in observation.get('plate_candidates',[]) if c.get('fields')
-                    and c.get('confidence',0)>=0.6), None)
+                    and c.get('confidence',0)>=OCR_RESULT_CONFIDENCE), None)
     key=None
     if candidate:
         try: key=plate_key(candidate['fields'])

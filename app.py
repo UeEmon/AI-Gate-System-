@@ -12,7 +12,7 @@ import threading
 import time
 import signal
 
-from plate_rules import KANA_PATTERN
+from plate_rules import KANA_PATTERN, OCR_RESULT_CONFIDENCE, VEHICLE_RESULT_CONFIDENCE
 
 VEHICLES = {'car': '乗用車', 'kei': '軽自動車', 'motorcycle': '二輪車',
             'bus': 'バス', 'truck': 'トラック'}
@@ -150,9 +150,16 @@ def ocr_variants(roi, appearance, cv2):
 def vehicle_type_from_plates(detected_type, candidates):
     """Only strong plate-color evidence may refine a COCO car to kei."""
     if detected_type == 'car' and any(c.get('kei_strength') == 'strong' and c.get('fields')
-                                      and c.get('confidence', 0) >= .6 for c in candidates):
+                                      and c.get('confidence', 0) >= OCR_RESULT_CONFIDENCE
+                                      for c in candidates):
         return 'kei'
     return detected_type
+
+
+def result_is_eligible(vehicle_confidence, candidates):
+    return vehicle_confidence >= VEHICLE_RESULT_CONFIDENCE and any(
+        candidate.get('fields') and candidate.get('confidence', 0) >= OCR_RESULT_CONFIDENCE
+        for candidate in candidates)
 
 
 def read_plate(crop, reader, cv2):
@@ -178,9 +185,9 @@ def read_plate(crop, reader, cv2):
                              'kei_candidate': appearance['kei_candidate'],
                              'kei_strength': appearance['kei_strength'],
                              'appearance_ratios': appearance['ratios'],
-                             'status': 'candidate' if fields and confidence >= 0.6 else 'needs_review'})
+                             'status': 'candidate' if fields and confidence >= OCR_RESULT_CONFIDENCE else 'needs_review'})
             # Bound CPU cost: retry only incomplete or low-confidence readings.
-            if fields and confidence >= 0.6:
+            if fields and confidence >= OCR_RESULT_CONFIDENCE:
                 break
         best = max(attempts, key=lambda c: (c['fields'] is not None, c['confidence']))
         if best['text']:
@@ -375,6 +382,9 @@ def main():
                 label = result.names[int(box.cls.item())]
                 if label not in VEHICLES:
                     continue
+                vehicle_confidence = float(box.conf.item())
+                if vehicle_confidence < VEHICLE_RESULT_CONFIDENCE:
+                    continue
                 x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
                 height, width = frame.shape[:2]
                 x1, y1, x2, y2 = max(0, x1), max(0, y1), min(width, x2), min(height, y2)
@@ -383,6 +393,7 @@ def main():
                 crop = frame[y1:y2, x1:x2]
                 plates = read_plate(crop, reader, cv2)
                 vehicle_type = vehicle_type_from_plates(label, plates)
+                result_eligible = result_is_eligible(vehicle_confidence, plates)
                 observation_id = uuid.uuid4().hex
                 image_path = None
                 if args.save_images:
@@ -397,10 +408,12 @@ def main():
                 record = dict(id=observation_id, run_id=run_id,
                               processed_at=datetime.now(timezone.utc).isoformat(),
                               frame_index=index, media_ms=media_ms, vehicle_type=vehicle_type,
-                              vehicle_type_ja=VEHICLES[vehicle_type], confidence=float(box.conf.item()),
+                              vehicle_type_ja=VEHICLES[vehicle_type], confidence=vehicle_confidence,
                               bbox=[x1, y1, x2, y2], plate_candidates=plates,
                               plate_status='unreadable' if not plates else 'needs_review',
-                              image_path=image_path)
+                              image_path=image_path, result_eligible=result_eligible,
+                              result_thresholds={'vehicle': VEHICLE_RESULT_CONFIDENCE,
+                                                 'ocr': OCR_RESULT_CONFIDENCE})
                 if canvas is not None:
                     cv2.rectangle(canvas, (x1, y1), (x2, y2), (100, 220, 70), 2)
                     cv2.putText(canvas, vehicle_type + ' ' + format(record['confidence'], '.2f'),
@@ -409,7 +422,7 @@ def main():
                         a, b, c, d = candidate['bbox_in_vehicle']
                         cv2.rectangle(canvas, (x1+a, y1+b), (x1+c, y1+d), (0,200,255), 2)
                 save_observation(db, record)
-                observations += 1
+                observations += int(result_eligible)
                 if recorder:
                     event_id = events.evaluate(out, record, (media_ms or 0) / 1000)
                     if event_id:
