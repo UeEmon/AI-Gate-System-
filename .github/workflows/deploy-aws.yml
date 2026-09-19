@@ -1,0 +1,42 @@
+name: Deploy AI Gate to AWS
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: aws-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    environment: aws-production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      DEPLOY_BUCKET: ${{ vars.AWS_DEPLOY_BUCKET }}
+      INSTANCE_ID: ${{ vars.AWS_INSTANCE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test
+        run: |
+          pip install 'flask>=3,<4' 'numpy>=2,<3' 'opencv-python-headless>=4.10,<5' boto3
+          python -m unittest discover -s tests -q
+          node --test tests/test_registration_ui.cjs tests/test_registration_queue.cjs
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-duration-seconds: 3600
+      - name: Upload and deploy exact commit
+        run: |
+          git archive --format=tar.gz --output=/tmp/ai-gate.tar.gz HEAD
+          python deploy/dispatch.py /tmp/ai-gate.tar.gz
