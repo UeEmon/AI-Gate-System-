@@ -202,20 +202,23 @@ def read_plate(crop, reader, cv2, ocr_threshold=OCR_RESULT_CONFIDENCE, plate_mod
         roi = cv2.resize(roi, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
         appearance = plate_appearance(roi, cv2)
         attempts = []
-        for preprocessing, image in ocr_variants(roi, appearance, cv2):
-            items = reader.readtext(image, detail=1, paragraph=False,
-                                    decoder='beamsearch', beamWidth=5)
-            text, confidence = plate_text(items)
-            fields = parse_plate(text)
-            attempts.append({'bbox_in_vehicle': [x, y, x+w, y+h], 'text': text,
-                             'confidence': confidence, 'fields': fields,
-                             'preprocessing': preprocessing,
-                             'quad_in_vehicle': quad, 'rectification': rectification,
-                             'plate_style': appearance['style'],
-                             'kei_candidate': appearance['kei_candidate'],
-                             'kei_strength': appearance['kei_strength'],
-                             'appearance_ratios': appearance['ratios'],
-                             'status': 'candidate' if fields and confidence >= ocr_threshold else 'needs_review'})
+        readers = reader if isinstance(reader, list) else [('easyocr', reader)]
+        for backend, active_reader in readers:
+            for preprocessing, image in ocr_variants(roi, appearance, cv2):
+                items = active_reader.readtext(image, detail=1, paragraph=False,
+                                               decoder='beamsearch', beamWidth=5)
+                text, confidence = plate_text(items)
+                fields = parse_plate(text)
+                attempts.append({'bbox_in_vehicle': [x, y, x+w, y+h], 'text': text,
+                                 'confidence': confidence, 'fields': fields,
+                                 'ocr_backend': backend,
+                                 'preprocessing': preprocessing,
+                                 'quad_in_vehicle': quad, 'rectification': rectification,
+                                 'plate_style': appearance['style'],
+                                 'kei_candidate': appearance['kei_candidate'],
+                                 'kei_strength': appearance['kei_strength'],
+                                 'appearance_ratios': appearance['ratios'],
+                                 'status': 'candidate' if fields and confidence >= ocr_threshold else 'needs_review'})
         # Prefer a valid result independently reproduced by image variants.
         # Confidence remains EasyOCR's measured value and is not inflated.
         votes = {}
@@ -399,8 +402,8 @@ def main():
     plate_model = YOLO(args.plate_model) if args.plate_model else None
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
-    from ocr_learning import make_reader
-    reader = make_reader(out, easyocr, offline)
+    from ocr_backends import make_readers
+    reader = make_readers(out, easyocr, offline)
     run_id = args.run_id or uuid.uuid4().hex
     db = open_database(out / 'gate.db')
     is_live = args.source_kind in ('camera', 'browser') or (args.source_kind == 'auto' and
