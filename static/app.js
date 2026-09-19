@@ -23,10 +23,25 @@ let browserStream=null,browserTimer=null,browserJob=null;
 async function stopBrowserCamera(){if(browserTimer){clearInterval(browserTimer);browserTimer=null;}if(browserStream){browserStream.getTracks().forEach(track=>track.stop());browserStream=null;}browserJob=null;}
 async function startBrowserCamera(jobId){
   if(!navigator.mediaDevices?.getUserMedia)throw new Error('このブラウザはWebカメラ入力に対応していません。HTTPSまたはlocalhostで開いてください。');
-  browserStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
+  browserStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}},audio:false});
   const video=$('browser-camera');video.hidden=false;video.srcObject=browserStream;await video.play();browserJob=jobId;
   const canvas=document.createElement('canvas');const context=canvas.getContext('2d',{willReadFrequently:false});
-  browserTimer=setInterval(async()=>{if(!browserJob||video.readyState<2)return;canvas.width=Math.min(video.videoWidth,1280);canvas.height=Math.round(video.videoHeight*canvas.width/video.videoWidth);context.drawImage(video,0,0,canvas.width,canvas.height);canvas.toBlob(async blob=>{if(!blob||!browserJob)return;try{await fetch('/api/jobs/'+browserJob+'/browser-frame',{method:'POST',headers:{'Content-Type':'image/jpeg','X-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content},body:blob});}catch(error){message('Webカメラ映像の送信に失敗しました。');}},'image/jpeg',.78);},200);
+  let sending=false;
+  browserTimer=setInterval(()=>{
+    if(sending||browserJob!==jobId||video.readyState<2)return;
+    sending=true;
+    canvas.width=Math.min(video.videoWidth,1920);
+    canvas.height=Math.round(video.videoHeight*canvas.width/video.videoWidth);
+    context.drawImage(video,0,0,canvas.width,canvas.height);
+    canvas.toBlob(async blob=>{
+      try{
+        if(!blob||browserJob!==jobId)return;
+        const response=await fetch('/api/jobs/'+jobId+'/browser-frame',{method:'POST',headers:{'Content-Type':'image/jpeg','X-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content},body:blob});
+        if(!response.ok)throw new Error('frame upload failed');
+      }catch(error){message('Webカメラ映像の送信に失敗しました。');}
+      finally{sending=false;}
+    },'image/jpeg',.92);
+  },200);
 }
 $('start-form').addEventListener('submit',async event=>{
   event.preventDefault();state.busy=true;setControls();message();

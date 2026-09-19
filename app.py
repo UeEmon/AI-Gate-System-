@@ -75,31 +75,55 @@ def plate_regions(crop, cv2):
     return boxes
 
 
+def plate_text(items):
+    """Read two rows without merging a tall lower digit into the upper row."""
+    rows = []
+    for box, text, score in sorted(items, key=lambda item: min(p[1] for p in item[0])):
+        if not text.strip():
+            continue
+        top, bottom = min(p[1] for p in box), max(p[1] for p in box)
+        height = max(1, bottom - top)
+        row = next((r for r in rows if
+                    abs((top + bottom) / 2 - (r['top'] + r['bottom']) / 2) <=
+                    0.6 * min(height, r['bottom'] - r['top'])), None)
+        if row is None:
+            row = {'top': top, 'bottom': max(bottom, top + 1), 'items': []}
+            rows.append(row)
+        row['items'].append((min(p[0] for p in box), text, float(score)))
+    fragments = [item for row in rows for item in sorted(row['items'])]
+    return (' '.join(item[1] for item in fragments),
+            min((item[2] for item in fragments), default=0.0))
+
+
 def read_plate(crop, reader, cv2):
     candidates = []
+    height, width = crop.shape[:2]
     for x, y, w, h in plate_regions(crop, cv2):
-        roi = crop[y:y+h, x:x+w]
-        roi = cv2.resize(roi, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-        items = reader.readtext(roi, detail=1, paragraph=False)
-        # Group OCR fragments into rows, then read each row left to right.
-        rows = []
-        for box, text, score in sorted(items, key=lambda item: min(p[1] for p in item[0])):
-            cy = sum(p[1] for p in box) / 4
-            bh = max(p[1] for p in box) - min(p[1] for p in box)
-            row = next((r for r in rows if abs(r['y'] - cy) <= max(bh, r['h']) * 0.5), None)
-            if row is None:
-                row = {'y': cy, 'h': bh, 'items': []}
-                rows.append(row)
-            row['items'].append((min(p[0] for p in box), text, float(score)))
-        fragments = [item for row in rows for item in sorted(row['items'])]
-        if not fragments:
-            continue
-        text = ' '.join(item[1] for item in fragments)
-        confidence = min(item[2] for item in fragments)
-        fields = parse_plate(text)
-        candidates.append({'bbox_in_vehicle': [x, y, x+w, y+h], 'text': text,
-                           'confidence': confidence, 'fields': fields,
-                           'status': 'candidate' if fields and confidence >= 0.6 else 'needs_review'})
+        # Keep a little context so characters touching the contour are not cut.
+        px, py = max(2, round(w * 0.04)), max(2, round(h * 0.04))
+        roi = crop[max(0, y-py):min(height, y+h+py), max(0, x-px):min(width, x+w+px)]
+        scale = max(1.0, min(4.0, 480 / roi.shape[1]))
+        roi = cv2.resize(roi, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        attempts = []
+        for variant in range(2):
+            image = roi
+            if variant:
+                gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+                image = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+            items = reader.readtext(image, detail=1, paragraph=False,
+                                    decoder='beamsearch', beamWidth=5)
+            text, confidence = plate_text(items)
+            fields = parse_plate(text)
+            attempts.append({'bbox_in_vehicle': [x, y, x+w, y+h], 'text': text,
+                             'confidence': confidence, 'fields': fields,
+                             'preprocessing': 'clahe' if variant else 'color',
+                             'status': 'candidate' if fields and confidence >= 0.6 else 'needs_review'})
+            # Bound CPU cost: retry only incomplete or low-confidence readings.
+            if fields and confidence >= 0.6:
+                break
+        best = max(attempts, key=lambda c: (c['fields'] is not None, c['confidence']))
+        if best['text']:
+            candidates.append(best)
     return sorted(candidates, key=lambda c: (c['fields'] is not None, c['confidence']), reverse=True)
 
 
