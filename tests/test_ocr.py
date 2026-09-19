@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import Mock, patch
 import cv2
 import numpy as np
-from app import plate_text, read_plate
+from app import plate_appearance, ocr_variants, plate_text, read_plate, vehicle_type_from_plates
 
 
 def item(x, y, w, h, text, confidence=.9):
@@ -11,6 +11,33 @@ def item(x, y, w, h, text, confidence=.9):
 
 
 class OCRTests(unittest.TestCase):
+    def test_kei_yellow_and_black_plate_hints(self):
+        yellow = np.full((80, 160, 3), (0, 220, 240), np.uint8)
+        appearance = plate_appearance(yellow, cv2)
+        self.assertEqual(appearance['style'], 'kei_yellow')
+        self.assertEqual(appearance['kei_strength'], 'strong')
+        candidate = {'kei_strength': appearance['kei_strength'],
+                     'fields': {'region': '品川'}, 'confidence': .9}
+        self.assertEqual(vehicle_type_from_plates('car', [candidate]), 'kei')
+        self.assertEqual(vehicle_type_from_plates('truck', [candidate]), 'truck')
+        self.assertEqual(vehicle_type_from_plates('car', [dict(candidate, confidence=.59)]), 'car')
+        self.assertEqual(vehicle_type_from_plates('car', [dict(candidate, fields=None)]), 'car')
+
+        black = np.zeros((80, 160, 3), np.uint8)
+        black[:, :20] = (0, 220, 240)
+        appearance = plate_appearance(black, cv2)
+        self.assertEqual(appearance['style'], 'kei_black')
+        self.assertEqual([name for name, _ in ocr_variants(black, appearance, cv2)][:4],
+                         ['color', 'clahe', 'otsu_inverted', 'otsu'])
+
+    def test_graphic_plate_uses_extra_preprocessing_without_forcing_kei(self):
+        graphic = np.full((80, 160, 3), 230, np.uint8)
+        graphic[:, :30] = (200, 50, 180)
+        appearance = plate_appearance(graphic, cv2)
+        self.assertEqual(appearance['style'], 'graphic_candidate')
+        self.assertFalse(appearance['kei_candidate'])
+        self.assertEqual(len(ocr_variants(graphic, appearance, cv2)), 5)
+
     def test_tall_lower_digits_do_not_join_upper_row(self):
         fragments = [item(50, 5, 80, 60, '12-34'),
                      item(60, 0, 50, 20, '330'),

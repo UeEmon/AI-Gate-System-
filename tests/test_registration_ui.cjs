@@ -34,6 +34,16 @@ test('import clears edit identity, fills fields, shows source and allows candida
   $('registration-candidate').value='1';context.chooseRegistrationCandidate();
   assert.equal($('serial').value,'5678');assert.match($('registration-confidence').textContent,/信頼度が低い/);
 });
+test('shows strong and review-only kei plate hints',async()=>{
+  const {context,$}=setup(async()=>({...draft,vehicle_type:'kei',plate_candidates:[
+    {...draft.plate_candidates[0],kei_strength:'strong'},
+    {...draft.plate_candidates[1],kei_strength:'review'}]}));
+  await context.importRegistration('kei');
+  assert.equal($('registered-type').value,'kei');
+  assert.match($('registration-confidence').textContent,/軽自動車プレートとして検出/);
+  $('registration-candidate').value='1';context.chooseRegistrationCandidate();
+  assert.match($('registration-confidence').textContent,/車種を確認/);
+});
 test('learning form initialization sees the selected OCR values',async()=>{
   let observed;
   const holder={};

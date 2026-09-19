@@ -38,7 +38,7 @@ def parse_registry(payload):
                 row={k:(v[1:] if v.startswith("'") and len(v)>1 and v[1] in "'=+-@\t\r\n" else v) for k,v in row.items()}
                 key=events.plate_key(row)
                 if key in seen: raise ValueError('CSV内に同じナンバーが重複しています。')
-                if row['vehicle_type'] not in events.TYPES: raise ValueError('車種はcar/motorcycle/bus/truckです。')
+                if row['vehicle_type'] not in events.TYPES: raise ValueError('車種はcar/kei/motorcycle/bus/truckです。')
                 if len(row['label'])>120: raise ValueError('登録名は120文字以下にしてください。')
                 for flag in ('watch','enabled'):
                     if row[flag].strip().lower() not in ('0','1','true','false'): raise ValueError(flag+'は0/1またはtrue/falseです。')

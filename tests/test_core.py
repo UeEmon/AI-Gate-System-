@@ -16,6 +16,10 @@ class CoreTests(unittest.TestCase):
     def test_short_serial(self):
         self.assertEqual(parse_plate('千葉500あ・・12')['serial'], '12')
 
+    def test_multi_character_local_plate_regions(self):
+        self.assertEqual(parse_plate('富士山580さ12-34')['region'], '富士山')
+        self.assertEqual(parse_plate('伊勢志摩500あ5678')['region'], '伊勢志摩')
+
     def test_incomplete_and_unrelated_text(self):
         for text in ['TOYOTA', '12-34', '', '品川330さ12345', '品川330さ・・・',
                      '品川330ぁ1234', '品川330が1234', '品川330し1234']:

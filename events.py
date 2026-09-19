@@ -13,7 +13,7 @@ import uuid
 
 from plate_rules import valid_kana, valid_serial
 
-TYPES = {'car', 'motorcycle', 'bus', 'truck'}
+TYPES = {'car', 'kei', 'motorcycle', 'bus', 'truck'}
 REASONS = {'unknown': '未登録ナンバー', 'type_mismatch': '登録車種と不一致',
            'watch': '指定車両を検知', 'unreadable': 'ナンバー要確認'}
 

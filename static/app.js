@@ -94,7 +94,7 @@ $('prev').onclick=()=>{state.page--;refresh();};$('next').onclick=()=>{state.pag
 refresh();setInterval(refresh,1500);
 
 let alertPage=1;
-const vehicleNames={car:'乗用車',motorcycle:'二輪車',bus:'バス',truck:'トラック'};
+const vehicleNames={car:'乗用車',kei:'軽自動車',motorcycle:'二輪車',bus:'バス',truck:'トラック'};
 const deliveryNames={pending:'送信待ち',sending:'送信中',sent:'メールサーバー受付済み',retry:'再試行待ち',failed:'失敗',disabled:'未設定',waiting:'保存待ち',uploaded:'S3保存済み'};
 let registrationDraft=null, registrationRequest=0;
 function resetVehicle(){
@@ -109,8 +109,10 @@ function chooseRegistrationCandidate(){
   for(const id of ['region','category','kana','serial'])$(id).value=candidate?.fields?.[id]??'';
   // Initialize the learning answers after the selected OCR values are shown.
   if(typeof prepareLearning==='function')prepareLearning();
+  const plateHint=candidate?.kei_strength==='strong'?' · 軽自動車プレートとして検出':
+    candidate?.kei_strength==='review'?' · 図柄入り軽ナンバーの可能性あり（車種を確認）':'';
   $('registration-confidence').textContent='車種の信頼度: '+pct(registrationDraft?.confidence)+' / OCR: '+pct(candidate?.confidence)+
-    (!candidate?.fields?' · ナンバーを読み取れません。再撮影または手入力してください。':candidate.confidence<.6?' · 信頼度が低いため、必ず修正・確認してください。':' · 内容を確認して登録してください。');
+    (!candidate?.fields?' · ナンバーを読み取れません。再撮影または手入力してください。':candidate.confidence<.6?' · 信頼度が低いため、必ず修正・確認してください。':' · 内容を確認して登録してください。')+plateHint;
 }
 async function importRegistration(observationId){
   const requestId=++registrationRequest;

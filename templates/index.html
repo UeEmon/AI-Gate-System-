@@ -68,7 +68,7 @@
 <label class="field">分類番号<input id="category" placeholder="330" required maxlength="3"></label>
 <label class="field">ひらがな<input id="kana" placeholder="さ" required maxlength="1" pattern="[あいうえかきくけこさすせそたちつてとなにぬねのはひふほまみむめもやゆよらりるろわれを]"><span class="hint">小書き・濁音・半濁音、お・し・へ・んは使用できません。</span></label>
 <label class="field">一連指定番号<input id="serial" placeholder="1234" required maxlength="4" inputmode="numeric" pattern="[0-9]{1,4}"><span class="hint">半角数字1〜4桁（区切り記号なし）</span></label>
-<label class="field">車種区分<select id="registered-type"><option value="car">乗用車</option><option value="motorcycle">二輪車</option><option value="truck">トラック</option><option value="bus">バス</option></select></label>
+<label class="field">車種区分<select id="registered-type"><option value="car">乗用車</option><option value="kei">軽自動車</option><option value="motorcycle">二輪車</option><option value="truck">トラック</option><option value="bus">バス</option></select></label>
 <label class="field">登録名<input id="vehicle-label" placeholder="社用車01" maxlength="120"></label>
 </div>
 <div class="registry-actions"><label><input type="checkbox" id="watch">この車両の検知時に通知する</label><label><input type="checkbox" id="vehicle-enabled" checked>登録を有効にする</label><button class="primary" type="submit">登録・更新</button><button id="vehicle-reset" type="button">入力クリア</button></div>
@@ -102,7 +102,7 @@
 <div class="metrics"><div><span>処理フレーム</span><strong id="frame-count">—</strong></div><div><span>検出レコード</span><strong id="observation-count">—</strong></div><div><span>入力</span><strong class="source-label" id="source-label">未選択</strong></div></div><p class="hint">プレビューは処理済みフレームを約1.5秒ごとに更新。日本語の読取結果は下の履歴に表示します。</p>
 </section></div>
 <section class="panel history"><div class="panel-title"><h2><span class="number">03</span> 認識履歴</h2><span class="hint" id="result-total">0件</span></div>
-<div class="filters"><label>処理<select id="job-filter"><option value="">すべての処理</option></select></label><label>車両区分<select id="vehicle-filter"><option value="">すべての車両</option><option value="car">乗用車</option><option value="motorcycle">二輪車</option><option value="bus">バス</option><option value="truck">トラック</option></select></label><button id="refresh" type="button">更新</button></div>
+<div class="filters"><label>処理<select id="job-filter"><option value="">すべての処理</option></select></label><label>車両区分<select id="vehicle-filter"><option value="">すべての車両</option><option value="car">乗用車</option><option value="kei">軽自動車</option><option value="motorcycle">二輪車</option><option value="bus">バス</option><option value="truck">トラック</option></select></label><button id="refresh" type="button">更新</button></div>
 <p class="hint">番号は読取候補です。画像と照合してください。同じ車両の連続検出も別レコードとして保存します。</p>
 <div class="table-scroll"><table><thead><tr><th>処理日時</th><th>車両</th><th>ナンバー候補</th><th>検出 / OCR信頼度</th><th>画像・登録</th></tr></thead><tbody id="results"><tr><td colspan="5" class="empty">まだ認識結果はありません</td></tr></tbody></table></div>
 <div class="pagination"><button id="prev" disabled>前へ</button><span id="page-label">1 / 1</span><button id="next" disabled>次へ</button></div>

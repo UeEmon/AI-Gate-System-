@@ -41,6 +41,13 @@ class AlertTests(unittest.TestCase):
         events.register_vehicle(self.root,dict(FIELDS,vehicle_type='car',enabled=False),vehicle)
         self.assertEqual(json.loads(self.row(watched)['registry_json'])['label'],'指定')
         self.assertEqual(self.row(events.evaluate(self.root,observation(),3))['reason'],'unknown')
+    def test_kei_is_a_distinct_registration_type(self):
+        vehicle=events.register_vehicle(self.root,dict(FIELDS,vehicle_type='kei',label='軽自動車'))
+        self.assertIsNone(events.evaluate(self.root,observation(vehicle_type='kei'),0))
+        mismatch=events.evaluate(self.root,observation(vehicle_type='car'),1)
+        self.assertEqual(self.row(mismatch)['reason'],'type_mismatch')
+        with events.connection(self.root) as db:
+            self.assertEqual(db.execute('SELECT vehicle_type FROM vehicles WHERE id=?',(vehicle,)).fetchone()[0],'kei')
     def test_normalization_and_duplicate_validation(self):
         self.assertEqual(events.plate_key(FIELDS),'品川|300|あ|1234')
         for serial in ['１２３４', '12-34', '・・12', '12345']:

@@ -14,7 +14,8 @@ import signal
 
 from plate_rules import KANA_PATTERN
 
-VEHICLES = {'car': '乗用車', 'motorcycle': '二輪車', 'bus': 'バス', 'truck': 'トラック'}
+VEHICLES = {'car': '乗用車', 'kei': '軽自動車', 'motorcycle': '二輪車',
+            'bus': 'バス', 'truck': 'トラック'}
 
 
 def parse_plate(text):
@@ -99,6 +100,61 @@ def plate_text(items):
             min((item[2] for item in fragments), default=0.0))
 
 
+def plate_appearance(roi, cv2):
+    """Classify plate appearance conservatively; color is only a vehicle hint."""
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    hue, saturation, value = cv2.split(hsv)
+    yellow = ((hue >= 15) & (hue <= 40) & (saturation >= 80) & (value >= 70))
+    green = ((hue >= 35) & (hue <= 95) & (saturation >= 65) & (value >= 50))
+    dark = value <= 75
+    bright = (value >= 145) & (saturation <= 90)
+    colorful = (saturation >= 90) & (value >= 60) & ~yellow & ~green
+    ratios = {name: round(float(mask.mean()), 3) for name, mask in
+              [('yellow', yellow), ('green', green), ('dark', dark),
+               ('bright', bright), ('colorful', colorful)]}
+    if ratios['yellow'] >= .20:
+        style, kei, strength = 'kei_yellow', True, 'strong'
+    elif ratios['dark'] >= .45 and ratios['yellow'] >= .035:
+        style, kei, strength = 'kei_black', True, 'strong'
+    elif ratios['bright'] >= .30 and ratios['yellow'] >= .025:
+        # Graphic kei plates can have a yellow border. Keep this as a review
+        # hint because arbitrary artwork can contain the same color.
+        style, kei, strength = 'kei_graphic_candidate', True, 'review'
+    elif ratios['green'] >= .20:
+        style, kei, strength = 'commercial_green', False, None
+    elif ratios['colorful'] >= .08:
+        style, kei, strength = 'graphic_candidate', False, None
+    elif ratios['bright'] >= .30:
+        style, kei, strength = 'white', False, None
+    else:
+        style, kei, strength = 'unknown', False, None
+    return dict(style=style, kei_candidate=kei, kei_strength=strength, ratios=ratios)
+
+
+def ocr_variants(roi, appearance, cv2):
+    """Images for yellow, dark and graphic plates without changing labels."""
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+    _, otsu = cv2.threshold(clahe, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    adaptive = cv2.adaptiveThreshold(clahe, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                     cv2.THRESH_BINARY, 31, 9)
+    variants = [('color', roi), ('clahe', clahe)]
+    if appearance['style'] in ('kei_black', 'commercial_green'):
+        variants += [('otsu_inverted', cv2.bitwise_not(otsu)), ('otsu', otsu)]
+    else:
+        variants += [('otsu', otsu), ('otsu_inverted', cv2.bitwise_not(otsu))]
+    variants.append(('adaptive', adaptive))
+    return variants
+
+
+def vehicle_type_from_plates(detected_type, candidates):
+    """Only strong plate-color evidence may refine a COCO car to kei."""
+    if detected_type == 'car' and any(c.get('kei_strength') == 'strong' and c.get('fields')
+                                      and c.get('confidence', 0) >= .6 for c in candidates):
+        return 'kei'
+    return detected_type
+
+
 def read_plate(crop, reader, cv2):
     candidates = []
     height, width = crop.shape[:2]
@@ -107,20 +163,21 @@ def read_plate(crop, reader, cv2):
         roi, quad, rectification = rectify_candidate(crop, [x, y, x+w, y+h], cv2)
         scale = max(1.0, min(4.0, 480 / roi.shape[1]))
         roi = cv2.resize(roi, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        appearance = plate_appearance(roi, cv2)
         attempts = []
-        for variant in range(2):
-            image = roi
-            if variant:
-                gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-                image = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+        for preprocessing, image in ocr_variants(roi, appearance, cv2):
             items = reader.readtext(image, detail=1, paragraph=False,
                                     decoder='beamsearch', beamWidth=5)
             text, confidence = plate_text(items)
             fields = parse_plate(text)
             attempts.append({'bbox_in_vehicle': [x, y, x+w, y+h], 'text': text,
                              'confidence': confidence, 'fields': fields,
-                             'preprocessing': 'clahe' if variant else 'color',
+                             'preprocessing': preprocessing,
                              'quad_in_vehicle': quad, 'rectification': rectification,
+                             'plate_style': appearance['style'],
+                             'kei_candidate': appearance['kei_candidate'],
+                             'kei_strength': appearance['kei_strength'],
+                             'appearance_ratios': appearance['ratios'],
                              'status': 'candidate' if fields and confidence >= 0.6 else 'needs_review'})
             # Bound CPU cost: retry only incomplete or low-confidence readings.
             if fields and confidence >= 0.6:
@@ -325,6 +382,7 @@ def main():
                     continue
                 crop = frame[y1:y2, x1:x2]
                 plates = read_plate(crop, reader, cv2)
+                vehicle_type = vehicle_type_from_plates(label, plates)
                 observation_id = uuid.uuid4().hex
                 image_path = None
                 if args.save_images:
@@ -338,14 +396,14 @@ def main():
                     image_path = str(image.resolve())
                 record = dict(id=observation_id, run_id=run_id,
                               processed_at=datetime.now(timezone.utc).isoformat(),
-                              frame_index=index, media_ms=media_ms, vehicle_type=label,
-                              vehicle_type_ja=VEHICLES[label], confidence=float(box.conf.item()),
+                              frame_index=index, media_ms=media_ms, vehicle_type=vehicle_type,
+                              vehicle_type_ja=VEHICLES[vehicle_type], confidence=float(box.conf.item()),
                               bbox=[x1, y1, x2, y2], plate_candidates=plates,
                               plate_status='unreadable' if not plates else 'needs_review',
                               image_path=image_path)
                 if canvas is not None:
                     cv2.rectangle(canvas, (x1, y1), (x2, y2), (100, 220, 70), 2)
-                    cv2.putText(canvas, label + ' ' + format(record['confidence'], '.2f'),
+                    cv2.putText(canvas, vehicle_type + ' ' + format(record['confidence'], '.2f'),
                                 (x1, max(20, y1-6)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100,220,70), 2)
                     for candidate in plates:
                         a, b, c, d = candidate['bbox_in_vehicle']
