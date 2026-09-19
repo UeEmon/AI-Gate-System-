@@ -11,6 +11,7 @@ import os
 import threading
 import time
 import signal
+import sys
 
 from plate_rules import KANA_PATTERN, OCR_RESULT_CONFIDENCE, VEHICLE_RESULT_CONFIDENCE
 
@@ -364,6 +365,32 @@ def atomic_json(path, value):
     os.replace(temporary, path)
 
 
+def initialize_models(model_path, plate_model_path, root, easyocr, yolo_class, offline=False,
+                      timeout=None):
+    """Prepare inference models, retrying transient first-download failures."""
+    if timeout is None:
+        try:
+            timeout = float(os.getenv('GATE_MODEL_INIT_TIMEOUT', '900'))
+        except ValueError:
+            timeout = 900
+    timeout = max(30, timeout)
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            model = yolo_class(model_path)
+            plate_model = yolo_class(plate_model_path) if plate_model_path else None
+            from ocr_backends import make_readers
+            readers = make_readers(root, easyocr, offline)
+            return model, plate_model, readers
+        except Exception as error:
+            if offline or time.monotonic() + 5 >= deadline:
+                raise RuntimeError(
+                    f'モデルの準備が{int(timeout)}秒以内に完了しませんでした: {error}'
+                ) from error
+            print(f'モデル準備を再試行します: {error}', file=sys.stderr, flush=True)
+            time.sleep(5)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', required=True, help='写真、動画のパス、カメラ番号（0）またはRTSP URL')
@@ -396,12 +423,10 @@ def main():
     offline=os.getenv('GATE_OFFLINE')=='1'
     if offline and not Path(args.model).is_file():
         raise ValueError('オフライン用のYOLOモデルを事前に配置してください。')
-    model = YOLO(args.model)
-    plate_model = YOLO(args.plate_model) if args.plate_model else None
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
-    from ocr_backends import make_readers
-    reader = make_readers(out, easyocr, offline)
+    model, plate_model, reader = initialize_models(
+        args.model, args.plate_model, out, easyocr, YOLO, offline)
     run_id = args.run_id or uuid.uuid4().hex
     db = open_database(out / 'gate.db')
     is_live = args.source_kind in ('camera', 'browser') or (args.source_kind == 'auto' and

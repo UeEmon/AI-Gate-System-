@@ -207,6 +207,8 @@ PaddleOCR PP-OCRv6-mediumを既定とし、複数の前処理結果の合意を�
 推測で文字を置換したりはしません。`GATE_OCR_BACKEND=easyocr|paddle|compare|auto` で切替でき、
 `compare` は両方を実行、`auto` は `accuracy_benchmark.py` の固定評価結果を使用します。比較前はPaddleOCR、
 画面で追加学習済みEasyOCRを適用した直後はEasyOCRを選び、再比較後は成績の良い方へ切り替えます。
+初回のモデル取得・初期化は既定で最大900秒再試行します。低速回線では
+`GATE_MODEL_INIT_TIMEOUT=1800` のように秒数を延長できます（最小30秒）。
 Webカメラは1920×1080を希望解像度として要求し、横幅最大1920px・JPEG品質92%で送信します。
 実際の解像度はカメラとブラウザに依存します。送信は同時に1件までです。
 
