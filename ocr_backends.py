@@ -1,6 +1,7 @@
 """Interchangeable EasyOCR and PaddleOCR plate-line readers."""
 import json
 import os
+from pathlib import Path
 
 
 class PaddlePlateReader:
@@ -38,12 +39,25 @@ class PaddlePlateReader:
         return output
 
 
+def selected_backend(root):
+    """Select the measured winner; keep EasyOCR until a valid report exists."""
+    requested = os.getenv('GATE_OCR_BACKEND', 'auto').lower()
+    if requested != 'auto':
+        return requested
+    path = Path(root) / 'ocr-learning' / 'benchmark.json'
+    try:
+        selected = json.loads(path.read_text(encoding='utf-8')).get('selected')
+    except (FileNotFoundError, OSError, ValueError, TypeError):
+        selected = None
+    return selected if selected in {'easyocr', 'paddle'} else 'easyocr'
+
+
 def make_readers(root, easyocr, offline=False):
-    """EasyOCR remains default; compare explicitly runs both engines."""
+    """Use an explicit backend or the winner of the latest benchmark."""
     from ocr_learning import make_reader
-    selected = os.getenv('GATE_OCR_BACKEND', 'easyocr').lower()
+    selected = selected_backend(root)
     if selected not in {'easyocr', 'paddle', 'compare'}:
-        raise ValueError('GATE_OCR_BACKEND は easyocr、paddle、compare から選択してください。')
+        raise ValueError('GATE_OCR_BACKEND は easyocr、paddle、compare、auto から選択してください。')
     readers = []
     if selected in {'easyocr', 'compare'}:
         readers.append(('easyocr', make_reader(root, easyocr, offline)))

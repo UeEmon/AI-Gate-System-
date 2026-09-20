@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from ocr_backends import PaddlePlateReader, make_readers
+from ocr_backends import PaddlePlateReader, make_readers, selected_backend
 
 
 class Result:
@@ -34,6 +34,21 @@ class OCRBackendTests(unittest.TestCase):
         items = reader.readtext(np.zeros((100, 200, 3), np.uint8))
         self.assertEqual([item[1] for item in items], ['品川300', 'さ1234'])
         self.assertEqual(reader.model.calls, [(45, 200, 3), (55, 200, 3)])
+
+    def test_auto_uses_benchmark_winner(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = os.path.join(root, 'ocr-learning')
+            os.mkdir(folder)
+            with open(os.path.join(folder, 'benchmark.json'), 'w',
+                      encoding='utf-8') as stream:
+                json.dump({'selected': 'paddle'}, stream)
+            with patch.dict(os.environ, {'GATE_OCR_BACKEND': 'auto'}):
+                self.assertEqual(selected_backend(root), 'paddle')
+
+    def test_auto_without_report_keeps_easyocr(self):
+        with tempfile.TemporaryDirectory() as root, \
+                patch.dict(os.environ, {'GATE_OCR_BACKEND': 'auto'}):
+            self.assertEqual(selected_backend(root), 'easyocr')
 
     def test_easyocr_remains_default(self):
         easyocr = types.SimpleNamespace(Reader=lambda *args, **kwargs: 'easy')

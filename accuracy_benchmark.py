@@ -45,7 +45,9 @@ def benchmark(root):
             os.environ.pop('GATE_OCR_BACKEND', None)
         else:
             os.environ['GATE_OCR_BACKEND'] = previous
-    report = {'backends': results,
+    selected = min(results, key=lambda name: (
+        results[name]['cer'], -results[name]['line_accuracy']))
+    report = {'selected': selected, 'backends': results,
               'evaluation': 'held-out reviewed plate identities'}
     destination = Path(root) / 'ocr-learning' / 'benchmark.json'
     destination.parent.mkdir(exist_ok=True)
