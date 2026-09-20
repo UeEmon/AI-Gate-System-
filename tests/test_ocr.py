@@ -20,13 +20,9 @@ class OCRTests(unittest.TestCase):
 
     def test_processing_result_thresholds_are_inclusive(self):
         valid = dict(fields={'region':'品川'}, confidence=.7)
-        self.assertTrue(result_is_eligible(.8, [valid]))
-        self.assertFalse(result_is_eligible(.7999, [valid]))
-        self.assertFalse(result_is_eligible(.8, [dict(valid, confidence=.6999)]))
-        self.assertFalse(result_is_eligible(.8, [dict(valid, fields=None)]))
-        self.assertTrue(result_is_eligible(.65, [dict(valid, confidence=.55)], .65, .55))
-        self.assertFalse(result_is_eligible(.649, [dict(valid, confidence=.55)], .65, .55))
-        self.assertFalse(result_is_eligible(.65, [dict(valid, confidence=.549)], .65, .55))
+        self.assertTrue(result_is_eligible(.01, [dict(valid, confidence=.01)]))
+        self.assertTrue(result_is_eligible(.0, [dict(valid, confidence=.0)]))
+        self.assertFalse(result_is_eligible(.99, [dict(valid, fields=None)]))
 
     def test_kei_yellow_and_black_plate_hints(self):
         yellow = np.full((80, 160, 3), (0, 220, 240), np.uint8)

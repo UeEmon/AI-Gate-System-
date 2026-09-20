@@ -359,3 +359,9 @@ Dockerではデータを `/data/training`、出力を `/models` に置きます�
 推論へ適用する場合は `GATE_VEHICLE_MODEL=/models/vehicle-custom.pt`、
 `GATE_PLATE_MODEL=/models/plate-custom.pt` を設定します。ラベル付き画像がない状態では
 学習は実行されず、既定モデルによる推論を継続します。
+
+
+### 信頼度閾値の一時停止
+
+不具合切り分け中は、車両検出信頼度とOCR信頼度による結果除外を行いません。
+信頼度値は監査・比較用として保存します。YOLO APIには候補生成に必要な最小値0.001を指定します。

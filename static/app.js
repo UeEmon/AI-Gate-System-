@@ -140,9 +140,8 @@ function chooseRegistrationCandidate(){
   if(typeof prepareLearning==='function')prepareLearning();
   const plateHint=candidate?.kei_strength==='strong'?' · 軽自動車プレートとして検出':
     candidate?.kei_strength==='review'?' · 図柄入り軽ナンバーの可能性あり（車種を確認）':'';
-  const threshold=registrationDraft?.result_thresholds?.ocr??.7;
   $('registration-confidence').textContent='車種の信頼度: '+pct(registrationDraft?.confidence)+' / OCR: '+pct(candidate?.confidence)+
-    (!candidate?.fields?' · ナンバーを読み取れません。再撮影または手入力してください。':candidate.confidence<threshold?' · OCR '+pct(threshold)+'未満のため通常結果には表示されません。修正・確認してください。':' · 内容を確認して登録してください。')+plateHint;
+    (!candidate?.fields?' · ナンバーを読み取れません。再撮影または手入力してください。':' · 信頼度による除外は停止中です。内容を確認してください。')+plateHint;
 }
 async function importRegistration(observationId){
   const requestId=++registrationRequest;

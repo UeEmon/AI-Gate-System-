@@ -94,7 +94,7 @@ class JobManager:
         return self.root / 'jobs' / job_id
 
     def start(self, kind, source, label, every, confidence, upload=None,
-              ocr_confidence=OCR_RESULT_CONFIDENCE):
+              ocr_confidence=0.0):
         with self.lock:
             active_kinds = [value[1] for value in self.processes.values()]
             if kind == 'file' and self.processes:
@@ -339,12 +339,13 @@ def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None)
             abort(400, description='入力方式を選択してください。')
         try:
             every = int(request.form.get('every', '1'))
-            confidence = float(request.form.get('vehicle_confidence', request.form.get('confidence', '0.8')))
-            ocr_confidence = float(request.form.get('ocr_confidence', '0.7'))
-            if not 1 <= every <= 1000 or not 0 < confidence <= 1 or not 0 < ocr_confidence <= 1:
+            if not 1 <= every <= 1000:
                 raise ValueError
         except ValueError:
-            abort(400, description='処理間隔は1〜1000、車両検出・OCR信頼度は1〜100%で指定してください。')
+            abort(400, description='処理間隔は1〜1000で指定してください。')
+        # Keep confidence metadata, but do not use it to exclude detections or OCR results.
+        confidence = 0.001
+        ocr_confidence = 0.0
         upload = None
         if kind == 'file':
             upload = request.files.get('file')
