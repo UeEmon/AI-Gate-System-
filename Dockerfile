@@ -12,6 +12,7 @@ RUN useradd --create-home --uid 10001 gate && mkdir /data /models && chown gate:
 COPY --chown=gate:gate app.py web.py events.py evidence.py registry_csv.py mail_delivery.py ocr_learning.py ocr_train.py ocr_backends.py accuracy_benchmark.py vision_train.py plate_geometry.py plate_rules.py ./
 COPY --chown=gate:gate templates/ templates/
 COPY --chown=gate:gate static/ static/
+COPY --chown=gate:gate training/ training/
 USER gate
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"
