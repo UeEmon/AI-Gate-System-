@@ -38,14 +38,20 @@ class BusyError(Exception):
     pass
 
 
+from runtime_profile import measure, model_choices
+
+
 class JobManager:
     def __init__(self, root, model='yolo26s.pt', popen=subprocess.Popen, max_cameras=None):
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.model = model
+        self.performance = measure()
+        self.models = model_choices(model)
+        self.default_model = self.models[self.performance["model"]]
         self.popen = popen
         self.lock = threading.RLock()
-        configured = max_cameras if max_cameras is not None else os.getenv('GATE_MAX_CAMERAS', '4')
+        configured = max_cameras if max_cameras is not None else os.getenv('GATE_MAX_CAMERAS', str(self.performance['cameras']))
         try:
             self.max_cameras = int(configured)
         except (TypeError, ValueError):
@@ -94,7 +100,12 @@ class JobManager:
         return self.root / 'jobs' / job_id
 
     def start(self, kind, source, label, every, confidence, upload=None,
-              ocr_confidence=0.0):
+              ocr_confidence=0.0, model=None, ocr=None, imgsz=None):
+        model = model or self.default_model
+        ocr = ocr or self.performance['ocr']
+        imgsz = imgsz or self.performance['imgsz']
+        if model not in self.models.values() or ocr not in ('easyocr', 'paddle', 'compare', 'auto') or imgsz not in (640, 960, 1280):
+            raise ValueError('モデル・OCR・入力サイズの指定が不正です。')
         with self.lock:
             active_kinds = [value[1] for value in self.processes.values()]
             if kind == 'file' and self.processes:
@@ -122,13 +133,17 @@ class JobManager:
                             confidence, ocr_confidence))
             command = [sys.executable, '-u', str(ROOT / 'app.py'), '--source', str(source),
                        '--source-kind', kind, '--output', str(self.root), '--run-id', job_id,
-                       '--model', self.model, '--every', str(every), '--confidence', str(confidence),
+                       '--model', model, '--imgsz', str(imgsz), '--every', str(every), '--confidence', str(confidence),
                        '--vehicle-threshold', str(confidence), '--ocr-threshold', str(ocr_confidence),
                        '--save-images', '--alerts', '--progress', str(folder / 'progress.json'),
                        '--preview', str(folder / 'preview.jpg')]
+            (folder / 'settings.json').write_text(json.dumps(
+                dict(model=model, ocr=ocr, imgsz=imgsz, every=every, performance=self.performance)),
+                encoding='utf-8')
+            worker_env = dict(os.environ, GATE_OCR_BACKEND=ocr)
             log = (folder / 'worker.log').open('wb')
             try:
-                process = self.popen(command, stdout=subprocess.DEVNULL, stderr=log, cwd=ROOT)
+                process = self.popen(command, stdout=subprocess.DEVNULL, stderr=log, cwd=ROOT, env=worker_env)
             except Exception:
                 with self.connect() as db:
                     db.execute("UPDATE jobs SET status='failed', ended_at=?, error=? WHERE id=?",
@@ -299,7 +314,9 @@ def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None)
     @app.get('/')
     def index():
         session.setdefault('csrf', secrets.token_hex(32))
-        return render_template('index.html', csrf=session['csrf'])
+        return render_template('index.html', csrf=session['csrf'],
+                               performance=manager.performance, models=manager.models,
+                               default_model=manager.default_model)
 
     @app.get('/api/jobs')
     def jobs():
@@ -338,11 +355,17 @@ def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None)
         if kind not in ('file', 'camera', 'browser'):
             abort(400, description='入力方式を選択してください。')
         try:
-            every = int(request.form.get('every', '1'))
+            every = int(request.form.get('every', manager.performance['every']))
+            model_key = request.form.get('model', Path(manager.default_model).name)
+            selected_model = manager.models.get(model_key)
+            selected_ocr = request.form.get('ocr', manager.performance['ocr'])
+            imgsz = int(request.form.get('imgsz', manager.performance['imgsz']))
+            if selected_model is None or selected_ocr not in ('auto', 'easyocr', 'paddle', 'compare') or imgsz not in (640, 960, 1280):
+                raise ValueError
             if not 1 <= every <= 1000:
                 raise ValueError
         except ValueError:
-            abort(400, description='処理間隔は1〜1000で指定してください。')
+            abort(400, description='モデル・OCR・入力サイズ・処理間隔を確認してください。')
         # Keep confidence metadata, but do not use it to exclude detections or OCR results.
         confidence = 0.001
         ocr_confidence = 0.0
@@ -370,7 +393,8 @@ def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None)
             label = '操作端末のWebカメラ'
         try:
             job_id = manager.start(kind, source, label, every, confidence, upload,
-                                   ocr_confidence=ocr_confidence)
+                                   ocr_confidence=ocr_confidence, model=selected_model,
+                                   ocr=selected_ocr, imgsz=imgsz)
         except BusyError as error:
             abort(409, description=str(error))
         except Exception:

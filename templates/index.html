@@ -92,7 +92,13 @@
 <div id="camera-fields"><label class="field">カメラ番号 / RTSP URL<input name="source" placeholder="0 または rtsp://…" value="0" autocomplete="off"></label><p class="hint">処理PCに接続したUSBカメラ、またはネットワークカメラ。入力を変えて開始すると複数台を同時処理できます。</p></div>
 <div id="browser-fields" hidden><p class="hint">このブラウザのカメラ映像をHTTPS（またはlocalhost）でサーバーへ送信します。ブラウザの許可が必要です。</p><video id="browser-camera" autoplay muted playsinline hidden></video></div>
 <div id="file-fields" hidden><label class="upload">画像・動画を選択<input type="file" name="file" accept=".jpg,.jpeg,.png,.bmp,.webp,.tif,.tiff,.mp4,.avi,.mov,.mkv,.m4v,.webm"></label><p class="hint">JPEG・PNG・MP4など / 最大512MB / 1ファイルずつ処理</p></div>
-<div class="settings"><label class="field">処理間隔（フレーム）<input type="number" name="every" value="1" min="1" max="1000" required></label></div>
+<p class="hint">起動時測定：CPU {{ performance.cpu_count }} コア／メモリ {{ performance.memory_gib }} GiB／演算スコア {{ performance.score }}。測定に基づく推奨値です。用途に応じて変更できます。</p>
+<div class="settings">
+<label class="field">車両モデル<select name="model">{% for name, path in models.items() %}<option value="{{ name }}" {% if path == default_model %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></label>
+<label class="field">OCR<select name="ocr">{% for name in ['easyocr','paddle','compare','auto'] %}<option value="{{ name }}" {% if name == performance.ocr %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></label>
+<label class="field">入力サイズ<select name="imgsz">{% for size in [640,960,1280] %}<option value="{{ size }}" {% if size == performance.imgsz %}selected{% endif %}>{{ size }} px</option>{% endfor %}</select></label>
+</div>
+<div class="settings"><label class="field">処理間隔（フレーム）<input type="number" name="every" value="{{ performance.every }}" min="1" max="1000" required></label></div>
 <p class="hint">不具合切り分け中のため、車両検出・OCR信頼度による結果除外を一時停止しています。信頼度の値は履歴に記録されます。</p>
 <p class="hint">カメラは最大4台（サーバー設定で変更可能）を並列処理し、各処理履歴から個別に表示・停止できます。ファイル処理中はカメラを開始できません。</p>
 <div class="actions"><button class="primary" id="start" type="submit">認識を開始</button><button id="stop" type="button" disabled>停止</button></div>
