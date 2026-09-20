@@ -39,7 +39,7 @@ class BusyError(Exception):
 
 
 class JobManager:
-    def __init__(self, root, model='yolo11n.pt', popen=subprocess.Popen, max_cameras=None):
+    def __init__(self, root, model='yolo26s.pt', popen=subprocess.Popen, max_cameras=None):
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.model = model
@@ -253,7 +253,7 @@ class JobManager:
             return dict(deleted=deleted, file_errors=errors)
 
 
-def create_app(data_dir='data', model='yolo11n.pt', password=None, manager=None):
+def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None):
     app = Flask(__name__)
     app.config.update(SECRET_KEY=secrets.token_hex(32), MAX_CONTENT_LENGTH=512 * 1024 * 1024,
                       SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Strict')
@@ -693,7 +693,7 @@ def main():
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=8080)
     parser.add_argument('--data', default='data')
-    parser.add_argument('--model', default='yolo11n.pt')
+    parser.add_argument('--model', default='yolo26s.pt')
     args = parser.parse_args()
     if args.host not in ('127.0.0.1', 'localhost', '::1') and not os.environ.get('GATE_ADMIN_PASSWORD'):
         parser.error('LAN公開には環境変数GATE_ADMIN_PASSWORDを設定してください。')

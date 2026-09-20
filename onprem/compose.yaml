@@ -6,7 +6,7 @@ services:
     init: true
     stop_grace_period: 45s
     ports:
-      - "${GATE_BIND_ADDRESS:-127.0.0.1}:8080:8080"
+      - "${GATE_BIND_ADDRESS:-0.0.0.0}:8080:8080"
     environment:
       GATE_ADMIN_PASSWORD: ${GATE_ADMIN_PASSWORD:?Set an admin password}
       GATE_OFFLINE: ${GATE_OFFLINE:-0}

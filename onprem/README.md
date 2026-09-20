@@ -41,7 +41,7 @@ docker compose up -d --build
 docker compose logs --tail=100 gate
 ```
 
-既定はlocalhost:8080に公開します。名前付きvolume `gate-data` / `gate-models` にデータ・モデルを保持します。
+既定でホストの全LANインターフェースの8080番へ公開します。`GATE_ADMIN_PASSWORD` は必須です。MacのIPアドレスを確認し、別端末から `http://MacのIPアドレス:8080` を開きます。公開をMac内だけに戻す場合は `GATE_BIND_ADDRESS=127.0.0.1` を指定します。名前付きvolume `gate-data` / `gate-models` にデータ・モデルを保持します。
 同じComposeプロジェクト名で再起動してください。`down -v` は保存領域を削除するため使用しないでください。
 ComposeのUSBデバイス割当は含めていません。Docker版では端末WebカメラまたはRTSPを利用します。
 この環境ではDockerビルドとWindows実機検証は未実施です。
@@ -72,7 +72,7 @@ SMTP設定時にSESを呼び出しません。S3未設定では映像はロー�
 ## 閉域・オフライン運用の準備
 
 1. 接続可能な同一OS・CPU・Pythonの準備端末でセットアップと実際の認識を一度完了させます。
-2. `models/yolo11n.pt` と `models/easyocr/` のモデル一式を保存し、取得元とSHA-256を記録します。
+2. `models/yolo26s.pt` と `models/easyocr/` のモデル一式を保存し、取得元とSHA-256を記録します。
 3. `data/dependencies/installed-versions.txt` を基に同一環境用wheelを準備します。
    `python -m pip download -r data/dependencies/installed-versions.txt -d wheelhouse` を準備端末で実行します。
 4. 閉域側でPython・OS共有ライブラリを導入し、仮想環境に `pip install --no-index --find-links wheelhouse -r installed-versions.txt` で導入します。

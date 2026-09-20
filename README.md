@@ -168,7 +168,7 @@ HTTPのBasic認証自体は通信を暗号化しないため、LAN以外への�
 ## オプション
 
 ```bash
-python web.py --port 8080 --data data --model yolo11n.pt
+python web.py --port 8080 --data data --model yolo26s.pt
 # 従来のコマンドラインも利用可能
 python app.py --source car.jpg --source-kind file --save-images
 python app.py --source gate.mp4 --source-kind file --every 1

@@ -369,7 +369,7 @@ def atomic_json(path, value):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', required=True, help='写真、動画のパス、カメラ番号（0）またはRTSP URL')
-    parser.add_argument('--model', default='yolo11n.pt', help='COCOクラス名を持つUltralytics検出モデル')
+    parser.add_argument('--model', default='yolo26s.pt', help='COCOクラス名を持つUltralytics検出モデル')
     parser.add_argument('--plate-model', default=os.getenv('GATE_PLATE_MODEL'),
                         help='追加学習した一クラスのナンバープレートYOLOモデル')
     parser.add_argument('--output', default='data')
@@ -396,9 +396,21 @@ def main():
     import easyocr
     from ultralytics import YOLO
     offline=os.getenv('GATE_OFFLINE')=='1'
-    if offline and not Path(args.model).is_file():
+    model_path = Path(args.model)
+    if offline and not model_path.is_file():
         raise ValueError('オフライン用のYOLOモデルを事前に配置してください。')
-    model = YOLO(args.model)
+    if not offline and model_path.is_absolute() and not model_path.is_file():
+        # Ultralytics downloads a bare model name into the current directory.
+        # Download inside the persistent model volume when an absolute target is configured.
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+        previous = Path.cwd()
+        try:
+            os.chdir(model_path.parent)
+            model = YOLO(model_path.name)
+        finally:
+            os.chdir(previous)
+    else:
+        model = YOLO(str(model_path))
     plate_model = YOLO(args.plate_model) if args.plate_model else None
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
