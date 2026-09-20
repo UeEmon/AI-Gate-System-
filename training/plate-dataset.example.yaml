@@ -1,0 +1,6 @@
+# One bounding box per visible Japanese license plate.
+path: /data/training/plate
+train: images/train
+val: images/val
+names:
+  0: plate

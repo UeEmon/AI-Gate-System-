@@ -3,6 +3,7 @@ services:
     build: ..
     image: ai-gate-system:onprem
     restart: unless-stopped
+    command: ["python","web.py","--host","0.0.0.0","--data","/data","--model","${GATE_VEHICLE_MODEL:-/models/yolo26s.pt}"]
     init: true
     stop_grace_period: 45s
     ports:
@@ -11,6 +12,7 @@ services:
       GATE_ADMIN_PASSWORD: ${GATE_ADMIN_PASSWORD:?Set an admin password}
       GATE_OFFLINE: ${GATE_OFFLINE:-0}
       GATE_PLATE_MODEL: ${GATE_PLATE_MODEL:-}
+      GATE_VEHICLE_MODEL: ${GATE_VEHICLE_MODEL:-/models/yolo26s.pt}
       GATE_OCR_BACKEND: ${GATE_OCR_BACKEND:-auto}
       GATE_PADDLE_MODEL: ${GATE_PADDLE_MODEL:-PP-OCRv6_medium_rec}
       GATE_EMAIL_BACKEND: smtp

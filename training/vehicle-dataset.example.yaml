@@ -1,0 +1,10 @@
+# Images and labels use the Ultralytics detection dataset layout.
+path: /data/training/vehicle
+train: images/train
+val: images/val
+names:
+  0: car
+  1: kei
+  2: motorcycle
+  3: bus
+  4: truck

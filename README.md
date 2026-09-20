@@ -338,3 +338,24 @@ OCR前にプレート候補の輪郭から四隅を推定し、射影変換で�
 登録車両一覧の「削除」で確認後に登録を削除できます。編集中の車両なら入力欄もクリアします。
 削除後は次回の照合から未登録車両として扱います。認識履歴・通知・学習データは削除しません。
 削除APIにも認証とCSRF検証を適用します。
+
+
+### 車両・プレート検出モデルの追加学習
+
+教師画像とUltralytics形式のラベルを `data/training` に用意します。雛形は
+`training/vehicle-dataset.example.yaml` と `training/plate-dataset.example.yaml` です。
+
+```bash
+# 車両5区分
+python vision_train.py --task vehicle --data training/vehicle-dataset.example.yaml \
+  --output models/vehicle-custom.pt --epochs 100 --imgsz 960
+
+# ナンバープレート1区分
+python vision_train.py --task plate --data training/plate-dataset.example.yaml \
+  --output models/plate-custom.pt --epochs 100 --imgsz 960
+```
+
+Dockerではデータを `/data/training`、出力を `/models` に置きます。学習済みモデルを
+推論へ適用する場合は `GATE_VEHICLE_MODEL=/models/vehicle-custom.pt`、
+`GATE_PLATE_MODEL=/models/plate-custom.pt` を設定します。ラベル付き画像がない状態では
+学習は実行されず、既定モデルによる推論を継続します。
