@@ -2,6 +2,19 @@
 
 OpenCV・YOLO・EasyOCRによる車両区分・日本のナンバープレート読取候補を、Web画面で管理する初期試作版です。
 
+## 再構築アーキテクチャ
+
+`aigate/` に入力、検出、OCR、判定、データベース、通知、保存、学習、システム管理の契約と具体サービスを分離しています。`web.py` は互換APIを維持する構成ルート、`app.py` は推論ワーカーです。モデル候補・ライセンス・導入状態は [MODEL_CATALOG.md](MODEL_CATALOG.md) とモデルレジストリで一元管理します。
+
+Web画面は「ライブ監視」「通知」「登録・学習」「履歴」「モデル・性能」に分割しました。モデル・性能画面では利用可能な車両検出、プレート検出、OCRモデルを選び、起動時性能測定と実映像のE2E遅延・FPSを確認できます。自動プロファイルはCPU、メモリ、GPUを測定し、初期モデル、入力サイズ、フレーム間隔を設定します。
+
+```text
+InputProvider -> ObjectDetector -> PlateDetector -> OCRReader
+              -> DecisionEngine -> Database/Storage -> Notification
+                                      |-> Training
+SystemManager -> ModelRegistry + Settings + Performance
+```
+
 ## 入力方式
 
 | 方式 | 入力 | 動作 |
