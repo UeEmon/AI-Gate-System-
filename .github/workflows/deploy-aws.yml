@@ -1,7 +1,6 @@
 name: Deploy AI Gate to AWS
 on:
-  push:
-    branches: [main]
+  # Automatic deployment on push is disabled. Manual dispatch only.
   workflow_dispatch:
 permissions:
   contents: read
@@ -10,7 +9,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   deploy:
-    if: github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ENABLED == 'true'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 65
     environment: aws-production

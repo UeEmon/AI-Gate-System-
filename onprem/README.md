@@ -1,5 +1,9 @@
 # オンプレミス版・導入手順
 
+## 統合デプロイ
+
+通常の更新は `./onprem/deploy-local.sh`、業務データを初期化して再展開する場合は `./onprem/deploy-local.sh --reset-data` を使用します。初期化時は確認文字列 `DELETE DATA` が必要です。`gate-data` 内の履歴・登録・通知・保存画像/映像・OCR学習データを削除しますが、`gate-models` のモデルキャッシュは保持します。モデル用volumeも削除する `docker compose down -v` は使用しません。
+
 AWSアカウントなしで、認識、車両登録・CSV、画面通知、映像のローカル保存、社内SMTPでのメール通知を利用できます。
 この配布物はソース導入キットです。Python・依存ライブラリ・モデルは同梱していません。
 本体ライセンスは権利者の採用決定待ちです。`LICENSE-PROPOSAL.md` を参照してください。

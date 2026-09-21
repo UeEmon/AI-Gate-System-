@@ -10,6 +10,7 @@ import uuid
 import os
 import threading
 import time
+from collections import deque
 import signal
 import sys
 
@@ -167,10 +168,13 @@ def ocr_variants(roi, appearance, cv2):
     variants = [('color', roi), ('clahe', clahe), ('denoised', denoised),
                 ('sharpened', sharpened)]
     if appearance['style'] in ('kei_black', 'commercial_green'):
-        variants += [('otsu_inverted', cv2.bitwise_not(otsu)), ('otsu', otsu)]
+        variants += [('otsu_inverted', cv2.bitwise_not(otsu)), ('otsu', otsu),
+                     ('adaptive_inverted', cv2.bitwise_not(adaptive)), ('adaptive', adaptive)]
     else:
-        variants += [('otsu', otsu), ('otsu_inverted', cv2.bitwise_not(otsu))]
-    variants += [('adaptive', adaptive), ('adaptive_inverted', cv2.bitwise_not(adaptive))]
+        # Finish with the bright foreground representation. This avoids a final
+        # audit image that is almost black on ordinary white plates.
+        variants += [('otsu_inverted', cv2.bitwise_not(otsu)), ('adaptive', adaptive),
+                     ('adaptive_inverted', cv2.bitwise_not(adaptive)), ('otsu', otsu)]
     return variants
 
 
@@ -447,12 +451,17 @@ def main():
                   live_frames(args.source, cv2, args.every, recorder.feed, stopped) if is_live else
                   frames(args.source, cv2, args.every, recorder.feed))
     processed, observations = 0, 0
+    timings = deque(maxlen=120)
     try:
         for index, media_ms, frame in stream:
             if stopped.is_set(): break
+            frame_started = time.perf_counter()
             canvas = frame.copy() if args.preview else None
+            detection_started = time.perf_counter()
             result = model.predict(frame, conf=args.confidence, imgsz=args.imgsz,
                                    iou=.55, device='cpu', verbose=False)[0]
+            detection_ms = (time.perf_counter() - detection_started) * 1000
+            ocr_ms = storage_ms = decision_ms = notification_ms = 0.0
             for box in result.boxes:
                 label = result.names[int(box.cls.item())]
                 if label not in VEHICLES:
@@ -466,10 +475,14 @@ def main():
                 if x2 <= x1 or y2 <= y1:
                     continue
                 crop = frame[y1:y2, x1:x2]
+                ocr_started = time.perf_counter()
                 plates = read_plate(crop, reader, cv2, args.ocr_threshold, plate_model)
+                ocr_ms += (time.perf_counter() - ocr_started) * 1000
+                decision_started = time.perf_counter()
                 vehicle_type = vehicle_type_from_plates(label, plates, args.ocr_threshold)
                 result_eligible = result_is_eligible(vehicle_confidence, plates,
                                                      args.vehicle_threshold, args.ocr_threshold)
+                decision_ms += (time.perf_counter() - decision_started) * 1000
                 observation_id = uuid.uuid4().hex
                 image_path = None
                 if args.save_images:
@@ -497,14 +510,18 @@ def main():
                     for candidate in plates:
                         a, b, c, d = candidate['bbox_in_vehicle']
                         cv2.rectangle(canvas, (x1+a, y1+b), (x1+c, y1+d), (0,200,255), 2)
+                storage_started = time.perf_counter()
                 save_observation(db, record)
+                storage_ms += (time.perf_counter() - storage_started) * 1000
                 observations += int(result_eligible)
                 if recorder:
+                    notification_started = time.perf_counter()
                     event_id = events.evaluate(out, record, (media_ms or 0) / 1000)
                     if event_id:
                         try: recorder.trigger(event_id, (media_ms or 0) / 1000, frame)
                         except Exception as error:
                             events.set_media(out,event_id,'failed',error=type(error).__name__)
+                    notification_ms += (time.perf_counter() - notification_started) * 1000
                 print(json.dumps(record, ensure_ascii=False), flush=True)
             processed += 1
             if args.preview:
@@ -519,9 +536,16 @@ def main():
                 temporary = preview.with_suffix('.tmp')
                 encoded.tofile(temporary)
                 os.replace(temporary, preview)
+            frame_ms = (time.perf_counter() - frame_started) * 1000
+            timings.append(frame_ms)
             if args.progress:
                 atomic_json(args.progress, dict(phase='processing', frames_processed=processed,
-                            observations=observations, frame_index=index, media_ms=media_ms))
+                            observations=observations, frame_index=index, media_ms=media_ms,
+                            performance=dict(frame_ms=round(frame_ms, 2),
+                                detection_ms=round(detection_ms, 2), ocr_ms=round(ocr_ms, 2),
+                                decision_ms=round(decision_ms, 2), storage_ms=round(storage_ms, 2),
+                                notification_ms=round(notification_ms, 2),
+                                rolling_fps=round(1000 / (sum(timings) / len(timings)), 2))))
     finally:
         try:
             stream.close()

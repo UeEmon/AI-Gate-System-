@@ -24,6 +24,11 @@ import events
 import registry_csv
 import ocr_learning
 from plate_rules import OCR_RESULT_CONFIDENCE
+from aigate.model_registry import ModelRegistry
+from aigate.performance import PerformanceManager
+from aigate.settings import SettingsManager
+from aigate.web_api import create_system_blueprint
+from aigate.services import ApplicationServices
 
 ROOT = Path(__file__).resolve().parent
 EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp', '.tif', '.tiff', '.mp4', '.avi', '.mov', '.mkv', '.m4v', '.webm'}
@@ -53,6 +58,11 @@ class JobManager:
         self.max_cameras = min(16, max(1, self.max_cameras))
         self.processes = {}
         self.sources = {}
+        self.watchers = {}
+        self.settings = None
+        self.models = None
+        self.performance = None
+        self.performance_frames = {}
         events.initialize(self.root)
         with events.connection(self.root) as db:
             db.execute("UPDATE alerts SET media_status='failed',s3_status=CASE WHEN s3_status='waiting' THEN 'failed' ELSE s3_status END,media_error='録画完了前にサーバーが停止しました。' WHERE media_status='recording'")
@@ -120,15 +130,26 @@ class JobManager:
                            confidence,ocr_confidence) VALUES (?,?,?,?,?,?,?,?,?,?)''',
                            (job_id, kind, label, 'starting', now(), None, None, every,
                             confidence, ocr_confidence))
+            runtime = self.settings.read() if self.settings else None
+            selected_model = self.model
+            child_environment = os.environ.copy()
+            if runtime and self.models:
+                selected_model = self.models.vehicle_argument(runtime['vehicle_model'])
+                child_environment.update(self.models.ocr_environment(runtime['ocr_model']))
+                child_environment.update(self.models.plate_environment(runtime['plate_model']))
+                if runtime['profile'] == 'auto':
+                    every = max(every, int(runtime['frame_stride']))
             command = [sys.executable, '-u', str(ROOT / 'app.py'), '--source', str(source),
                        '--source-kind', kind, '--output', str(self.root), '--run-id', job_id,
-                       '--model', self.model, '--every', str(every), '--confidence', str(confidence),
+                       '--model', selected_model, '--every', str(every), '--confidence', str(confidence),
+                       '--imgsz', str(runtime['imgsz'] if runtime else 960),
                        '--vehicle-threshold', str(confidence), '--ocr-threshold', str(ocr_confidence),
                        '--save-images', '--alerts', '--progress', str(folder / 'progress.json'),
                        '--preview', str(folder / 'preview.jpg')]
             log = (folder / 'worker.log').open('wb')
             try:
-                process = self.popen(command, stdout=subprocess.DEVNULL, stderr=log, cwd=ROOT)
+                process = self.popen(command, stdout=subprocess.DEVNULL, stderr=log, cwd=ROOT,
+                                     env=child_environment)
             except Exception:
                 with self.connect() as db:
                     db.execute("UPDATE jobs SET status='failed', ended_at=?, error=? WHERE id=?",
@@ -141,7 +162,9 @@ class JobManager:
                 self.sources[job_id] = source_key
             with self.connect() as db:
                 db.execute("UPDATE jobs SET status='running' WHERE id=?", (job_id,))
-            threading.Thread(target=self._watch, args=(job_id, process), daemon=True).start()
+            watcher = threading.Thread(target=self._watch, args=(job_id, process), daemon=True)
+            self.watchers[job_id] = watcher
+            watcher.start()
             return job_id
 
     def _watch(self, job_id, process):
@@ -156,6 +179,7 @@ class JobManager:
                 db.execute("UPDATE alerts SET media_status='failed',s3_status=CASE WHEN s3_status='waiting' THEN 'failed' ELSE s3_status END,media_error='処理終了時に録画を確定できませんでした。' WHERE run_id=? AND media_status='recording'",(job_id,))
             self.processes.pop(job_id, None)
             self.sources.pop(job_id, None)
+            self.watchers.pop(job_id, None)
 
     def stop(self, job_id):
         with self.lock:
@@ -185,10 +209,13 @@ class JobManager:
     def shutdown(self):
         with self.lock:
             active = [(job_id, value[0]) for job_id, value in self.processes.items()]
+            watchers = list(self.watchers.values())
         for job_id, process in active:
             self.stop(job_id)
         for _, process in active:
             self._kill_if_needed(process)
+        for watcher in watchers:
+            watcher.join(timeout=2)
 
     def list_jobs(self):
         with self.connect() as db:
@@ -201,6 +228,15 @@ class JobManager:
                 item['progress'] = json.loads((folder / 'progress.json').read_text(encoding='utf-8'))
             except (FileNotFoundError, ValueError):
                 item['progress'] = {}
+            measured = item['progress'].get('performance')
+            frame_index = item['progress'].get('frame_index')
+            if (self.performance and measured and frame_index is not None and
+                    self.performance_frames.get(item['id']) != frame_index):
+                self.performance.record(job_id=item['id'], frame_ms=float(measured.get('frame_ms', 0)),
+                    detection_ms=float(measured.get('detection_ms', 0)), ocr_ms=float(measured.get('ocr_ms', 0)),
+                    decision_ms=float(measured.get('decision_ms', 0)), storage_ms=float(measured.get('storage_ms', 0)),
+                    notification_ms=float(measured.get('notification_ms', 0)))
+                self.performance_frames[item['id']] = frame_index
             item['has_preview'] = (folder / 'preview.jpg').is_file()
             result.append(item)
         return result
@@ -258,7 +294,23 @@ def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None)
     app.config.update(SECRET_KEY=secrets.token_hex(32), MAX_CONTENT_LENGTH=512 * 1024 * 1024,
                       SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Strict')
     manager = manager or JobManager(data_dir, model)
+    settings = SettingsManager(manager.root)
+    models = ModelRegistry(os.environ.get('GATE_MODEL_ROOT', str(ROOT / 'models')))
+    performance = PerformanceManager(manager.root)
+    if not performance.path.exists():
+        startup = performance.startup_benchmark()
+        if not settings.path.exists():
+            recommendation = startup['recommendation']
+            settings.update({**recommendation, 'profile': 'auto'})
+    manager.settings = settings
+    manager.models = models
+    manager.performance = performance
     app.extensions['jobs'] = manager
+    app.extensions['settings'] = settings
+    app.extensions['models'] = models
+    app.extensions['performance'] = performance
+    app.extensions['services'] = ApplicationServices.build(manager.root, performance)
+    app.register_blueprint(create_system_blueprint(settings, models, performance))
     trainer = ocr_learning.TrainingManager(manager.root)
     app.extensions['ocr_training'] = trainer
     atexit.register(trainer.shutdown)
