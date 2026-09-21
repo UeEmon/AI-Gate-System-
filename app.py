@@ -2,6 +2,7 @@
 import argparse
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 import re
 import sqlite3
@@ -105,6 +106,60 @@ def learned_plate_regions(crop, model):
     return boxes[:5]
 
 
+def bounded_plate_regions(regions, width, height, limit=5):
+    """Clip proposals to the vehicle ROI and suppress overlapping OCR work."""
+    selected = []
+    for x, y, w, h in regions:
+        if not all(math.isfinite(float(v)) for v in (x, y, w, h)):
+            continue
+        left, top = max(0, int(x)), max(0, int(y))
+        right, bottom = min(width, int(x+w)), min(height, int(y+h))
+        if right-left < 8 or bottom-top < 4:
+            continue
+        area = (right-left)*(bottom-top)
+        duplicate = False
+        for a, b, c, d in selected:
+            intersection = max(0, min(right, a+c)-max(left, a))*max(0, min(bottom, b+d)-max(top, b))
+            if intersection / (area+c*d-intersection) >= .5:
+                duplicate = True
+                break
+        if not duplicate:
+            selected.append((left, top, right-left, bottom-top))
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def vehicle_plate_regions(crop, cv2, plate_model=None):
+    """Search only a detected vehicle crop; retry once when proposals are absent.
+
+    A dedicated detector is preferred. Contours recover misses, followed by a
+    bounded contrast/scale retry. OCR always receives the original crop pixels.
+    """
+    height, width = crop.shape[:2]
+    if width < 8 or height < 4:
+        return []
+    if plate_model is not None:
+        regions = bounded_plate_regions(learned_plate_regions(crop, plate_model), width, height)
+        if regions:
+            return regions
+    regions = bounded_plate_regions(plate_regions(crop, cv2), width, height)
+    if regions:
+        return regions
+    # One retry only; neither dimension exceeds 960 pixels.
+    scale = min(2.0, 960.0 / max(width, height))
+    resized = cv2.resize(crop, (max(8, round(width*scale)), max(4, round(height*scale))),
+                         interpolation=cv2.INTER_CUBIC if scale > 1 else cv2.INTER_AREA)
+    gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+    contrast = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+    retry = plate_regions(cv2.cvtColor(contrast, cv2.COLOR_GRAY2BGR), cv2)
+    sx, sy = width/resized.shape[1], height/resized.shape[0]
+    mapped = [(math.floor(x*sx), math.floor(y*sy),
+               math.ceil((x+w)*sx)-math.floor(x*sx),
+               math.ceil((y+h)*sy)-math.floor(y*sy)) for x, y, w, h in retry]
+    return bounded_plate_regions(mapped, width, height)
+
+
 def plate_text(items):
     """Read two rows without merging a tall lower digit into the upper row."""
     rows = []
@@ -198,7 +253,7 @@ def result_is_eligible(vehicle_confidence, candidates,
 def read_plate(crop, reader, cv2, ocr_threshold=OCR_RESULT_CONFIDENCE, plate_model=None):
     candidates = []
     height, width = crop.shape[:2]
-    regions = learned_plate_regions(crop, plate_model) if plate_model else plate_regions(crop, cv2)
+    regions = vehicle_plate_regions(crop, cv2, plate_model)
     readers = reader if isinstance(reader, list) else [('easyocr', reader)]
     for x, y, w, h in regions:
         from plate_geometry import rectify_candidate
