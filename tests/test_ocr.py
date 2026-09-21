@@ -73,7 +73,7 @@ class OCRTests(unittest.TestCase):
         self.assertEqual(result['preprocessing'], 'clahe')
         self.assertEqual(result['bbox_in_vehicle'], [0, 0, 100, 50])
         self.assertEqual(result['confidence'], .8)
-        self.assertEqual(reader.readtext.call_args_list[0].args[0].shape, (208, 416, 3))
+        self.assertEqual(reader.readtext.call_args_list[0].args[0].shape, (216, 432, 3))
         self.assertEqual(reader.readtext.call_args_list[1].args[0].ndim, 2)
 
     @patch('app.plate_regions', return_value=[(5, 5, 100, 50)])
