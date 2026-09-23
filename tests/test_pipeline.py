@@ -37,6 +37,10 @@ class PipelineTests(unittest.TestCase):
             db=sqlite3.connect(root/'gate.db'); record=json.loads(db.execute('SELECT details_json FROM observations').fetchone()[0]); db.close()
             self.assertEqual(record['run_id'],'test-run'); self.assertTrue(Path(record['image_path']).is_file())
             self.assertEqual(record['plate_status'],'unreadable')
+            self.assertEqual(record['plate_detection']['status'], 'not_detected')
+            self.assertEqual(record['plate_detection']['proposals'], [])
+            for stage in ('plate_detection_ms', 'rectification_ms', 'ocr_ms'):
+                self.assertIn(stage, progress['performance'])
             self.assertFalse(record['result_eligible'])
             self.assertEqual(record['result_thresholds'], {'vehicle': .65, 'ocr': .55})
             self.assertEqual(FakeModel.last_kwargs['imgsz'],960)

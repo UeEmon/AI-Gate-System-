@@ -1,0 +1,9 @@
+{
+  "status": "placeholder",
+  "note": "Replace this file by exporting a completed and evaluated AI-Gate-System training run.",
+  "metrics": {
+    "cer": null,
+    "plate_accuracy": null,
+    "validation_plates": null
+  }
+}

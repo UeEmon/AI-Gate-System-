@@ -75,7 +75,7 @@ async function refreshLearning(){
       const row=document.createElement('div');
       const label=document.createElement('p');
       label.textContent=date(run.created_at)+' · '+(names[run.status]||run.status)+(run.error?' · '+run.error:'');
-      if(run.report){const r=run.report;label.textContent+=' · 比較元: '+(r.baseline_model||'標準OCR')+' · 評価 '+r.validation_lines+'画像 · 文字誤り率 '+(r.baseline.cer*100).toFixed(1)+'% → '+(r.candidate.cer*100).toFixed(1)+'% · 項目・行一致率 '+(r.baseline.line_accuracy*100).toFixed(1)+'% → '+(r.candidate.line_accuracy*100).toFixed(1)+'% · '+(r.eligible?'適用可能':'改善基準に未達');}
+      if(run.report){const r=run.report;if(r.backend==='fast-plate-ocr'){const c=r.candidate||{};label.textContent+=' · FastPlateOCR日本向け · 評価 '+(c.plates||0)+'枚 · CER '+((c.cer||0)*100).toFixed(1)+'% · 完全一致 '+((c.plate_accuracy||0)*100).toFixed(1)+'% · '+(r.eligible?'適用可能':'検証未達');}else if(r.baseline&&r.candidate){label.textContent+=' · 比較元: '+(r.baseline_model||'標準OCR')+' · 評価 '+r.validation_lines+'画像 · 文字誤り率 '+(r.baseline.cer*100).toFixed(1)+'% → '+(r.candidate.cer*100).toFixed(1)+'% · 項目・行一致率 '+(r.baseline.line_accuracy*100).toFixed(1)+'% → '+(r.candidate.line_accuracy*100).toFixed(1)+'% · '+(r.eligible?'適用可能':'改善基準に未達');}}
       row.append(label);
       if(run.report?.eligible){const button=document.createElement('button');button.textContent='このモデルを適用';button.disabled=data.active===run.id;button.onclick=()=>activateLearning(run.id);row.append(button);}
       $('learning-runs').append(row);

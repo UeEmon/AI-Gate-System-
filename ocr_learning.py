@@ -174,6 +174,33 @@ def set_active(root, identifier):
     (learning_dir(root) / 'benchmark.json').unlink(missing_ok=True)
 
 
+def active_fast_model(root):
+    path = learning_dir(root) / 'active-fast.json'
+    return json.loads(path.read_text()) if path.exists() else None
+
+
+def set_active_fast(root, identifier):
+    if identifier is not None:
+        directory = model_dir(root, identifier)
+        with events.connection(root) as db:
+            row = db.execute('SELECT status,report_json FROM ocr_training_runs WHERE id=?', (identifier,)).fetchone()
+        report = json.loads(row['report_json']) if row and row['report_json'] else {}
+        if not row or row['status'] != 'completed' or report.get('backend') != 'fast-plate-ocr' or not report.get('eligible'):
+            raise ValueError('評価に合格した日本語FastPlateOCRモデルだけを適用できます。')
+        directory = directory.resolve()
+        model = (directory / report.get('candidate_model', '')).resolve()
+        config = (directory / report.get('candidate_config', '')).resolve()
+        if not model.is_file() or not config.is_file() or not model.is_relative_to(directory) or not config.is_relative_to(directory):
+            raise ValueError('FastPlateOCR学習済みモデルまたは設定が見つかりません。')
+        value = {'id': identifier, 'model': str(model), 'config': str(config)}
+    else:
+        value = None
+    path = learning_dir(root) / 'active-fast.json'
+    temporary = path.with_suffix('.tmp')
+    temporary.write_text(json.dumps(value, ensure_ascii=False))
+    os.replace(temporary, path)
+
+
 def load_weights(reader, directory):
     import torch
     metadata = json.loads((directory / 'model.json').read_text())
@@ -200,11 +227,18 @@ class TrainingManager:
         self.root = Path(root)
         self.lock = threading.RLock()
         self.process = None
+        self._fast = None
         initialize(root)
         with events.connection(root) as db:
             db.execute("UPDATE ocr_training_runs SET status='interrupted',error='サーバー再起動で学習が中断されました。' WHERE status='running'")
 
     def start(self):
+        if os.getenv('GATE_OCR_TRAINING_BACKEND', 'easyocr').strip().lower() in ('fast-plate-ocr', 'fastplateocr'):
+            from fast_plate_ocr_training import FastPlateOCRTrainingManager
+            with self.lock:
+                if self._fast is None:
+                    self._fast = FastPlateOCRTrainingManager(self.root)
+                return self._fast.start()
         with self.lock:
             samples = dataset_snapshot(self.root)
             identifier = uuid.uuid4().hex
@@ -266,6 +300,33 @@ class TrainingManager:
         with self.lock:
             if self.process and self.process.poll() is None:
                 self.process.terminate()
+            if self._fast:
+                self._fast.shutdown()
+
+    def maybe_start_auto(self):
+        """Start one background run after enough reviewed samples are available."""
+        if os.getenv('GATE_OCR_TRAINING_AUTO', '0').strip() not in ('1', 'true', 'yes'):
+            return None
+        minimum = int(os.getenv('GATE_OCR_TRAINING_MIN_SAMPLES', '7'))
+        with events.connection(self.root) as db:
+            count = db.execute('SELECT count(*) FROM ocr_samples').fetchone()[0]
+            running = db.execute("SELECT 1 FROM ocr_training_runs WHERE status='running'").fetchone()
+        if count < minimum or running:
+            return None
+        try:
+            with self.lock:
+                samples = dataset_snapshot(self.root)
+                fingerprint = hashlib.sha256(json.dumps([
+                    {k: s.get(k) for k in ('id', 'image_sha256', 'top_text', 'bottom_text', 'fields_json', 'split')}
+                    for s in samples], sort_keys=True).encode()).hexdigest()
+                marker = learning_dir(self.root) / 'auto-dataset.json'
+                if marker.exists() and json.loads(marker.read_text()).get('sha256') == fingerprint:
+                    return None
+                identifier = self.start()
+                marker.write_text(json.dumps({'sha256': fingerprint, 'run': identifier}))
+                return identifier
+        except ValueError:
+            return None
 
 
 FIELD_NAMES = ('region', 'category', 'kana', 'serial')

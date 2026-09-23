@@ -48,8 +48,13 @@ SPECS = (
     ModelSpec("detectron2", "Detectron2 model zoo", ModelRole.VEHICLE, "Meta", "Detectron2", "Apache-2.0", "https://github.com/facebookresearch/detectron2", "detectron2"),
     ModelSpec("opencv-plate-contours", "OpenCV輪郭抽出", ModelRole.PLATE, "OpenCV", "Classical CV", "Apache-2.0", "https://github.com/opencv/opencv", "cv2", realtime=True, bundled=True, notes="学習済み重み不要のフォールバック"),
     ModelSpec("custom-yolo-plate", "専用YOLOプレートモデル", ModelRole.PLATE, "Local", "YOLO custom", "モデル提供元に従う", "local://models/plate", "ultralytics", artifact="GATE_PLATE_MODEL", realtime=True, bundled=True, notes="GATE_PLATE_MODELで指定"),
+    ModelSpec("lprs-jp", "lprs-jp YOLOv8 + CNN", ModelRole.PLATE, "eepj", "lprs-jp", "未確認（READMEは研究目的と記載）", "https://github.com/eepj/lprs-jp", "lprs-jp", japanese=True, notes="研究用リポジトリ。公開推論API・配布重み・LICENSEの確認後に実行アダプターを追加"),
+    ModelSpec("alpr-jp-openalpr", "alpr_jp OpenALPR学習素材", ModelRole.PLATE, "dyama", "OpenALPR + OpenCV + Tesseract", "MIT", "https://github.com/dyama/alpr_jp", "openalpr", japanese=True, notes="日本プレート画像・学習素材。完成済みPython推論モデルではない"),
     ModelSpec("paddle-text-detector", "PaddleOCR text detector", ModelRole.PLATE, "PaddlePaddle", "PP-OCR", "Apache-2.0", "https://github.com/PaddlePaddle/PaddleOCR", "paddleocr", japanese=True, realtime=True, bundled=True),
     ModelSpec("paddle-ppocr-v6", "PP-OCRv6", ModelRole.OCR, "PaddlePaddle", "PP-OCRv6", "Apache-2.0", "https://github.com/PaddlePaddle/PaddleOCR", "paddleocr", "PP-OCRv6_medium_rec", japanese=True, realtime=True, bundled=True),
+    ModelSpec("lipla-jp", "Lipla-jp EdgeCrafter + PPOCRv6", ModelRole.OCR, "ikeboo", "Lipla-jp", "MIT", "https://github.com/ikeboo/Lipla-jp", "lipla", japanese=True, realtime=True, bundled=True, notes="日本ナンバープレート検出・認識一体型"),
+    ModelSpec("fast-alpr", "FastALPR + fast-plate-ocr", ModelRole.OCR, "ankandrew", "FastALPR/CCT", "MIT", "https://github.com/ankandrew/fast-alpr", "fast_alpr", realtime=True, notes="ONNX検出＋OCR。日本向け未学習"),
+    ModelSpec("fast-plate-ocr-jp", "FastPlateOCR 日本向け追加学習モデル", ModelRole.OCR, "AI GATE SYSTEM", "CCT fine-tune", "MIT / 基盤モデル条件に従う", "https://github.com/ankandrew/fast-plate-ocr", "fast_plate_ocr", artifact="GATE_FAST_OCR_MODEL_PATH", japanese=True, realtime=True, notes="日本プレート画像で追加学習後のONNX＋plate_config"),
     ModelSpec("paddle-ppocr-v5", "PP-OCRv5 multilingual", ModelRole.OCR, "PaddlePaddle", "PP-OCRv5", "Apache-2.0", "https://github.com/PaddlePaddle/PaddleOCR", "paddleocr", "PP-OCRv5_server_rec", japanese=True, realtime=True, bundled=True),
     ModelSpec("easyocr-ja", "EasyOCR Japanese", ModelRole.OCR, "JaidedAI", "EasyOCR", "Apache-2.0", "https://github.com/JaidedAI/EasyOCR", "easyocr", japanese=True, realtime=True, bundled=True),
     ModelSpec("tesseract-ja", "Tesseract Japanese", ModelRole.OCR, "Tesseract", "Tesseract LSTM", "Apache-2.0", "https://github.com/tesseract-ocr/tesseract", "pytesseract", japanese=True, realtime=True),
@@ -61,9 +66,18 @@ SPECS = (
 
 
 class ModelRegistry:
-    def __init__(self, model_root: str | Path = "/models"):
+    def __init__(self, model_root: str | Path = "/models", data_root=None):
         self.model_root = Path(model_root)
+        self.data_root = data_root
         self._items = {spec.id: spec for spec in SPECS}
+
+    def fast_paths(self):
+        if self.data_root is not None:
+            from ocr_learning import active_fast_model
+            active = active_fast_model(self.data_root)
+            if active:
+                return active['model'], active['config']
+        return os.getenv('GATE_FAST_OCR_MODEL_PATH', ''), os.getenv('GATE_FAST_OCR_CONFIG_PATH', '')
 
     def get(self, model_id: str) -> ModelSpec:
         try:
@@ -77,6 +91,14 @@ class ModelRegistry:
             return (bool(configured and Path(configured).is_file()), "専用重み設定済み" if configured and Path(configured).is_file() else "GATE_PLATE_MODELに学習済み重みを指定してください")
         if spec.id == "paddle-text-detector":
             return False, "ナンバープレート専用アダプターの固定評価が未完了です"
+        if spec.id == "lprs-jp":
+            return False, "研究用コードで、公開推論API・配布重み・LICENSEの確認が未完了です"
+        if spec.id == "alpr-jp-openalpr":
+            return False, "学習素材リポジトリで、OpenALPR実行環境と完成済み重みが未導入です"
+        if spec.id == "fast-plate-ocr-jp":
+            model, config = self.fast_paths()
+            available = bool(model and config and Path(model).is_file() and Path(config).is_file())
+            return available, "日本向け重み・設定済み" if available else "追加学習済みONNXとplate_config.yamlを指定してください"
         module = spec.backend.split(".")[0]
         available = importlib.util.find_spec(module) is not None
         return available, "利用可能" if available else f"追加パッケージ {module} が必要です"
@@ -108,13 +130,22 @@ class ModelRegistry:
         self.model_root.mkdir(parents=True, exist_ok=True)
         return str(path)
 
-    @staticmethod
-    def ocr_environment(model_id: str) -> dict[str, str]:
+    def ocr_environment(self, model_id: str) -> dict[str, str]:
         if model_id == "easyocr-ja":
             return {"GATE_OCR_BACKEND": "easyocr"}
         if model_id in {"paddle-ppocr-v5", "paddle-ppocr-v6"}:
             model = "PP-OCRv5_server_rec" if model_id.endswith("v5") else "PP-OCRv6_medium_rec"
             return {"GATE_OCR_BACKEND": "paddle", "GATE_PADDLE_MODEL": model}
+        if model_id == "lipla-jp":
+            return {"GATE_OCR_BACKEND": "lipla"}
+        if model_id == "fast-alpr":
+            return {"GATE_OCR_BACKEND": "fastalpr"}
+        if model_id == "fast-plate-ocr-jp":
+            model, config = self.fast_paths()
+            if not model or not config or not Path(model).is_file() or not Path(config).is_file():
+                raise ValueError("日本向けFastPlateOCRモデルと設定ファイルが必要です。")
+            return {"GATE_OCR_BACKEND": "fastalpr", "GATE_FAST_OCR_MODEL_PATH": model,
+                    "GATE_FAST_OCR_CONFIG_PATH": config}
         raise ValueError("現在のリアルタイム実行アダプターではこのOCRモデルを利用できません。")
 
     def plate_environment(self, model_id: str) -> dict[str, str]:

@@ -217,9 +217,51 @@ python app.py --source 0 --source-kind camera --every 1
 
 OCRでは候補枠の周囲に余白を加え、幅480pxを目安に最大4倍まで拡大し、上下段を分けて読みます。
 PaddleOCR PP-OCRv6-mediumを既定とし、複数の前処理結果の合意を優先します。信頼度を引き上げたり、
-推測で文字を置換したりはしません。`GATE_OCR_BACKEND=easyocr|paddle|compare|auto` で切替でき、
+推測で文字を置換したりはしません。`GATE_OCR_BACKEND=easyocr|paddle|lipla|compare|auto` で切替でき、
 `compare` は両方を実行、`auto` は `accuracy_benchmark.py` の固定評価結果を使用します。比較前はPaddleOCR、
 画面で追加学習済みEasyOCRを適用した直後はEasyOCRを選び、再比較後は成績の良い方へ切り替えます。
+モデル設定画面では「Lipla-jp EdgeCrafter + PPOCRv6」をOCRモデルとして選択できます。
+選択時は `GATE_OCR_BACKEND=lipla` が処理プロセスへ渡され、Lipla-jpの日本ナンバープレート認識結果を
+既存の4項目（地名・分類番号・かな・一連指定番号）へ変換します。ライブラリはMITライセンスですが、
+内包モデルのライセンス・重みの取得元・SHA-256は配布時に別途記録してください。
+また、`lprs-jp YOLOv8 + CNN` を候補としてモデルレジストリへ登録しています。
+このリポジトリはREADMEで研究目的とされ、現時点で公開された推論用Pythonパッケージ/API、
+配布重み、LICENSEファイルを確認できないため、Web画面では利用不可候補として表示します。
+実行アダプターとライセンス確認が完了するまでは本番処理へ使用しません。
+さらに、`alpr-jp-openalpr`（[dyama/alpr_jp](https://github.com/dyama/alpr_jp)）を検出方式・学習素材候補として登録しています。
+同リポジトリはMITライセンスですが、完成済みPython推論パッケージではなく、OpenALPR・OpenCV・Tesseractを利用する
+学習素材と手順が中心です。そのため、OpenALPR実行環境、重み、データ利用条件を別途確認するまで利用不可候補として扱います。
+FastALPRとfast-plate-ocrも選択候補として追加しました。標準構成はONNXによる検出・OCRですが、
+日本向けモデルではないため、`training/fast_plate_ocr_jp` の手順で日本のプレート画像から追加学習します。
+学習後はONNX重みと対応する`plate_config.yaml`を指定して「FastPlateOCR 日本向け追加学習モデル」を選択します。
+
+確認済みの実データを教師データとして自動学習する場合は、`GATE_OCR_TRAINING_BACKEND=fast-plate-ocr`、
+`GATE_OCR_TRAINING_AUTO=1`を設定します。サンプル保存時、確認済みサンプルが7件以上、かつ学習用5ナンバー・評価用2ナンバー以上ならバックエンドで学習を開始します。同じデータの自動実行は重複させません。
+`data/ocr-learning/<run-id>/`へデータスナップショット、学習ログ、検証分割、ONNX候補、レポートを保存します。
+候補モデルは検証レポートの確認後にWeb画面から明示的に適用します。学習データは確認済み画像のみで、同一ナンバーは学習・評価へ固定分離し、
+標準モデルへ戻す操作も維持します。`docker compose down -v`はモデルキャッシュと学習成果物を消すため実行しないでください。
+
+### 追加学習モデルの別リポジトリ化
+
+評価合格後は、教師画像を含めずにモデルだけを再利用可能なパッケージとして出力できます。
+
+```bash
+python scripts/export_model_package.py \
+  --root data \
+  --run <completed-run-id> \
+  --output ../AI-Gate-JP-Models/models/fast-plate-ocr-jp/1.0.0 \
+  --version 1.0.0
+```
+
+出力先の`AI-Gate-JP-Models`は独立したGitHubリポジトリとして管理し、`model.onnx`、対応する`plate_config.yaml`、評価結果、チェックサムを一体で配布します。
+実データを含むため、公開範囲はPrivateを基本とします。
+
+GitHub CLIにログインした端末では `bash scripts/create_model_repository.sh` で専用Privateリポジトリを作成できます。
+雛形は `training/model-repository-template` に保存しています。初期状態は未学習のプレースホルダーであり、使用できる重みは含みません。
+エクスポート先には空のディレクトリまたは新しいバージョンを指定してください。既存バージョンは上書きしません。
+FastPlateOCRの学習にはtrain依存を使用し、best Keras checkpointをONNXへ変換してから評価します。
+事前学習重みを指定していない現構成は新規学習です。実データでの学習・性能測定が済むまで精度やリアルタイム性能は未確認です。
+7件は動作開始の最低条件であり、運用精度を保証する件数ではありません。評価結果は収集環境と評価データの範囲に限られます。
 初回のモデル取得・初期化は既定で最大900秒再試行します。低速回線では
 `GATE_MODEL_INIT_TIMEOUT=1800` のように秒数を延長できます（最小30秒）。
 Webカメラは1920×1080を希望解像度として要求し、横幅最大1920px・JPEG品質92%で送信します。
@@ -356,6 +398,24 @@ GATE_TEST_OCR_TRAINING=1 python -m unittest discover -s tests -p test_ocr_traini
 ```
 
 ### プレートの角度補正と登録車両の削除
+
+認識経路は `車両検出 → 元画像の車両領域 → プレート検出 → 四隅補正 → OCR → 判定・保存・通知` です。
+車両の検出条件を満たさないフレームではプレート検出・OCRを実行しません。
+`plate_pipeline.py` の `PlateDetector`、`PlateRectifier`、`PlateRecognitionPipeline` が各段階を分離し、
+OCR処理は `app.py` の `recognize_plate_roi` で補正済みのプレート画像だけを読みます。
+
+専用プレートモデルを選択した場合は入力640pxで検出し、候補がない場合だけ同じ元画像の車両領域を
+960pxで再検出します。それでも候補がなければ輪郭探索、拡大・コントラスト補正付き輪郭探索を順に行います。
+モデル未設定時は輪郭探索から開始します。これはAIによるプレート検出ではなく幾何的な候補抽出です。
+各段階で候補が得られれば再探索を終了し、重複除去後の最大5候補だけを補正・OCRへ渡します。
+現時点の入力サイズは固定の初期設定で、実映像で最適性を検証した値ではありません。
+
+OCRで文字が得られなくても候補座標と四隅を `plate_detection.proposals` に残し、プレビューに候補枠を表示します。
+`plate_detection.status` は `not_detected`（候補なし）、`detected_unreadable`（候補あり・文字なし）、
+`text_read`（文字あり、正解保証ではない）を区別します。従来の登録・通知の判定条件はそのまま使用します。
+処理履歴JSONには探索手段・試行回数・各段階の時間を、進捗JSONにはフレームごとの
+`plate_detection_ms`、`rectification_ms`、`ocr_ms` を記録します。`ocr_ms` は今回から文字認識部分だけの時間です。
+合成画像と模擬モデルによるテストは制御順・座標・保存の検証であり、実車の精度やFPSの測定ではありません。
 
 OCR前にプレート候補の輪郭から四隅を推定し、射影変換で傾き・遠近歪みを補正します。
 車両内のプレート候補を8%の余白付きで探索し、検出ボックスとの一致度で凸四角形を選びます。

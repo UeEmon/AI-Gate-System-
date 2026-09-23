@@ -95,9 +95,9 @@ def plate_regions(crop, cv2):
     return boxes
 
 
-def learned_plate_regions(crop, model):
+def learned_plate_regions(crop, model, imgsz=960):
     """Plate boxes from a dedicated one-class YOLO model."""
-    result = model.predict(crop, conf=.20, imgsz=960, iou=.5, device='cpu', verbose=False)[0]
+    result = model.predict(crop, conf=.20, imgsz=imgsz, iou=.5, device='cpu', verbose=False)[0]
     boxes = []
     for box in result.boxes:
         x1, y1, x2, y2 = [round(v) for v in box.xyxy[0].tolist()]
@@ -130,34 +130,16 @@ def bounded_plate_regions(regions, width, height, limit=5):
     return selected
 
 
-def vehicle_plate_regions(crop, cv2, plate_model=None):
-    """Search only a detected vehicle crop; retry once when proposals are absent.
+def make_plate_detector(cv2, plate_model=None):
+    from plate_pipeline import PlateDetector
+    return PlateDetector(cv2, lambda crop: plate_regions(crop, cv2), bounded_plate_regions,
+                         (lambda crop, size: learned_plate_regions(crop, plate_model, size))
+                         if plate_model is not None else None)
 
-    A dedicated detector is preferred. Contours recover misses, followed by a
-    bounded contrast/scale retry. OCR always receives the original crop pixels.
-    """
-    height, width = crop.shape[:2]
-    if width < 8 or height < 4:
-        return []
-    if plate_model is not None:
-        regions = bounded_plate_regions(learned_plate_regions(crop, plate_model), width, height)
-        if regions:
-            return regions
-    regions = bounded_plate_regions(plate_regions(crop, cv2), width, height)
-    if regions:
-        return regions
-    # One retry only; neither dimension exceeds 960 pixels.
-    scale = min(2.0, 960.0 / max(width, height))
-    resized = cv2.resize(crop, (max(8, round(width*scale)), max(4, round(height*scale))),
-                         interpolation=cv2.INTER_CUBIC if scale > 1 else cv2.INTER_AREA)
-    gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
-    contrast = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
-    retry = plate_regions(cv2.cvtColor(contrast, cv2.COLOR_GRAY2BGR), cv2)
-    sx, sy = width/resized.shape[1], height/resized.shape[0]
-    mapped = [(math.floor(x*sx), math.floor(y*sy),
-               math.ceil((x+w)*sx)-math.floor(x*sx),
-               math.ceil((y+h)*sy)-math.floor(y*sy)) for x, y, w, h in retry]
-    return bounded_plate_regions(mapped, width, height)
+
+def vehicle_plate_regions(crop, cv2, plate_model=None):
+    """Compatibility entry point for vehicle-local proposal detection."""
+    return make_plate_detector(cv2, plate_model).detect(crop).regions
 
 
 def plate_text(items):
@@ -250,49 +232,55 @@ def result_is_eligible(vehicle_confidence, candidates,
         for candidate in candidates)
 
 
-def read_plate(crop, reader, cv2, ocr_threshold=OCR_RESULT_CONFIDENCE, plate_model=None):
-    candidates = []
-    height, width = crop.shape[:2]
-    regions = vehicle_plate_regions(crop, cv2, plate_model)
+def recognize_plate_roi(roi, bbox, quad, rectification, reader, cv2, ocr_threshold):
+    """OCR a prepared plate only; never search for vehicles or plates here."""
     readers = reader if isinstance(reader, list) else [('easyocr', reader)]
-    for x, y, w, h in regions:
-        from plate_geometry import rectify_candidate
-        roi, quad, rectification = rectify_candidate(crop, [x, y, x+w, y+h], cv2)
-        scale = max(1.0, min(4.0, 480 / roi.shape[1]))
-        roi = cv2.resize(roi, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-        appearance = plate_appearance(roi, cv2)
-        attempts = []
-        for backend, active_reader in readers:
-            for preprocessing, image in ocr_variants(roi, appearance, cv2):
-                items = active_reader.readtext(image, detail=1, paragraph=False,
-                                               decoder='beamsearch', beamWidth=5)
-                text, confidence = plate_text(items)
-                fields = parse_plate(text)
-                attempts.append({'bbox_in_vehicle': [x, y, x+w, y+h], 'text': text,
-                                 'confidence': confidence, 'fields': fields,
-                                 'ocr_backend': backend, 'preprocessing': preprocessing,
-                                 'quad_in_vehicle': quad, 'rectification': rectification,
-                                 'plate_style': appearance['style'],
-                                 'kei_candidate': appearance['kei_candidate'],
-                                 'kei_strength': appearance['kei_strength'],
-                                 'appearance_ratios': appearance['ratios'],
-                                 'status': 'candidate' if fields and confidence >= ocr_threshold else 'needs_review'})
-        # Prefer a valid result independently reproduced by image variants.
-        # Confidence remains EasyOCR's measured value and is not inflated.
-        votes = {}
-        for attempt in attempts:
-            if attempt['fields']:
-                key = tuple(attempt['fields'][name] for name in ('region','category','kana','serial'))
-                votes[key] = votes.get(key, 0) + 1
-        for attempt in attempts:
-            key = (tuple(attempt['fields'][name] for name in ('region','category','kana','serial'))
-                   if attempt['fields'] else None)
-            attempt['variant_votes'] = votes.get(key, 0)
-        best = max(attempts, key=lambda c: (c['fields'] is not None,
-                                            c['variant_votes'], c['confidence']))
-        if best['text']:
-            candidates.append(best)
-    return sorted(candidates, key=lambda c: (c['fields'] is not None, c['confidence']), reverse=True)
+    scale = max(1.0, min(4.0, 480 / roi.shape[1]))
+    roi = cv2.resize(roi, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    appearance = plate_appearance(roi, cv2)
+    attempts = []
+    for backend, active_reader in readers:
+        for preprocessing, image in ocr_variants(roi, appearance, cv2):
+            items = active_reader.readtext(image, detail=1, paragraph=False,
+                                           decoder='beamsearch', beamWidth=5)
+            text, confidence = plate_text(items)
+            fields = parse_plate(text)
+            attempts.append({'bbox_in_vehicle': bbox, 'text': text,
+                             'confidence': confidence, 'fields': fields,
+                             'ocr_backend': backend, 'preprocessing': preprocessing,
+                             'quad_in_vehicle': quad, 'rectification': rectification,
+                             'plate_style': appearance['style'],
+                             'kei_candidate': appearance['kei_candidate'],
+                             'kei_strength': appearance['kei_strength'],
+                             'appearance_ratios': appearance['ratios'],
+                             'status': 'candidate' if fields and confidence >= ocr_threshold else 'needs_review'})
+    # Prefer a valid result independently reproduced by image variants.
+    # Confidence remains EasyOCR's measured value and is not inflated.
+    votes = {}
+    for attempt in attempts:
+        if attempt['fields']:
+            key = tuple(attempt['fields'][name] for name in ('region','category','kana','serial'))
+            votes[key] = votes.get(key, 0) + 1
+    for attempt in attempts:
+        key = (tuple(attempt['fields'][name] for name in ('region','category','kana','serial'))
+               if attempt['fields'] else None)
+        attempt['variant_votes'] = votes.get(key, 0)
+    best = max(attempts, key=lambda c: (c['fields'] is not None,
+                                        c['variant_votes'], c['confidence']))
+    return best
+
+
+def read_plate(crop, reader, cv2, ocr_threshold=OCR_RESULT_CONFIDENCE, plate_model=None,
+               diagnostics=None):
+    from plate_pipeline import PlateRecognitionPipeline, PlateRectifier
+    pipeline = PlateRecognitionPipeline(
+        make_plate_detector(cv2, plate_model), PlateRectifier(cv2),
+        lambda roi, bbox, quad, method: recognize_plate_roi(
+            roi, bbox, quad, method, reader, cv2, ocr_threshold))
+    candidates, report = pipeline.run(crop)
+    if diagnostics is not None:
+        diagnostics.update(report)
+    return candidates
 
 
 def frames(source, cv2, every, on_frame=None):
@@ -517,6 +505,7 @@ def main():
                                    iou=.55, device='cpu', verbose=False)[0]
             detection_ms = (time.perf_counter() - detection_started) * 1000
             ocr_ms = storage_ms = decision_ms = notification_ms = 0.0
+            plate_detection_ms = rectification_ms = 0.0
             for box in result.boxes:
                 label = result.names[int(box.cls.item())]
                 if label not in VEHICLES:
@@ -530,9 +519,12 @@ def main():
                 if x2 <= x1 or y2 <= y1:
                     continue
                 crop = frame[y1:y2, x1:x2]
-                ocr_started = time.perf_counter()
-                plates = read_plate(crop, reader, cv2, args.ocr_threshold, plate_model)
-                ocr_ms += (time.perf_counter() - ocr_started) * 1000
+                plate_report = {}
+                plates = read_plate(crop, reader, cv2, args.ocr_threshold, plate_model,
+                                    diagnostics=plate_report)
+                plate_detection_ms += plate_report.get('plate_detection_ms', 0.0)
+                rectification_ms += plate_report.get('rectification_ms', 0.0)
+                ocr_ms += plate_report.get('ocr_ms', 0.0)
                 decision_started = time.perf_counter()
                 vehicle_type = vehicle_type_from_plates(label, plates, args.ocr_threshold)
                 result_eligible = result_is_eligible(vehicle_confidence, plates,
@@ -554,6 +546,7 @@ def main():
                               frame_index=index, media_ms=media_ms, vehicle_type=vehicle_type,
                               vehicle_type_ja=VEHICLES[vehicle_type], confidence=vehicle_confidence,
                               bbox=[x1, y1, x2, y2], plate_candidates=plates,
+                              plate_detection=plate_report,
                               plate_status='unreadable' if not plates else 'needs_review',
                               image_path=image_path, result_eligible=result_eligible,
                               result_thresholds={'vehicle': args.vehicle_threshold,
@@ -562,7 +555,7 @@ def main():
                     cv2.rectangle(canvas, (x1, y1), (x2, y2), (100, 220, 70), 2)
                     cv2.putText(canvas, vehicle_type + ' ' + format(record['confidence'], '.2f'),
                                 (x1, max(20, y1-6)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100,220,70), 2)
-                    for candidate in plates:
+                    for candidate in plate_report.get('proposals', plates):
                         a, b, c, d = candidate['bbox_in_vehicle']
                         cv2.rectangle(canvas, (x1+a, y1+b), (x1+c, y1+d), (0,200,255), 2)
                 storage_started = time.perf_counter()
@@ -597,7 +590,9 @@ def main():
                 atomic_json(args.progress, dict(phase='processing', frames_processed=processed,
                             observations=observations, frame_index=index, media_ms=media_ms,
                             performance=dict(frame_ms=round(frame_ms, 2),
-                                detection_ms=round(detection_ms, 2), ocr_ms=round(ocr_ms, 2),
+                                detection_ms=round(detection_ms, 2),
+                                plate_detection_ms=round(plate_detection_ms, 2),
+                                rectification_ms=round(rectification_ms, 2), ocr_ms=round(ocr_ms, 2),
                                 decision_ms=round(decision_ms, 2), storage_ms=round(storage_ms, 2),
                                 notification_ms=round(notification_ms, 2),
                                 rolling_fps=round(1000 / (sum(timings) / len(timings)), 2))))

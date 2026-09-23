@@ -7,7 +7,9 @@ import zipfile
 
 ROOT=Path(__file__).resolve().parents[1]
 FILES=['app.py','web.py','events.py','evidence.py','registry_csv.py','mail_delivery.py','ocr_learning.py','ocr_train.py','ocr_backends.py','accuracy_benchmark.py','vision_train.py','plate_geometry.py','plate_rules.py','requirements.txt','Dockerfile','README.md','THIRD_PARTY_NOTICES.md','LICENSE-PROPOSAL.md','.dockerignore']
-DIRS=['templates','static','onprem','scripts','licenses','tests','deploy','examples']
+DIRS=['aigate','templates','static','onprem','scripts','training','licenses','tests','deploy','examples']
+FILES.append('plate_pipeline.py')
+FILES.extend(['fast_plate_ocr_training.py', 'fast_plate_ocr_train.py'])
 SUFFIXES={'.py','.js','.cjs','.html','.css','.md','.txt','.yaml','.json','.ps1','.sh','.csv'}
 
 def build(destination,revision):

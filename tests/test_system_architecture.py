@@ -33,6 +33,18 @@ class ArchitectureTests(unittest.TestCase):
         self.assertGreaterEqual(len(items), 15)
         self.assertTrue(all(item['license'] and item['source'] for item in items))
         self.assertTrue(any(item['id'] == 'paddle-ppocr-v6' and item['japanese'] for item in items))
+        self.assertTrue(any(item['id'] == 'lipla-jp' and item['license'] == 'MIT' for item in items))
+        lprs = next(item for item in items if item['id'] == 'lprs-jp')
+        self.assertFalse(lprs['available'])
+        self.assertIn('研究用', lprs['availability_reason'])
+        alpr = next(item for item in items if item['id'] == 'alpr-jp-openalpr')
+        self.assertFalse(alpr['available'])
+        self.assertEqual(alpr['license'], 'MIT')
+        fast = next(item for item in items if item['id'] == 'fast-alpr')
+        self.assertEqual(fast['role'], 'ocr')
+        self.assertEqual(fast['license'], 'MIT')
+        jp = next(item for item in items if item['id'] == 'fast-plate-ocr-jp')
+        self.assertFalse(jp['available'])
 
     def test_settings_are_atomic_and_bounded(self):
         with tempfile.TemporaryDirectory() as root:

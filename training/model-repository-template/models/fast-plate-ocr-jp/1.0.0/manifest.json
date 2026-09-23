@@ -1,0 +1,28 @@
+{
+  "model_id": "fast-plate-ocr-jp",
+  "version": "1.0.0",
+  "task": "japanese_license_plate_ocr",
+  "framework": "fast-plate-ocr",
+  "format": "onnx",
+  "files": {
+    "model": "model.onnx",
+    "plate_config": "plate_config.yaml",
+    "evaluation": "evaluation.json"
+  },
+  "training_data": {
+    "source": "AI-Gate-System reviewed observations",
+    "images_in_repository": false,
+    "split": "plate_identity_grouped",
+    "label_policy": "human_confirmed_four_fields"
+  },
+  "license": {
+    "model": "pending_owner_approval",
+    "base_framework": "MIT - verify current upstream license",
+    "training_data": "restricted_operational_data"
+  },
+  "sha256": {
+    "model.onnx": "REPLACE_WITH_EXPORT_SHA256",
+    "plate_config.yaml": "REPLACE_WITH_EXPORT_SHA256",
+    "evaluation.json": "REPLACE_WITH_EXPORT_SHA256"
+  }
+}
