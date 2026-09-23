@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+*.tmp
+*.part
+training-data/
+raw-data/
+*.jpg
+*.jpeg
+*.png
+*.mp4

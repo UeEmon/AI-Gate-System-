@@ -96,10 +96,12 @@ class PerformanceManager:
 
     def record(self, *, job_id: str, frame_ms: float, preprocess_ms: float = 0,
                detection_ms: float = 0, plate_ms: float = 0, ocr_ms: float = 0,
-               decision_ms: float = 0, storage_ms: float = 0, notification_ms: float = 0) -> None:
+               decision_ms: float = 0, storage_ms: float = 0, notification_ms: float = 0,
+               rectification_ms: float = 0) -> None:
         with self.lock:
             self.samples.append({"job_id": job_id, "frame_ms": frame_ms, "preprocess_ms": preprocess_ms,
                                  "detection_ms": detection_ms, "plate_ms": plate_ms, "ocr_ms": ocr_ms,
+                                 "rectification_ms": rectification_ms,
                                  "decision_ms": decision_ms, "storage_ms": storage_ms,
                                  "notification_ms": notification_ms})
 
@@ -112,7 +114,7 @@ class PerformanceManager:
         def percentile(values, ratio):
             ordered = sorted(values)
             return ordered[min(len(ordered) - 1, round((len(ordered) - 1) * ratio))] if ordered else None
-        keys = ("frame_ms", "preprocess_ms", "detection_ms", "plate_ms", "ocr_ms", "decision_ms", "storage_ms", "notification_ms")
+        keys = ("frame_ms", "preprocess_ms", "detection_ms", "plate_ms", "rectification_ms", "ocr_ms", "decision_ms", "storage_ms", "notification_ms")
         latency = {key: {"p50": round(percentile([r[key] for r in rows], .5), 2),
                          "p95": round(percentile([r[key] for r in rows], .95), 2)} for key in keys}
         p95 = latency["frame_ms"]["p95"]

@@ -137,6 +137,10 @@ class JobManager:
                 selected_model = self.models.vehicle_argument(runtime['vehicle_model'])
                 child_environment.update(self.models.ocr_environment(runtime['ocr_model']))
                 child_environment.update(self.models.plate_environment(runtime['plate_model']))
+                fast_active = ocr_learning.active_fast_model(self.root)
+                if fast_active and runtime['ocr_model'] in ('fast-plate-ocr-jp', 'fast-alpr'):
+                    child_environment['GATE_FAST_OCR_MODEL_PATH'] = fast_active['model']
+                    child_environment['GATE_FAST_OCR_CONFIG_PATH'] = fast_active['config']
                 if runtime['profile'] == 'auto':
                     every = max(every, int(runtime['frame_stride']))
             command = [sys.executable, '-u', str(ROOT / 'app.py'), '--source', str(source),
@@ -234,6 +238,8 @@ class JobManager:
                     self.performance_frames.get(item['id']) != frame_index):
                 self.performance.record(job_id=item['id'], frame_ms=float(measured.get('frame_ms', 0)),
                     detection_ms=float(measured.get('detection_ms', 0)), ocr_ms=float(measured.get('ocr_ms', 0)),
+                    plate_ms=float(measured.get('plate_detection_ms', 0)),
+                    rectification_ms=float(measured.get('rectification_ms', 0)),
                     decision_ms=float(measured.get('decision_ms', 0)), storage_ms=float(measured.get('storage_ms', 0)),
                     notification_ms=float(measured.get('notification_ms', 0)))
                 self.performance_frames[item['id']] = frame_index
@@ -295,7 +301,7 @@ def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None)
                       SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Strict')
     manager = manager or JobManager(data_dir, model)
     settings = SettingsManager(manager.root)
-    models = ModelRegistry(os.environ.get('GATE_MODEL_ROOT', str(ROOT / 'models')))
+    models = ModelRegistry(os.environ.get('GATE_MODEL_ROOT', str(ROOT / 'models')), data_root=manager.root)
     performance = PerformanceManager(manager.root)
     if not performance.path.exists():
         startup = performance.startup_benchmark()
@@ -581,7 +587,11 @@ def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None)
             sample['fields'] = json.loads(sample.pop('fields_json') or 'null')
         for run in runs:
             run['report'] = json.loads(run.pop('report_json') or 'null')
-        return jsonify(samples=samples, count=count, runs=runs, active=ocr_learning.active_model(manager.root))
+        return jsonify(samples=samples, count=count, runs=runs,
+                       active=ocr_learning.active_model(manager.root),
+                       active_fast=ocr_learning.active_fast_model(manager.root),
+                       training_backend=os.getenv('GATE_OCR_TRAINING_BACKEND', 'easyocr'),
+                       training_auto=os.getenv('GATE_OCR_TRAINING_AUTO', '0') in ('1', 'true', 'yes'))
 
     @app.get('/api/ocr-learning/preview/<observation_id>/<int:candidate_index>')
     def learning_preview(observation_id, candidate_index):
@@ -601,6 +611,7 @@ def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None)
                 identifier = ocr_learning.save_sample(manager.root, data.get('learning'), data, db)
         except (ValueError, KeyError, TypeError, AttributeError) as exc:
             abort(400, description=str(exc))
+        trainer.maybe_start_auto()
         return jsonify(id=identifier), 201
 
     @app.delete('/api/ocr-learning/samples/<identifier>')
@@ -625,7 +636,17 @@ def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None)
             abort(400, description='適用するモデルを指定してください。')
         try:
             with trainer.lock:
-                ocr_learning.set_active(manager.root, data['id'])
+                run_id = data['id']
+                with events.connection(manager.root) as db:
+                    row = db.execute('SELECT report_json FROM ocr_training_runs WHERE id=?', (run_id,)).fetchone() if run_id else None
+                report = json.loads(row['report_json']) if row and row['report_json'] else {}
+                if run_id is None:
+                    ocr_learning.set_active(manager.root, None)
+                    ocr_learning.set_active_fast(manager.root, None)
+                elif report.get('backend') == 'fast-plate-ocr':
+                    ocr_learning.set_active_fast(manager.root, run_id)
+                else:
+                    ocr_learning.set_active(manager.root, run_id)
         except ValueError as exc:
             abort(400, description=str(exc))
         return jsonify(active=data['id'], message='次に開始する認識処理から適用します。')
@@ -640,6 +661,8 @@ def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None)
                     ocr_learning.save_sample(manager.root, data['learning'], data, db)
         except (ValueError,KeyError,TypeError,sqlite3.IntegrityError) as error:
             abort(400,description='登録できません: ' + str(error))
+        if data.get('learning') is not None:
+            trainer.maybe_start_auto()
         return jsonify(id=vehicle_id),201
 
     @app.post('/api/vehicles/batch')

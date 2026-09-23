@@ -4,6 +4,10 @@ ultralytics>=8.3,<9
 easyocr==1.7.2
 paddleocr>=3.2,<4
 paddlepaddle>=3.2,<4
+lipla-jp>=0.3,<1
+fast-alpr[onnx]>=0.3,<1
+fast-plate-ocr[onnx,train]>=0.3,<1
+PyYAML>=6,<7
 numpy>=1.26,<3
 Flask>=3.1,<4
 waitress>=3.0,<4

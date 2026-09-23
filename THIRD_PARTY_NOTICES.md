@@ -9,6 +9,10 @@
 | Ultralytics / YOLOモデル | [AGPL-3.0またはEnterprise](https://www.ultralytics.com/license) | AGPL案では対応するソースとライセンス。非公開組込みを希望する場合はEnterprise条件を確認 |
 | EasyOCR | [Apache-2.0](https://github.com/JaidedAI/EasyOCR/blob/master/LICENSE) | ライセンス・著作権・NOTICEを保持。OCRモデルも実際に取得した配布元を記録 |
 | PaddleOCR / PaddlePaddle | [Apache-2.0](https://github.com/PaddlePaddle/PaddleOCR/blob/main/LICENSE) | ライセンス・NOTICEを保持。取得したPP-OCRモデル名・版・SHA-256を記録 |
+| Lipla-jp | [MIT](https://github.com/ikeboo/Lipla-jp/blob/main/LICENSE) | EdgeCrafter Pose・PPOCRv6を含む日本ナンバープレート検出・認識ライブラリ。採用版とモデル重みの取得元・SHA-256を記録 |
+| lprs-jp | [LICENSE未確認](https://github.com/eepj/lprs-jp) | READMEは研究目的と記載。PyTorch/YOLOv8研究コードとして候補登録のみ。配布重み、推論API、ライセンス確認まで実行アダプターを有効化しない |
+| dyama/alpr_jp | [MIT](https://github.com/dyama/alpr_jp/blob/master/LICENSE) | OpenALPR/OpenCV/Tesseract向け日本プレート学習素材。画像の個別著作権・OpenALPR/Tesseractの条件・データ利用条件を別途確認 |
+| FastALPR / fast-plate-ocr | [MIT](https://github.com/ankandrew/fast-alpr/blob/master/LICENSE) / [MIT](https://github.com/ankandrew/fast-plate-ocr/blob/master/LICENSE) | ONNX検出・OCR基盤。標準重みは日本向け未評価。追加学習済み重みと設定を別管理 |
 | OpenCV | [Apache-2.0](https://github.com/opencv/opencv/blob/4.x/LICENSE) | wheel内に含む第三者ライブラリの条件も確認 |
 | opencv-pythonパッケージ | [配布ライセンス](https://github.com/opencv/opencv-python/blob/master/LICENSE.txt) | パッケージと同梱バイナリは同一条件とは限らない |
 | NumPy | [BSD-3-Clause等](https://github.com/numpy/numpy/blob/main/LICENSE.txt) | 同梱BLASなどの表示も保持 |
