@@ -1,6 +1,6 @@
 # 第三者ソフト・モデルと配布条件
 
-調査日：2026-09-19。これは主要構成の整理であり、全バイナリのライセンス監査済み証明ではありません。
+更新日：2026-09-25。これは主要構成の整理であり、全バイナリのライセンス監査済み証明ではありません。
 本体ライセンスは `LICENSE-PROPOSAL.md` の採用待ちです。
 今回のZIPは自作ソース・設定・文書・参照ライセンス文だけを含み、Python、wheel、Dockerイメージ、FFmpeg、モデル重みを含みません。
 
@@ -10,8 +10,8 @@
 | EasyOCR | [Apache-2.0](https://github.com/JaidedAI/EasyOCR/blob/master/LICENSE) | ライセンス・著作権・NOTICEを保持。OCRモデルも実際に取得した配布元を記録 |
 | PaddleOCR / PaddlePaddle | [Apache-2.0](https://github.com/PaddlePaddle/PaddleOCR/blob/main/LICENSE) | ライセンス・NOTICEを保持。取得したPP-OCRモデル名・版・SHA-256を記録 |
 | Lipla-jp | [MIT](https://github.com/ikeboo/Lipla-jp/blob/main/LICENSE) | EdgeCrafter Pose・PPOCRv6を含む日本ナンバープレート検出・認識ライブラリ。採用版とモデル重みの取得元・SHA-256を記録 |
-| lprs-jp | [LICENSE未確認](https://github.com/eepj/lprs-jp) | READMEは研究目的と記載。PyTorch/YOLOv8研究コードとして候補登録のみ。配布重み、推論API、ライセンス確認まで実行アダプターを有効化しない |
-| dyama/alpr_jp | [MIT](https://github.com/dyama/alpr_jp/blob/master/LICENSE) | OpenALPR/OpenCV/Tesseract向け日本プレート学習素材。画像の個別著作権・OpenALPR/Tesseractの条件・データ利用条件を別途確認 |
+| lprs-jp | [LICENSE未確認](https://github.com/eepj/lprs-jp) | READMEは研究目的と記載。利用許諾を確認できないためレジストリから削除。コード・重みは本システムへ取り込まない |
+| dyama/alpr_jp | [MIT](https://github.com/dyama/alpr_jp/blob/master/LICENSE) | OpenALPR/OpenCV/Tesseract向け日本プレート学習素材。READMEは収録画像もMIT配布と明記。実行モデルではないため選択一覧から削除。OpenALPR本体の条件とは別 |
 | FastALPR / fast-plate-ocr | [MIT](https://github.com/ankandrew/fast-alpr/blob/master/LICENSE) / [MIT](https://github.com/ankandrew/fast-plate-ocr/blob/master/LICENSE) | ONNX検出・OCR基盤。標準重みは日本向け未評価。追加学習済み重みと設定を別管理 |
 | OpenCV | [Apache-2.0](https://github.com/opencv/opencv/blob/4.x/LICENSE) | wheel内に含む第三者ライブラリの条件も確認 |
 | opencv-pythonパッケージ | [配布ライセンス](https://github.com/opencv/opencv-python/blob/master/LICENSE.txt) | パッケージと同梱バイナリは同一条件とは限らない |
@@ -36,3 +36,34 @@
 opencv-python、NumPy、PyTorch、torchvision、Flask、Waitress、boto3、Caddyの公開リポジトリにあるライセンス文を収録しています。
 参照文は調査日の既定ブランチから取得したもので、将来インストールする各バージョンの表示を代替しません。
 これらの収録だけで本体のライセンス採用やバイナリ配布条件を満たしたことにはなりません。
+
+## 2026-09-25 モデル選択の整理
+
+コードのライセンス、配布重みのライセンス、教師データの利用条件を区別する。
+MIT/Apacheというコードの表示だけでは、任意の重みの再配布を承認したことにならない。
+レジストリの`available`は実行環境の状態であり、利用条件への適合を保証しない。
+APIの`license_scope`と`license_review`にこの区別を追加した。
+
+| 対象 | 処置・理由 |
+|---|---|
+| lprs-jp | 削除。公開READMEは研究目的と記載し、リポジトリの利用許諾を確認できない |
+| alpr_jp | モデル登録を削除。MITの学習素材であり、禁止モデルという判断ではない |
+| RT-DETR、MMDetection、YOLOX、Detectron2、Paddle文字検出、Tesseract、RapidOCR、MMOCR、docTR、TrOCR | 選択一覧から削除。現構成に実行アダプターがなく、パッケージの存在だけで利用可能と表示されていた。ライセンス違反という判断ではない |
+| Ultralytics公式YOLO | 条件付きで維持。AGPL-3.0またはEnterprise。非公開組込み等は公式条件に照らして運用方式を確定する必要がある。本体ライセンス案は未採用のまま |
+| 専用YOLO重み | 接続機能を維持。Ultralyticsの条件に加え、個別重みと学習データの許諾確認が必要 |
+| EasyOCR、PaddleOCR、OpenCV | 実行機能を維持。コードはApache-2.0。重み・同梱依存物の条件は別途管理 |
+| Lipla-jp、FastALPR、fast-plate-ocr | コードはMIT。使用する検出/OCR重みの条件をMITと一括認定しない |
+| 日本向け追加学習モデル | 学習・接続機能を維持。学習済み重みを今回新たに配布しない。基盤重み・教師データ・公開許諾を個別に確認 |
+
+削除対象にはインストール済みアダプターやrequirementsの直接依存がないため、
+requirementsの変更は不要。既存のモデルキャッシュや学習データは削除していない。
+これは主要モデル登録の整理であり、全依存物・全重みの利用許諾確定ではない。
+
+確認先：
+- https://github.com/eepj/lprs-jp （README、ファイル一覧）
+- https://github.com/dyama/alpr_jp （READMEの著作権欄、MIT）
+- https://www.ultralytics.com/license （公式提供条件）
+- https://github.com/ikeboo/Lipla-jp/blob/main/LICENSE （MIT）
+- https://github.com/ankandrew/fast-alpr （MIT、外部モデル構成）
+- https://github.com/ankandrew/open-image-models （MIT、検出重み一覧）
+- https://github.com/ankandrew/fast-plate-ocr （MIT、学習機能）
