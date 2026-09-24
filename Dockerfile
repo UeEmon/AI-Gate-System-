@@ -6,8 +6,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libgl1 l
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir 'torch>=2.2,<3' 'torchvision>=0.17,<1' --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --no-cache-dir -r requirements.txt
+# Separate install steps so Docker's build output identifies which package failed.
+# Keep CPU-only wheels on both Intel and Apple Silicon Docker hosts.
+RUN python -m pip install --no-cache-dir 'torch>=2.2,<3' 'torchvision>=0.17,<1' \
+    --index-url https://download.pytorch.org/whl/cpu
+RUN python -m pip install --no-cache-dir -r requirements.txt
 RUN useradd --create-home --uid 10001 gate && mkdir /data /models && chown gate:gate /data /models
 COPY --chown=gate:gate app.py web.py events.py evidence.py registry_csv.py mail_delivery.py ocr_learning.py ocr_train.py ocr_backends.py accuracy_benchmark.py vision_train.py plate_geometry.py plate_rules.py ./
 COPY --chown=gate:gate plate_pipeline.py ./

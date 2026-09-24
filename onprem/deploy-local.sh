@@ -22,7 +22,12 @@ if [[ ! -f "$SCRIPT_DIR/.env" ]]; then
   exit 1
 fi
 
-docker compose --env-file "$SCRIPT_DIR/.env" -f "$COMPOSE_FILE" build
+if ! docker compose --env-file "$SCRIPT_DIR/.env" -f "$COMPOSE_FILE" build --progress=plain; then
+  echo 'Dockerのビルドに失敗しました。上に表示されたpip/aptの最初のエラーを確認してください。' >&2
+  echo '容量不足の場合は docker system df で確認し、ビルドキャッシュのみ docker builder prune -f で削除できます。' >&2
+  echo 'gate-data/gate-modelsのボリュームを保持するため docker compose down -v や docker volume prune は実行しないでください。' >&2
+  exit 1
+fi
 
 if [[ "$RESET_DATA" -eq 1 ]]; then
   if [[ ! -t 0 ]]; then
