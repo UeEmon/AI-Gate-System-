@@ -3,6 +3,10 @@
 set -euo pipefail
 command -v gh >/dev/null || { echo 'GitHub CLI (gh) is required.' >&2; exit 1; }
 gh auth status
+if gh repo view UeEmon/AI-Gate-JP-Models >/dev/null 2>&1; then
+  echo 'UeEmon/AI-Gate-JP-Models は作成済みです。既存の公開リポジトリを確認してください。' >&2
+  exit 1
+fi
 source_root="$(cd "$(dirname "$0")/.." && pwd)"
 destination="${1:-../AI-Gate-JP-Models-new}"
 if [[ -e "$destination" ]]; then

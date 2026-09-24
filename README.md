@@ -253,11 +253,9 @@ python scripts/export_model_package.py \
   --version 1.0.0
 ```
 
-出力先の`AI-Gate-JP-Models`は独立したGitHubリポジトリとして管理し、`model.onnx`、対応する`plate_config.yaml`、評価結果、チェックサムを一体で配布します。
-実データを含むため、公開範囲はPrivateを基本とします。
+出力先の[AI-Gate-JP-Models](https://github.com/UeEmon/AI-Gate-JP-Models)は独立した公開GitHubリポジトリです。`model.onnx`、対応する`plate_config.yaml`、評価結果、チェックサムを一体で配布できます。教師画像は出力しません。実データ由来のモデル本体を公開する前に、学習データとモデルの再配布条件を確認してください。
 
-GitHub CLIにログインした端末では `bash scripts/create_model_repository.sh` で専用Privateリポジトリを作成できます。
-雛形は `training/model-repository-template` に保存しています。初期状態は未学習のプレースホルダーであり、使用できる重みは含みません。
+専用リポジトリは作成済みです。雛形は `training/model-repository-template` に保存しています。初期状態は未学習のプレースホルダーであり、使用できる重みは含みません。
 エクスポート先には空のディレクトリまたは新しいバージョンを指定してください。既存バージョンは上書きしません。
 FastPlateOCRの学習にはtrain依存を使用し、best Keras checkpointをONNXへ変換してから評価します。
 事前学習重みを指定していない現構成は新規学習です。実データでの学習・性能測定が済むまで精度やリアルタイム性能は未確認です。
