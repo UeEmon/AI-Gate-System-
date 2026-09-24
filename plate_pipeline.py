@@ -22,7 +22,7 @@ class PlateDetector:
     def __init__(self, cv2, geometry, bound, learned=None):
         self.cv2, self.geometry, self.bound, self.learned = cv2, geometry, bound, learned
 
-    def detect(self, crop):
+    def detect(self, crop, fallback_only=False):
         cv2 = self.cv2
         height, width = crop.shape[:2]
         attempts = []
@@ -36,7 +36,7 @@ class PlateDetector:
                                  elapsed_ms=(time.perf_counter()-start)*1000))
             return regions
 
-        if self.learned is not None:
+        if self.learned is not None and not fallback_only:
             for size in (640, 960):
                 source = f'plate_model_{size}'
                 regions = attempt(source, lambda: self.learned(crop, size))
@@ -82,22 +82,38 @@ class PlateRecognitionPipeline:
         metrics = dict(plate_detection_ms=(time.perf_counter()-started)*1000,
                        rectification_ms=0.0, ocr_ms=0.0)
         results, proposals = [], []
-        for x, y, w, h in detection.regions:
-            bbox = [x, y, x+w, y+h]
+        seen = set()
+
+        def read_regions(found):
+            for x, y, w, h in found.regions:
+                bbox = [x, y, x+w, y+h]
+                if tuple(bbox) in seen:
+                    continue
+                seen.add(tuple(bbox))
+                stage = time.perf_counter()
+                roi, quad, method = self.rectifier.prepare(crop, bbox)
+                metrics['rectification_ms'] += (time.perf_counter()-stage)*1000
+                stage = time.perf_counter()
+                candidate = self.recognize(roi, bbox, quad, method)
+                metrics['ocr_ms'] += (time.perf_counter()-stage)*1000
+                proposals.append(dict(bbox_in_vehicle=bbox, quad_in_vehicle=quad,
+                                      rectification=method, detection_source=found.source,
+                                      text_found=bool(candidate and candidate.get('text'))))
+                if candidate and candidate.get('text'):
+                    candidate['detection_source'] = found.source
+                    results.append(candidate)
+
+        read_regions(detection)
+        if detection.source.startswith('plate_model_') and not any(
+                c.get('fields') is not None for c in results):
             stage = time.perf_counter()
-            roi, quad, method = self.rectifier.prepare(crop, bbox)
-            metrics['rectification_ms'] += (time.perf_counter()-stage)*1000
-            stage = time.perf_counter()
-            candidate = self.recognize(roi, bbox, quad, method)
-            metrics['ocr_ms'] += (time.perf_counter()-stage)*1000
-            proposals.append(dict(bbox_in_vehicle=bbox, quad_in_vehicle=quad,
-                                  rectification=method, detection_source=detection.source,
-                                  text_found=bool(candidate and candidate.get('text'))))
-            if candidate and candidate.get('text'):
-                candidate['detection_source'] = detection.source
-                results.append(candidate)
+            fallback = self.detector.detect(crop, fallback_only=True)
+            metrics['plate_detection_ms'] += (time.perf_counter()-stage)*1000
+            detection.attempts.extend(fallback.attempts)
+            read_regions(fallback)
         results.sort(key=lambda c: (c['fields'] is not None, c['confidence']), reverse=True)
-        status = ('not_detected' if not detection.regions else
+        source = results[0]['detection_source'] if results else detection.source
+        status = ('not_detected' if not proposals else
                   'text_read' if results else 'detected_unreadable')
-        return results, dict(status=status, source=detection.source,
+        return results, dict(status=status, source=source,
                              proposals=proposals, attempts=detection.attempts, **metrics)

@@ -90,6 +90,32 @@ class PlatePipelineTests(unittest.TestCase):
         reader.assert_called_once()
         self.assertEqual(len(report['proposals']), 1)
 
+    def test_unreadable_model_box_tries_geometry_and_keeps_both_sources(self):
+        learned = Mock(return_value=[(10, 10, 50, 20)])
+        geometry = Mock(return_value=[(20, 30, 80, 40)])
+        rectifier = Mock()
+        rectifier.prepare.side_effect = lambda crop, box: (crop, None, 'crop')
+        reader = Mock(side_effect=[None, dict(text='品川330さ1234', fields={'serial': '1234'}, confidence=.9)])
+        results, report = PlateRecognitionPipeline(
+            PlateDetector(cv2, geometry, app.bounded_plate_regions, learned),
+            rectifier, reader).run(self.crop)
+        self.assertEqual(learned.call_count, 1)
+        geometry.assert_called_once()
+        self.assertEqual(results[0]['detection_source'], 'geometry')
+        self.assertEqual([p['detection_source'] for p in report['proposals']],
+                         ['plate_model_640', 'geometry'])
+        self.assertEqual(report['status'], 'text_read')
+
+    def test_valid_model_read_does_not_run_geometry(self):
+        learned = Mock(return_value=[(10, 10, 50, 20)])
+        geometry = Mock()
+        rectifier = Mock()
+        rectifier.prepare.return_value = (self.crop, None, 'crop')
+        reader = Mock(return_value=dict(text='1234', fields={'serial': '1234'}, confidence=.8))
+        PlateRecognitionPipeline(PlateDetector(cv2, geometry, app.bounded_plate_regions, learned),
+                                 rectifier, reader).run(self.crop)
+        geometry.assert_not_called()
+
     def test_performance_summary_keeps_plate_stages_separate(self):
         from aigate.performance import PerformanceManager
         with tempfile.TemporaryDirectory() as root:
