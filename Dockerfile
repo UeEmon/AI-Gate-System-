@@ -13,7 +13,7 @@ RUN python -m pip install --no-cache-dir 'torch>=2.2,<3' 'torchvision>=0.17,<1' 
 RUN python -m pip install --no-cache-dir -r requirements.txt
 RUN useradd --create-home --uid 10001 gate && mkdir /data /models && chown gate:gate /data /models
 COPY --chown=gate:gate app.py web.py events.py evidence.py registry_csv.py mail_delivery.py ocr_learning.py ocr_train.py ocr_backends.py accuracy_benchmark.py vision_train.py plate_geometry.py plate_rules.py ./
-COPY --chown=gate:gate plate_pipeline.py plate_only_benchmark.py ./
+COPY --chown=gate:gate plate_pipeline.py plate_only_benchmark.py plate_benchmark_web.py ./
 COPY --chown=gate:gate fast_plate_ocr_training.py fast_plate_ocr_train.py ./
 COPY --chown=gate:gate scripts/ scripts/
 COPY --chown=gate:gate training/ training/

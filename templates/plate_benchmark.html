@@ -1,0 +1,26 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>プレート検出・OCR検証</title>
+{% if job and code is none %}<meta http-equiv="refresh" content="3">{% endif %}
+<style>body{font:16px system-ui;background:#f1f5f9;color:#172a41;margin:0}main{max-width:1100px;margin:auto;padding:28px}section,article{background:white;border:1px solid #dbe3ec;border-radius:12px;padding:22px;margin:18px 0}h1{font-size:27px}label{display:block;margin:15px 0}input,select,button{font:inherit;padding:9px;max-width:100%;box-sizing:border-box}button{background:#125cbe;color:white;border:0;border-radius:7px;cursor:pointer}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px}img{max-width:100%;height:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{color:#125cbe}.muted{color:#52647a}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:9px;border-bottom:1px solid #ddd}</style>
+<main><h1>プレート検出・OCR検証</h1><p>車両検出なし · 画像全体からナンバープレートを検出</p>
+{% if not job %}
+<section><h2>入力とモデル</h2><form method="post" action="/run" enctype="multipart/form-data">
+<input type="hidden" name="csrf" value="{{ session.csrf }}">
+<label>画像・動画（最大1GB）<br><input name="source" type="file" accept=".jpg,.jpeg,.png,.bmp,.webp,.mp4,.mov,.avi,.mkv" required></label>
+<div class="grid"><label>プレート検出<br><select name="model"><option value="">OpenCV 輪郭抽出</option>{% for model in models %}<option>{{ model }}</option>{% endfor %}</select></label>
+<label>OCR<br><select name="ocr"><option value="paddle">PaddleOCR</option><option value="easyocr">EasyOCR 日本語</option><option value="lipla">Lipla-jp</option><option value="fastalpr">FastALPR（日本向け未学習）</option></select></label></div>
+<p class="muted">AI検出用の専用重み（.pt）をMacの benchmark-models に置くと選択できます。OpenCVは学習済みAIモデルではありません。</p>
+<div class="grid"><label>処理間隔（フレーム）<br><input name="every" type="number" min="1" max="100" value="1" required></label><label>最大処理枚数<br><input name="maximum" type="number" min="1" max="300" value="100" required></label><label>速度集計から除く初期枚数<br><input name="warmup" type="number" min="0" max="299" value="0" required></label></div>
+<button>検証を開始</button></form></section>
+<section><h2>この起動中の検証</h2>{% for id in jobs %}<p><a href="/jobs/{{ id }}">{{ id }}</a></p>{% else %}<p>まだ検証はありません。</p>{% endfor %}</section>
+{% else %}
+<a href="/">新しい検証へ</a><section><h2>{{ job.name }}</h2>
+{% if code is none %}<p>処理中です。モデルの初回取得には時間がかかります。この画面は自動更新されます。</p>
+{% elif summary %}<p>検証完了</p><div class="grid"><p>処理フレーム<br><strong>{{ summary.frames }}</strong></p><p>推論FPS<br><strong>{{ '%.2f'|format(summary.inference_fps) if summary.inference_fps is not none else '対象なし' }}</strong></p><p>p95遅延（ms）<br><strong>{{ '%.2f'|format(summary.inference_p95_ms) if summary.inference_p95_ms is not none else '対象なし' }}</strong></p><p>保存・読込込みFPS<br><strong>{{ '%.2f'|format(summary.end_to_end_fps) if summary.end_to_end_fps is not none else '対象なし' }}</strong></p></div>
+<p>検出あり：{{ summary.detected_frames }}フレーム ／ 文字読取あり：{{ summary.text_read_frames }}フレーム</p><p class="muted">正解ラベル未指定のため検出率・OCR正解率は未算出です。件数は正解数ではありません。</p>
+<p><a href="{{ url_for('artifact',identifier=identifier,filename=result_dir+'/summary.json') }}">測定結果JSON</a> · <a href="{{ url_for('artifact',identifier=identifier,filename=result_dir+'/frames.jsonl') }}">全フレーム結果</a></p>
+<table><tr><th>工程</th><th>平均時間（ms）</th></tr>{% for key,label in [('plate_detection_ms','プレート検出'),('rectification_ms','台形補正'),('ocr_ms','OCR')] %}<tr><td>{{ label }}</td><td>{{ '%.2f'|format(summary.mean_stage_ms[key]) if summary.mean_stage_ms[key] is not none else '対象なし' }}</td></tr>{% endfor %}</table>
+{% else %}<p>処理に失敗しました。下のログを確認してください。</p><pre>{{ log }}</pre>{% endif %}</section>
+{% for frame in records %}<article><h3>フレーム {{ frame.frame_index }} · {{ '%.1f'|format(frame.inference_ms) }} ms</h3><img loading="lazy" alt="プレート検出枠" src="{{ url_for('artifact',identifier=identifier,filename=result_dir+'/%08d.jpg'|format(frame.frame_index)) }}">
+{% for candidate in frame.candidates %}<p><strong>{{ candidate.text }}</strong> ／ 枠 {{ candidate.bbox_in_frame }} ／ OCR信頼度 {{ candidate.confidence }}</p>{% else %}<p>OCR文字列なし（未検出または読取失敗）</p>{% endfor %}</article>{% endfor %}
+{% endif %}</main></html>

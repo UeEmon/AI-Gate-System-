@@ -1,0 +1,18 @@
+services:
+  plate-test:
+    build: ..
+    image: ai-gate-system:plate-test
+    init: true
+    ports:
+      - "${GATE_BIND_ADDRESS:-127.0.0.1}:8888:8080"
+    environment:
+      GATE_ADMIN_PASSWORD: ${GATE_ADMIN_PASSWORD:?Set an admin password}
+      GATE_OFFLINE: "0"
+    command: ["python", "plate_benchmark_web.py"]
+    volumes:
+      - plate-test-data:/data
+      - plate-test-models:/models
+      - ../benchmark-models:/plate-models:ro
+volumes:
+  plate-test-data:
+  plate-test-models:
