@@ -97,7 +97,8 @@ def plate_regions(crop, cv2):
 
 def learned_plate_regions(crop, model, imgsz=960):
     """Plate boxes from a dedicated one-class YOLO model."""
-    result = model.predict(crop, conf=.20, imgsz=imgsz, iou=.5, device='cpu', verbose=False)[0]
+    from inference_device import torch_device
+    result = model.predict(crop, conf=.20, imgsz=imgsz, iou=.5, device=torch_device(), verbose=False)[0]
     boxes = []
     for box in result.boxes:
         x1, y1, x2, y2 = [round(v) for v in box.xyxy[0].tolist()]

@@ -82,3 +82,40 @@ docker compose --env-file onprem/.env -f onprem/compose.yaml run --rm --no-deps 
 `detected_frames`や`text_read_frames`は正解数ではありません。
 全画面からの輪郭抽出は背景の誤検出が増える可能性があります。
 実画像、Mac Dockerでの速度・精度は実行後に確認してください。
+
+## MacのGPUを利用するWeb起動
+
+通常のMac DockerコンテナからこのPyTorch処理へMPS GPUを渡すことはできません。
+同じWeb検証画面をMacで直接起動し、EasyOCRと専用YOLOモデルにMPSを使います。
+MPSが利用できない端末では明示指定をエラーにし、自動指定時だけCPUへ切り替えます。
+PaddleOCR/Lipla/FastALPRのGPU対応は今回の変更範囲に含めません。
+
+Python 3.11を使えるMacで、リポジトリ直下から次を実行してください。
+Docker版検証サーバーが起動中なら、8888の重複を避けるため先に停止します。
+
+```bash
+docker compose --env-file onprem/.env -p ai-gate-plate-test \
+  -f onprem/compose.plate-only.yaml stop
+bash onprem/start-plate-mac.sh
+```
+
+初回は専用仮想環境へ必要なパッケージを導入します。
+Webログイン用パスワードを入力し、http://localhost:8888 を開いてください。
+ユーザー名はadminです。OCRはEasyOCR、実行デバイスはMPSを選んで検証します。
+専用重みがない場合のOpenCV検出はCPU、EasyOCRはMPSとなります。
+専用YOLO重みを選ぶと検出にもMPSを指定します。
+
+結果に検出・OCRそれぞれの使用デバイスを記録します。
+推論FPSはCUDA/MPSの処理完了を待って測定します。
+初回の初期化や演算準備はCPUと異なるため、動画の比較では初期数枚を集計から除外してください。
+Mac版のデータはbenchmark-data、重みキャッシュはbenchmark-cacheに保存します。
+ブラウザから未導入のOCRを選ばないよう、Mac起動ではEasyOCRだけを表示します。
+
+CUDA選択には別途CUDA対応PyTorchとGPUを認識する環境が必要です。
+既存DockerfileはCPU版PyTorchのため、CUDA対応Dockerイメージを提供する変更ではありません。
+
+参考：
+- https://docs.docker.com/desktop/features/gpu/
+- https://docs.pytorch.org/docs/stable/notes/mps.html
+
+デバイス選択は模擬テスト済み。実機GPU上の精度・速度・対応演算は未検証です。

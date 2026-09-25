@@ -213,7 +213,9 @@ def load_weights(reader, directory):
 
 def make_reader(root, easyocr, offline=False):
     identifier = active_model(root)
-    options = dict(gpu=False, download_enabled=not offline)
+    from inference_device import torch_device
+    device = torch_device()
+    options = dict(gpu=False if device == 'cpu' else device, download_enabled=not offline)
     if identifier:
         options['quantize'] = False
     reader = easyocr.Reader(['ja', 'en'], **options)

@@ -11,3 +11,9 @@ models/
 .visual-check.html
 dist/
 wheelhouse/
+.venv-plate-mac/
+benchmark-data/
+benchmark-cache/
+benchmark-input/
+benchmark-output/
+benchmark-models/

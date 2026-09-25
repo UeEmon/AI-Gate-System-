@@ -16,6 +16,8 @@ def run(args):
 
     destination = Path(args.output) / uuid.uuid4().hex
     destination.mkdir(parents=True)
+    from inference_device import torch_device, synchronize
+    device = torch_device()
     started = time.perf_counter()
     plate_model = None
     if args.plate_model:
@@ -34,10 +36,12 @@ def run(args):
     try:
         with (destination / 'frames.jsonl').open('w', encoding='utf-8') as output:
             for index, media_ms, frame in stream:
+                synchronize(device)
                 started = time.perf_counter()
                 report = {}
                 candidates = read_plate(frame, readers, cv2, plate_model=plate_model,
                                         diagnostics=report)
+                synchronize(device)
                 inference_ms = (time.perf_counter() - started) * 1000
                 # Existing pipeline names its local coordinates bbox_in_vehicle;
                 # here its input is the complete frame, so these are frame coordinates.
@@ -75,6 +79,9 @@ def run(args):
     summary = dict(vehicle_detection=False, source=args.source,
                    plate_model=args.plate_model or 'opencv-plate-contours',
                    ocr_backends=[name for name, _ in readers],
+                   requested_device=os.getenv('GATE_INFERENCE_DEVICE', 'cpu'),
+                   detector_device=device if plate_model else 'cpu',
+                   ocr_devices={name: device if name == 'easyocr' else 'backend default (CPU configuration)' for name, _ in readers},
                    initialization_ms=initialization_ms, frames=count,
                    detected_frames=detected, text_read_frames=read,
                    measured_frames=len(latencies), warmup_frames=min(count, args.warmup),

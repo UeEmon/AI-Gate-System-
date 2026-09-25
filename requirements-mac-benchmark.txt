@@ -1,0 +1,9 @@
+# Native macOS benchmark with EasyOCR + optional dedicated YOLO weights.
+torch>=2.2,<3
+torchvision>=0.17,<1
+ultralytics>=8.3,<9
+easyocr==1.7.2
+opencv-python>=4.10,<5
+numpy>=1.26,<3
+Flask>=3.1,<4
+waitress>=3,<4

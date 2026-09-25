@@ -8,7 +8,9 @@
 <input type="hidden" name="csrf" value="{{ session.csrf }}">
 <label>画像・動画（最大1GB）<br><input name="source" type="file" accept=".jpg,.jpeg,.png,.bmp,.webp,.mp4,.mov,.avi,.mkv" required></label>
 <div class="grid"><label>プレート検出<br><select name="model"><option value="">OpenCV 輪郭抽出</option>{% for model in models %}<option>{{ model }}</option>{% endfor %}</select></label>
-<label>OCR<br><select name="ocr"><option value="paddle">PaddleOCR</option><option value="easyocr">EasyOCR 日本語</option><option value="lipla">Lipla-jp</option><option value="fastalpr">FastALPR（日本向け未学習）</option></select></label></div>
+<label>OCR<br><select name="ocr">{% for key,label in backend_choices.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></label></div>
+<label>実行デバイス<br><select name="device"><option value="cpu">CPU</option><option value="auto">自動（CUDA → MPS → CPU）</option><option value="mps">Mac GPU / MPS（Mac直接起動・EasyOCR）</option><option value="cuda">NVIDIA CUDA（対応環境・EasyOCR）</option></select></label>
+<p class="muted">MacのDockerではCPUになります。MPSはMac上でWebサーバーを直接起動してください。GPU指定時のOCRはEasyOCRを選択します。</p>
 <p class="muted">AI検出用の専用重み（.pt）をMacの benchmark-models に置くと選択できます。OpenCVは学習済みAIモデルではありません。</p>
 <div class="grid"><label>処理間隔（フレーム）<br><input name="every" type="number" min="1" max="100" value="1" required></label><label>最大処理枚数<br><input name="maximum" type="number" min="1" max="300" value="100" required></label><label>速度集計から除く初期枚数<br><input name="warmup" type="number" min="0" max="299" value="0" required></label></div>
 <button>検証を開始</button></form></section>
@@ -16,7 +18,7 @@
 {% else %}
 <a href="/">新しい検証へ</a><section><h2>{{ job.name }}</h2>
 {% if code is none %}<p>処理中です。モデルの初回取得には時間がかかります。この画面は自動更新されます。</p>
-{% elif summary %}<p>検証完了</p><div class="grid"><p>処理フレーム<br><strong>{{ summary.frames }}</strong></p><p>推論FPS<br><strong>{{ '%.2f'|format(summary.inference_fps) if summary.inference_fps is not none else '対象なし' }}</strong></p><p>p95遅延（ms）<br><strong>{{ '%.2f'|format(summary.inference_p95_ms) if summary.inference_p95_ms is not none else '対象なし' }}</strong></p><p>保存・読込込みFPS<br><strong>{{ '%.2f'|format(summary.end_to_end_fps) if summary.end_to_end_fps is not none else '対象なし' }}</strong></p></div>
+{% elif summary %}<p>検証完了</p><p>検出デバイス：{{ summary.detector_device }} ／ OCRデバイス：{{ summary.ocr_devices }}</p><div class="grid"><p>処理フレーム<br><strong>{{ summary.frames }}</strong></p><p>推論FPS<br><strong>{{ '%.2f'|format(summary.inference_fps) if summary.inference_fps is not none else '対象なし' }}</strong></p><p>p95遅延（ms）<br><strong>{{ '%.2f'|format(summary.inference_p95_ms) if summary.inference_p95_ms is not none else '対象なし' }}</strong></p><p>保存・読込込みFPS<br><strong>{{ '%.2f'|format(summary.end_to_end_fps) if summary.end_to_end_fps is not none else '対象なし' }}</strong></p></div>
 <p>検出あり：{{ summary.detected_frames }}フレーム ／ 文字読取あり：{{ summary.text_read_frames }}フレーム</p><p class="muted">正解ラベル未指定のため検出率・OCR正解率は未算出です。件数は正解数ではありません。</p>
 <p><a href="{{ url_for('artifact',identifier=identifier,filename=result_dir+'/summary.json') }}">測定結果JSON</a> · <a href="{{ url_for('artifact',identifier=identifier,filename=result_dir+'/frames.jsonl') }}">全フレーム結果</a></p>
 <table><tr><th>工程</th><th>平均時間（ms）</th></tr>{% for key,label in [('plate_detection_ms','プレート検出'),('rectification_ms','台形補正'),('ocr_ms','OCR')] %}<tr><td>{{ label }}</td><td>{{ '%.2f'|format(summary.mean_stage_ms[key]) if summary.mean_stage_ms[key] is not none else '対象なし' }}</td></tr>{% endfor %}</table>

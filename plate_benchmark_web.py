@@ -23,6 +23,10 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
     root, models = Path(data_root), Path(model_root)
     root.mkdir(parents=True, exist_ok=True)
     jobs, lock = {}, threading.Lock()
+    backend_labels = {'paddle': 'PaddleOCR', 'easyocr': 'EasyOCR 日本語',
+                      'lipla': 'Lipla-jp', 'fastalpr': 'FastALPR（日本向け未学習）'}
+    allowed = os.getenv('GATE_BENCHMARK_OCR_CHOICES', 'paddle,easyocr,lipla,fastalpr').split(',')
+    backend_choices = {key: value for key, value in backend_labels.items() if key in allowed}
 
     def model_choices():
         return sorted(p.name for p in models.glob('*.pt') if p.is_file() and not p.is_symlink())
@@ -46,7 +50,7 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
     @app.get('/')
     def index():
         session.setdefault('csrf', secrets.token_hex(32))
-        return render_template('plate_benchmark.html', models=model_choices(), jobs=list(jobs), job=None)
+        return render_template('plate_benchmark.html', models=model_choices(), jobs=list(jobs), job=None, backend_choices=backend_choices)
 
     @app.post('/run')
     def start():
@@ -56,7 +60,12 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
             abort(400, '対応する画像・動画を選択してください。')
         backend = request.form.get('ocr', 'paddle')
         model = request.form.get('model', '')
-        if backend not in {'paddle', 'easyocr', 'lipla', 'fastalpr'} or (model and model not in model_choices()):
+        device = request.form.get('device', 'cpu')
+        if device not in {'cpu', 'auto', 'mps', 'cuda'}:
+            abort(400, 'デバイス設定が不正です。')
+        if device in {'mps', 'cuda'} and backend != 'easyocr':
+            abort(400, 'GPUでOCRを実行する場合はEasyOCRを選択してください。')
+        if backend not in backend_choices or (model and model not in model_choices()):
             abort(400, 'モデル設定が不正です。')
         try:
             every = int(request.form.get('every', 1))
@@ -81,6 +90,7 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
             if model:
                 command += ['--plate-model', str(models / model)]
             env = dict(os.environ, GATE_OCR_BACKEND=backend, GATE_PLATE_MODEL='',
+                       GATE_INFERENCE_DEVICE=device,
                        GATE_FAST_OCR_MODEL_PATH='', GATE_FAST_OCR_CONFIG_PATH='')
             with (folder / 'run.log').open('w') as log:
                 process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, env=env)
@@ -116,4 +126,7 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
 
 if __name__ == '__main__':
     from waitress import serve
-    serve(create_app(), host='0.0.0.0', port=8080, threads=4)
+    serve(create_app(os.getenv('GATE_BENCHMARK_DATA', '/data/plate-web'),
+                     os.getenv('GATE_BENCHMARK_MODELS', '/plate-models')),
+          host=os.getenv('GATE_BENCHMARK_HOST', '0.0.0.0'),
+          port=int(os.getenv('GATE_BENCHMARK_PORT', '8080')), threads=4)
