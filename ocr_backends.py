@@ -25,11 +25,23 @@ class PaddlePlateReader:
         return str(value.get('rec_text', '')), float(value.get('rec_score', 0))
 
     def readtext(self, image, **_options):
+        import numpy as np
+        image = np.asarray(image)
+        if image.ndim == 2:
+            image = np.repeat(image[..., None], 3, axis=2)
+        elif image.ndim == 3 and image.shape[2] == 1:
+            image = np.repeat(image, 3, axis=2)
+        elif image.ndim == 3 and image.shape[2] == 4:
+            image = image[..., :3]
+        if image.ndim != 3 or image.shape[2] != 3:
+            raise ValueError('PaddleOCRにはグレー・BGR・BGRA画像を指定してください。')
         height, width = image.shape[:2]
+        if height < 2 or width == 0:
+            return []
         boundary = max(1, min(height-1, round(height * .45)))
         output = []
         for top, bottom in ((0, boundary), (boundary, height)):
-            results = self.model.predict(input=image[top:bottom], batch_size=1)
+            results = self.model.predict(input=np.ascontiguousarray(image[top:bottom]), batch_size=1)
             if not results:
                 continue
             text, score = self._value(results[0])
