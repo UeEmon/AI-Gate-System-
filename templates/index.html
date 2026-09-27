@@ -12,7 +12,7 @@
 </head>
 <body>
 <header><div class="brand"><span class="mark">G</span><div>AI GATE SYSTEM<small>車両認識・管理コンソール</small></div></div><span class="connection" id="connection">接続確認中</span></header>
-<nav class="main-nav" aria-label="機能メニュー"><button type="button" data-page-button="monitor" class="active">ライブ監視</button><button type="button" data-page-button="alerts">通知</button><button type="button" data-page-button="registry">登録・確認</button><button type="button" data-page-button="history">履歴</button><button type="button" data-page-button="system">システム性能</button></nav>
+<nav class="main-nav" aria-label="機能メニュー"><button type="button" data-page-button="monitor" class="active">ライブ監視</button><button type="button" data-page-button="alerts">通知</button><button type="button" data-page-button="registry">登録・確認</button><button type="button" data-page-button="learning">OCR学習</button><button type="button" data-page-button="history">履歴</button><button type="button" data-page-button="system">システム性能</button></nav>
 <main>
 <div class="intro" data-page="monitor"><div class="eyebrow">VEHICLE RECOGNITION</div><h1>映像から、車両を記録。</h1><p>カメラのリアルタイム認識と、保存した画像・動画のファイル処理をひとつの画面で。</p></div>
 <div id="message" role="status" hidden></div>
@@ -73,7 +73,7 @@
 </div>
 <div class="registry-actions"><label><input type="checkbox" id="watch">この車両の検知時に通知する</label><label><input type="checkbox" id="vehicle-enabled" checked>登録を有効にする</label><button class="primary" type="submit">登録・更新</button><button id="vehicle-reset" type="button">入力クリア</button></div>
 </form><div id="vehicle-list" class="job-list"></div></section>
-<section class="panel" data-page="registry" hidden><h2>確認済みOCRデータ</h2>
+<section class="panel" data-page="learning" hidden><h2>OCR学習・確認済みデータ</h2>
 <p class="hint">確認したナンバーと画像を保存できます。修正した正解はPaddleOCR追加学習データに使用できます。</p>
 <button id="learning-refresh" type="button">状態を更新</button>
 <p id="learning-status" role="status"></p>

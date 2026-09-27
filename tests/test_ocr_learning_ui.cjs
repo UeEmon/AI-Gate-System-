@@ -53,3 +53,10 @@ test('registration learning defaults on and preserves opt out until next registr
   assert.match(fs.readFileSync(path.join(__dirname,'../templates/index.html'),'utf8'),
     /id="learning-with-registration" type="checkbox" checked/);
 });
+test('training status and comparison have a separate navigation page',()=>{
+  const markup=fs.readFileSync(path.join(__dirname,'../templates/index.html'),'utf8');
+  assert.match(markup, /data-page-button="learning">OCR学習<\/button>/);
+  assert.match(markup, /<section class="panel" data-page="learning" hidden><h2>OCR学習/);
+  assert.match(markup, /data-page="learning"[\s\S]*?id="paddle-training-status"[\s\S]*?id="paddle-comparison"[\s\S]*?<\/section>/);
+  assert.match(markup, /data-page="registry"[\s\S]*?id="learning-review"/);
+});
