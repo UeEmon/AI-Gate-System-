@@ -61,6 +61,7 @@ class JobManager:
         self.watchers = {}
         self.settings = None
         self.models = None
+        self.model_service = None
         self.performance = None
         self.performance_frames = {}
         events.initialize(self.root)
@@ -103,6 +104,36 @@ class JobManager:
             raise ValueError('処理IDが不正です。')
         return self.root / 'jobs' / job_id
 
+    def model_configuration(self, runtime=None):
+        runtime = runtime or self.settings.read()
+        environment = {**self.models.ocr_environment(runtime['ocr_model']),
+                       **self.models.plate_environment(runtime['plate_model'])}
+        fast_active = ocr_learning.active_fast_model(self.root)
+        if fast_active and runtime['ocr_model'] in ('fast-plate-ocr-jp', 'fast-alpr'):
+            environment.update(GATE_FAST_OCR_MODEL_PATH=fast_active['model'],
+                               GATE_FAST_OCR_CONFIG_PATH=fast_active['config'])
+        return dict(root=str(self.root), model=self.models.vehicle_argument(runtime['vehicle_model']),
+                    plate_model=environment.get('GATE_PLATE_MODEL') or None,
+                    imgsz=runtime['imgsz'],
+                    environment=environment)
+
+    def apply_settings(self, changes):
+        with self.lock:
+            current = self.settings.read()
+            proposed = {**current, **changes}
+            model_changed = any(proposed[key] != current[key] for key in
+                                ('vehicle_model', 'plate_model', 'ocr_model'))
+            if model_changed and self.processes:
+                raise BusyError('モデル変更の前に実行中の処理を停止してください。')
+            if model_changed and self.model_service is not None:
+                self.model_service.reload(self.model_configuration(proposed))
+            try:
+                return self.settings.update(changes)
+            except Exception:
+                if model_changed and self.model_service is not None:
+                    self.model_service.reload(self.model_configuration(current))
+                raise
+
     def start(self, kind, source, label, every, confidence, upload=None,
               ocr_confidence=OCR_RESULT_CONFIDENCE):
         with self.lock:
@@ -134,15 +165,14 @@ class JobManager:
             selected_model = self.model
             child_environment = os.environ.copy()
             if runtime and self.models:
-                selected_model = self.models.vehicle_argument(runtime['vehicle_model'])
-                child_environment.update(self.models.ocr_environment(runtime['ocr_model']))
-                child_environment.update(self.models.plate_environment(runtime['plate_model']))
-                fast_active = ocr_learning.active_fast_model(self.root)
-                if fast_active and runtime['ocr_model'] in ('fast-plate-ocr-jp', 'fast-alpr'):
-                    child_environment['GATE_FAST_OCR_MODEL_PATH'] = fast_active['model']
-                    child_environment['GATE_FAST_OCR_CONFIG_PATH'] = fast_active['config']
+                config = self.model_configuration(runtime)
+                selected_model = config['model']
+                child_environment.update(config['environment'])
                 if runtime['profile'] == 'auto':
                     every = max(every, int(runtime['frame_stride']))
+            if self.model_service is not None:
+                child_environment['GATE_MODEL_SERVICE_SOCKET'] = self.model_service.address
+                child_environment['GATE_MODEL_SERVICE_KEY'] = self.model_service.key
             command = [sys.executable, '-u', str(ROOT / 'app.py'), '--source', str(source),
                        '--source-kind', kind, '--output', str(self.root), '--run-id', job_id,
                        '--model', selected_model, '--every', str(every), '--confidence', str(confidence),
@@ -317,7 +347,8 @@ def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None)
     app.extensions['models'] = models
     app.extensions['performance'] = performance
     app.extensions['services'] = ApplicationServices.build(manager.root, performance)
-    app.register_blueprint(create_system_blueprint(settings, models, performance))
+    app.register_blueprint(create_system_blueprint(settings, models, performance,
+                                                  apply_settings=manager.apply_settings))
     trainer = ocr_learning.TrainingManager(manager.root)
     app.extensions['ocr_training'] = trainer
     atexit.register(trainer.shutdown)
@@ -353,6 +384,12 @@ def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None)
 
     @app.get('/healthz')
     def health():
+        if manager.model_service is not None:
+            try:
+                if not manager.model_service.client.request('ping')['ready']:
+                    raise RuntimeError('モデルが準備できていません。')
+            except (OSError, EOFError, ConnectionError, RuntimeError):
+                return jsonify(status='model_unavailable'), 503
         return jsonify(status='ok')
 
     @app.get('/')
@@ -775,6 +812,9 @@ def main():
         parser.error('LAN公開には環境変数GATE_ADMIN_PASSWORDを設定してください。')
     app = create_app(args.data, args.model)
     manager = app.extensions['jobs']
+    from model_service import ModelServiceProcess
+    manager.model_service = ModelServiceProcess(manager.root, manager.model_configuration())
+    atexit.register(manager.model_service.close)
     dispatcher = events.Dispatcher(manager.root)
     dispatcher.start()
     atexit.register(dispatcher.stop)
@@ -790,6 +830,7 @@ def main():
     finally:
         manager.shutdown()
         dispatcher.stop()
+        manager.model_service.close()
 
 
 if __name__ == '__main__':

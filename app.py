@@ -273,6 +273,8 @@ def recognize_plate_roi(roi, bbox, quad, rectification, reader, cv2, ocr_thresho
 
 def read_plate(crop, reader, cv2, ocr_threshold=OCR_RESULT_CONFIDENCE, plate_model=None,
                diagnostics=None):
+    if hasattr(reader, 'read_plate'):
+        return reader.read_plate(crop, ocr_threshold, diagnostics)
     if len(reader) == 1 and reader[0][0] == 'lipla-jp':
         from lipla_pipeline import LiplaPlatePipeline
         candidates, report = LiplaPlatePipeline(reader[0][1].model, parse_plate).run(crop)
@@ -473,15 +475,22 @@ def main():
     if args.progress:
         atomic_json(args.progress, {'phase': 'loading', 'frames_processed': 0, 'observations': 0})
     import cv2
-    import easyocr
-    from ultralytics import YOLO
+    shared_address = os.getenv('GATE_MODEL_SERVICE_SOCKET')
     offline=os.getenv('GATE_OFFLINE')=='1'
-    if offline and not Path(args.model).is_file():
+    if offline and not shared_address and not Path(args.model).is_file():
         raise ValueError('オフライン用のYOLOモデルを事前に配置してください。')
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
-    model, plate_model, reader = initialize_models(
-        args.model, args.plate_model, out, easyocr, YOLO, offline)
+    if shared_address:
+        from model_service import ModelClient
+        model = reader = ModelClient(shared_address, os.environ['GATE_MODEL_SERVICE_KEY'])
+        model.request('ping')
+        plate_model = None
+    else:
+        import easyocr
+        from ultralytics import YOLO
+        model, plate_model, reader = initialize_models(
+            args.model, args.plate_model, out, easyocr, YOLO, offline)
     run_id = args.run_id or uuid.uuid4().hex
     db = open_database(out / 'gate.db')
     is_live = args.source_kind in ('camera', 'browser') or (args.source_kind == 'auto' and

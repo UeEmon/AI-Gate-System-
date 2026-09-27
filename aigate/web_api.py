@@ -9,7 +9,7 @@ from .settings import SettingsManager
 
 
 def create_system_blueprint(settings: SettingsManager, models: ModelRegistry,
-                            performance: PerformanceManager) -> Blueprint:
+                            performance: PerformanceManager, apply_settings=None) -> Blueprint:
     api = Blueprint("system_api", __name__)
 
     @api.get("/api/models")
@@ -30,7 +30,10 @@ def create_system_blueprint(settings: SettingsManager, models: ModelRegistry,
             available = {item["id"] for item in models.list() if item["available"]}
             if recommendation["vehicle_model"] not in available:
                 recommendation["vehicle_model"] = current["vehicle_model"]
-            current = settings.update({**recommendation, "profile": "auto"})
+            try:
+                current = (apply_settings or settings.update)({**recommendation, "profile": "auto"})
+            except RuntimeError as exc:
+                return jsonify(error=str(exc)), 409
         return jsonify(startup=report, settings=current)
 
     @api.put("/api/settings/models")
@@ -46,9 +49,11 @@ def create_system_blueprint(settings: SettingsManager, models: ModelRegistry,
         proposed = {**settings.read(), **payload}
         try:
             models.validate_selection(proposed)
-            saved = settings.update(payload)
+            saved = (apply_settings or settings.update)(payload)
         except (ValueError, TypeError) as exc:
             return jsonify(error=str(exc)), 400
+        except RuntimeError as exc:
+            return jsonify(error=str(exc)), 409
         return jsonify(settings=saved)
 
     return api
