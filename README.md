@@ -218,7 +218,8 @@ python app.py --source 0 --source-kind camera --every 1
 既定のLipla-jpでは車両領域のBGR画像からライブラリ内蔵のプレート検出・補正・OCRを一度で実行します。
 別のOCRモデルを選択すると、候補枠の周囲に余白を加え、幅480pxを目安に最大4倍まで拡大し、上下段を分けて読みます。
 従来方式では複数の前処理結果の合意を優先します。信頼度を引き上げたり、
-推測で文字を置換したりはしません。`GATE_OCR_BACKEND=easyocr|paddle|lipla|compare|auto` で切替でき、
+推測で文字を置換したりはしません。`GATE_OCR_BACKEND` 未設定時は `lipla` です。
+`GATE_OCR_BACKEND=easyocr|paddle|lipla|compare|auto` で切替でき、
 `compare` は両方を実行、`auto` は `accuracy_benchmark.py` の固定評価結果を使用します。比較前はPaddleOCR、
 画面で追加学習済みEasyOCRを適用した直後はEasyOCRを選び、再比較後は成績の良い方へ切り替えます。
 モデル設定画面では「Lipla-jp 内蔵プレート検出」と「Lipla-jp EdgeCrafter + PPOCRv6」が既定で選択されます。

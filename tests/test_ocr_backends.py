@@ -22,6 +22,10 @@ class Recognition:
 
 
 class OCRBackendTests(unittest.TestCase):
+    def test_unset_backend_defaults_to_lipla(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(selected_backend(directory), 'lipla')
+
     def test_fast_alpr_reader_adapts_result(self):
         class OCR:
             text='品川330さ1234'; confidence=[.9, .8]

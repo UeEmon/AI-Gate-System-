@@ -130,7 +130,7 @@ class FastALPRReader:
 
 
 def selected_backend(root):
-    requested = os.getenv('GATE_OCR_BACKEND', 'auto').lower()
+    requested = os.getenv('GATE_OCR_BACKEND', 'lipla').lower()
     if requested != 'auto':
         return requested
     path = Path(root) / 'ocr-learning' / 'benchmark.json'
