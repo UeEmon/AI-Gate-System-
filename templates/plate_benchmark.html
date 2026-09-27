@@ -6,22 +6,26 @@
 {% if not job %}
 <section><h2>入力とモデル</h2><form method="post" action="/run" enctype="multipart/form-data">
 <input type="hidden" name="csrf" value="{{ session.csrf }}">
-<label>画像・動画（最大1GB）<br><input name="source" type="file" accept=".jpg,.jpeg,.png,.bmp,.webp,.mp4,.mov,.avi,.mkv" required></label>
+<label>入力方式<br><select name="source_kind" id="source-kind"><option value="file">画像・動画をアップロード</option><option value="rtmp">RTMP / RTMPS ライブ配信</option></select></label>
+<label id="file-input">画像・動画（最大1GB）<br><input name="source" type="file" accept=".jpg,.jpeg,.png,.bmp,.webp,.mp4,.mov,.avi,.mkv" required></label>
+<label id="stream-input" hidden>配信URL（rtmp:// または rtmps://）<br><input name="stream_url" type="url" placeholder="rtmp://host:1935/live/stream" autocomplete="off" spellcheck="false" style="width:100%" disabled></label>
+<p class="muted">DockerからMac上の配信サーバーに接続する場合、URLのホストには host.docker.internal を指定します。接続を止めるには検証画面の停止ボタンを押してください。</p>
 <div class="grid"><label>プレート検出<br><select name="model"><option value="">OpenCV 輪郭抽出</option>{% for model in models %}<option>{{ model }}</option>{% endfor %}</select></label>
 <label>OCR<br><select name="ocr">{% for key,label in backend_choices.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></label></div>
 <label>実行デバイス<br><select name="device"><option value="cpu">CPU</option><option value="auto">自動（CUDA → MPS → CPU）</option><option value="mps">Mac GPU / MPS（Mac直接起動・EasyOCR）</option><option value="cuda">NVIDIA CUDA（対応環境・EasyOCR）</option></select></label>
 <p class="muted">MacのDockerではCPUになります。MPSはMac上でWebサーバーを直接起動してください。GPU指定時のOCRはEasyOCRを選択します。</p>
 <p class="muted">AI検出用の専用重み（.pt）をMacの benchmark-models に置くと選択できます。OpenCVは学習済みAIモデルではありません。</p>
 <div class="grid"><label>処理間隔（フレーム）<br><input name="every" type="number" min="1" max="100" value="1" required></label><label>最大処理枚数<br><input name="maximum" type="number" min="1" max="300" value="100" required></label><label>速度集計から除く初期枚数<br><input name="warmup" type="number" min="0" max="299" value="0" required></label></div>
-<button>検証を開始</button></form></section>
+<button>検証を開始</button></form></section><script>const mode=document.getElementById('source-kind'),file=document.getElementById('file-input'),stream=document.getElementById('stream-input');function changeSource(){const live=mode.value==='rtmp';file.hidden=live;stream.hidden=!live;file.querySelector('input').disabled=live;stream.querySelector('input').disabled=!live;stream.querySelector('input').required=live}mode.addEventListener('change',changeSource);changeSource()</script>
 <section><h2>この起動中の検証</h2>{% for id in jobs %}<p><a href="/jobs/{{ id }}">{{ id }}</a></p>{% else %}<p>まだ検証はありません。</p>{% endfor %}</section>
 {% else %}
 <a href="/">新しい検証へ</a><section><h2>{{ job.name }}</h2>
-{% if code is none %}<p>処理中です。モデルの初回取得には時間がかかります。この画面は自動更新されます。</p>
+{% if code is none %}<p>処理中です。{{ total_frames }}フレームの結果を受信しました。この画面は自動更新されます。直近10フレームを表示します。</p><form method="post" action="{{ url_for('stop',identifier=identifier) }}"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button type="submit">検証を停止</button></form>
 {% elif summary %}<p>検証完了</p><p>検出デバイス：{{ summary.detector_device }} ／ OCRデバイス：{{ summary.ocr_devices }}</p><div class="grid"><p>処理フレーム<br><strong>{{ summary.frames }}</strong></p><p>推論FPS<br><strong>{{ '%.2f'|format(summary.inference_fps) if summary.inference_fps is not none else '対象なし' }}</strong></p><p>p95遅延（ms）<br><strong>{{ '%.2f'|format(summary.inference_p95_ms) if summary.inference_p95_ms is not none else '対象なし' }}</strong></p><p>保存・読込込みFPS<br><strong>{{ '%.2f'|format(summary.end_to_end_fps) if summary.end_to_end_fps is not none else '対象なし' }}</strong></p></div>
 <p>検出あり：{{ summary.detected_frames }}フレーム ／ 文字読取あり：{{ summary.text_read_frames }}フレーム</p><p class="muted">正解ラベル未指定のため検出率・OCR正解率は未算出です。件数は正解数ではありません。</p>
 <p><a href="{{ url_for('artifact',identifier=identifier,filename=result_dir+'/summary.json') }}">測定結果JSON</a> · <a href="{{ url_for('artifact',identifier=identifier,filename=result_dir+'/frames.jsonl') }}">全フレーム結果</a></p>
 <table><tr><th>工程</th><th>平均時間（ms）</th></tr>{% for key,label in [('plate_detection_ms','プレート検出'),('rectification_ms','台形補正'),('ocr_ms','OCR')] %}<tr><td>{{ label }}</td><td>{{ '%.2f'|format(summary.mean_stage_ms[key]) if summary.mean_stage_ms[key] is not none else '対象なし' }}</td></tr>{% endfor %}</table>
+{% elif job.stopped %}<p>検証を停止しました。処理済み {{ total_frames }} フレームの画像とJSONは保持されています。</p>
 {% else %}<p>処理に失敗しました。下のログを確認してください。</p><pre>{{ log }}</pre>{% endif %}</section>
 {% for frame in records %}<article><h3>フレーム {{ frame.frame_index }} · {{ '%.1f'|format(frame.inference_ms) }} ms</h3><img loading="lazy" alt="プレート検出枠" src="{{ url_for('artifact',identifier=identifier,filename=result_dir+'/%08d.jpg'|format(frame.frame_index)) }}">
 {% for candidate in frame.candidates %}<p><strong>{{ candidate.text }}</strong> ／ 枠 {{ candidate.bbox_in_frame }} ／ OCR信頼度 {{ candidate.confidence }}</p>{% else %}<p>OCR文字列なし（未検出または読取失敗）</p>{% endfor %}</article>{% endfor %}

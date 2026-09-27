@@ -9,6 +9,49 @@ from plate_benchmark_web import create_app
 
 
 class PlateWebTests(unittest.TestCase):
+    def test_rtmp_live_progress_stop_and_url_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = create_app(tmp, tmp, password='test-password')
+            app.testing = True
+            client = app.test_client()
+            auth = {'Authorization': 'Basic YWRtaW46dGVzdC1wYXNzd29yZA=='}
+            client.get('/', headers=auth)
+            with client.session_transaction() as session:
+                csrf = session['csrf']
+            invalid = client.post('/run', headers=auth, data=dict(
+                csrf=csrf, source_kind='rtmp', stream_url='https://example.org/secret'))
+            self.assertEqual(invalid.status_code, 400)
+            invalid = client.post('/run', headers=auth, data=dict(
+                csrf=csrf, source_kind='rtmp', stream_url='rtmp://broken:bad/live'))
+            self.assertEqual(invalid.status_code, 400)
+
+            running = Mock()
+            running.poll.return_value = None
+            def launch(command, **kwargs):
+                self.assertEqual(command[command.index('--source') + 1],
+                                 'rtmp://user:secret@example.org/live/test?token=private')
+                output = Path(command[command.index('--output') + 1]) / 'result'
+                output.mkdir(parents=True)
+                (output / 'frames.jsonl').write_text(
+                    json.dumps(dict(frame_index=4, inference_ms=20, candidates=[])) + '\n'
+                    + '{"incomplete":')
+                (output / '00000004.jpg').write_bytes(b'image')
+                return running
+            with patch('plate_benchmark_web.subprocess.Popen', side_effect=launch):
+                response = client.post('/run', headers=auth, data=dict(
+                    csrf=csrf, source_kind='rtmp',
+                    stream_url='rtmp://user:secret@example.org/live/test?token=private'))
+            self.assertEqual(response.status_code, 302)
+            live = client.get(response.location, headers=auth)
+            self.assertEqual(live.status_code, 200)
+            self.assertIn('1フレーム', live.get_data(as_text=True))
+            self.assertNotIn('secret', live.get_data(as_text=True))
+            self.assertNotIn('token=private', live.get_data(as_text=True))
+            stopped = client.post(response.location + '/stop', headers=auth,
+                                  data=dict(csrf=csrf))
+            self.assertEqual(stopped.status_code, 302)
+            running.terminate.assert_called_once()
+
     def test_upload_results_and_access_controls(self):
         with tempfile.TemporaryDirectory() as tmp:
             app = create_app(tmp, tmp, password='test-password')

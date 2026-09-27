@@ -5,13 +5,27 @@ import os
 from pathlib import Path
 import time
 import uuid
+from urllib.parse import urlsplit
+
+
+def is_rtmp(source):
+    parsed = urlsplit(source)
+    return parsed.scheme.lower() in {'rtmp', 'rtmps'} and bool(parsed.hostname)
+
+
+def public_source(source):
+    """Never write stream credentials or query tokens into benchmark artifacts."""
+    if is_rtmp(source):
+        parsed = urlsplit(source)
+        return f'{parsed.scheme}://{parsed.hostname}' + (f':{parsed.port}' if parsed.port else '') + '/…'
+    return str(source)
 
 
 def run(args):
     import cv2
     import easyocr
     import numpy as np
-    from app import frames, read_plate
+    from app import frames, live_frames, read_plate
     from ocr_backends import make_readers
 
     destination = Path(args.output) / uuid.uuid4().hex
@@ -28,7 +42,9 @@ def run(args):
     # No vehicle model is constructed or called.
     readers = make_readers(Path(args.data), easyocr, os.getenv('GATE_OFFLINE') == '1')
     initialization_ms = (time.perf_counter() - started) * 1000
-    stream = frames(args.source, cv2, args.every)
+    live = is_rtmp(args.source)
+    stream = (live_frames(args.source, cv2, args.every) if live else
+              frames(args.source, cv2, args.every))
     latencies = []
     stages = {key: [] for key in ('plate_detection_ms', 'rectification_ms', 'ocr_ms')}
     detected = read = count = 0
@@ -64,6 +80,7 @@ def run(args):
                         raise OSError('検証画像を保存できません。')
                     encoded.tofile(destination / f'{index:08d}.jpg')
                 output.write(json.dumps(record, ensure_ascii=False) + '\n')
+                output.flush()  # Allow the browser to display live results.
                 count += 1
                 detected += bool(report['proposals'])
                 read += bool(candidates)
@@ -76,7 +93,7 @@ def run(args):
     finally:
         stream.close()
     elapsed = time.perf_counter() - processing_started
-    summary = dict(vehicle_detection=False, source=args.source,
+    summary = dict(vehicle_detection=False, source=public_source(args.source), live_stream=live,
                    plate_model=args.plate_model or 'opencv-plate-contours',
                    ocr_backends=[name for name, _ in readers],
                    requested_device=os.getenv('GATE_INFERENCE_DEVICE', 'cpu'),

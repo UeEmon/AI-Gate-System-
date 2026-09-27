@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import uuid
+from urllib.parse import urlsplit
 
 from flask import Flask, abort, redirect, render_template, request, session, send_from_directory, url_for
 
@@ -54,10 +55,24 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
 
     @app.post('/run')
     def start():
-        file = request.files.get('source')
+        source_kind = request.form.get('source_kind', 'file')
+        if source_kind not in {'file', 'rtmp'}:
+            abort(400, '入力方式が不正です。')
+        file = request.files.get('source') if source_kind == 'file' else None
         suffix = Path(file.filename or '').suffix.lower() if file else ''
-        if suffix not in {'.jpg', '.jpeg', '.png', '.bmp', '.webp', '.mp4', '.mov', '.avi', '.mkv'}:
+        if source_kind == 'file' and suffix not in {
+                '.jpg', '.jpeg', '.png', '.bmp', '.webp', '.mp4', '.mov', '.avi', '.mkv'}:
             abort(400, '対応する画像・動画を選択してください。')
+        stream_url = request.form.get('stream_url', '').strip() if source_kind == 'rtmp' else ''
+        if source_kind == 'rtmp':
+            try:
+                parsed = urlsplit(stream_url)
+                valid = (parsed.scheme.lower() in {'rtmp', 'rtmps'} and bool(parsed.hostname)
+                         and parsed.port != 0 and not parsed.fragment)
+            except ValueError:
+                valid = False
+            if not valid or len(stream_url) > 2048 or any(ord(char) < 32 for char in stream_url):
+                abort(400, 'rtmp:// または rtmps:// のURLを指定してください。')
         backend = request.form.get('ocr', 'paddle')
         model = request.form.get('model', '')
         device = request.form.get('device', 'cpu')
@@ -81,8 +96,9 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
             identifier = uuid.uuid4().hex
             folder = root / identifier
             folder.mkdir()
-            source = folder / ('input' + suffix)
-            file.save(source)
+            source = stream_url if source_kind == 'rtmp' else folder / ('input' + suffix)
+            if file:
+                file.save(source)
             command = [sys.executable, str(Path(__file__).with_name('plate_only_benchmark.py')),
                        '--source', str(source), '--output', str(folder / 'results'),
                        '--data', str(folder), '--every', str(every), '--max-frames', str(maximum),
@@ -94,7 +110,9 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
                        GATE_FAST_OCR_MODEL_PATH='', GATE_FAST_OCR_CONFIG_PATH='')
             with (folder / 'run.log').open('w') as log:
                 process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, env=env)
-            jobs[identifier] = {'process': process, 'folder': folder, 'name': file.filename}
+            jobs[identifier] = {'process': process, 'folder': folder,
+                                'name': 'RTMPライブ配信' if source_kind == 'rtmp' else file.filename,
+                                'live': source_kind == 'rtmp'}
         return redirect(url_for('result', identifier=identifier))
 
     @app.get('/jobs/<identifier>')
@@ -104,15 +122,41 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
             abort(404)
         code = job['process'].poll()
         summary, records, result_dir = None, [], None
-        if code == 0:
-            summaries = list((job['folder'] / 'results').glob('*/summary.json'))
-            if summaries:
-                result_dir = summaries[0].parent.name
-                summary = json.loads(summaries[0].read_text())
-                records = [json.loads(line) for line in (summaries[0].parent / 'frames.jsonl').read_text().splitlines()]
-        log = (job['folder'] / 'run.log').read_text(errors='replace')[-6000:] if code is not None else ''
+        results = list((job['folder'] / 'results').glob('*/frames.jsonl'))
+        if results:
+            result_dir = results[0].parent.name
+            # Ignore an incomplete final line while the child is writing.
+            with results[0].open(encoding='utf-8') as stream:
+                for line in stream:
+                    try:
+                        records.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        break
+            summary_file = results[0].parent / 'summary.json'
+            if summary_file.is_file() and code == 0:
+                summary = json.loads(summary_file.read_text())
+        total_frames = len(records)
+        if code is None:
+            records = records[-10:]
+        # FFmpeg can embed stream credentials in an error; keep raw logs server-side.
+        log = ('RTMP接続または処理に失敗しました。接続先・ログをサーバーで確認してください。'
+               if job['live'] and code not in (None, 0) else
+               (job['folder'] / 'run.log').read_text(errors='replace')[-6000:]
+               if code is not None else '')
         return render_template('plate_benchmark.html', job=job, identifier=identifier, code=code,
-                               summary=summary, records=records, result_dir=result_dir, log=log)
+                               summary=summary, records=records, result_dir=result_dir,
+                               total_frames=total_frames, log=log)
+
+    @app.post('/jobs/<identifier>/stop')
+    def stop(identifier):
+        job = jobs.get(identifier)
+        if not job:
+            abort(404)
+        with lock:
+            if job['process'].poll() is None:
+                job['process'].terminate()
+                job['stopped'] = True
+        return redirect(url_for('result', identifier=identifier))
 
     @app.get('/jobs/<identifier>/files/<path:filename>')
     def artifact(identifier, filename):
