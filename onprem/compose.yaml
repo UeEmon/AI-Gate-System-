@@ -32,6 +32,28 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+  trainer:
+    platform: linux/amd64
+    build:
+      context: ..
+      dockerfile: Dockerfile.paddle
+    image: ai-gate-system:paddle-trainer
+    restart: unless-stopped
+    init: true
+    environment:
+      GATE_MODEL_ROOT: /models
+      GATE_PADDLE_AUTO_TRAIN: '1'
+      GATE_PADDLE_TRAIN_REPO: /training/PaddleOCR
+      GATE_PADDLE_PRETRAINED: /models/PP-OCRv5_mobile_rec_pretrained.pdparams
+    volumes:
+      - gate-data:/data
+      - gate-models:/models
+      - ../PaddleOCR:/training/PaddleOCR:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 volumes:
   gate-data:
   gate-models:

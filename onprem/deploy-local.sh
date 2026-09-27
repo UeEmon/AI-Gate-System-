@@ -39,11 +39,11 @@ if [[ "$RESET_DATA" -eq 1 ]]; then
     echo "中止しました。"
     exit 1
   fi
-  docker compose --env-file "$SCRIPT_DIR/.env" -f "$COMPOSE_FILE" stop gate || true
+  docker compose --env-file "$SCRIPT_DIR/.env" -f "$COMPOSE_FILE" stop gate trainer || true
   docker compose --env-file "$SCRIPT_DIR/.env" -f "$COMPOSE_FILE" run --rm --no-deps gate \
     python -m aigate.reset /data --confirm "DELETE DATA"
 fi
 
 # down -v はモデル用volumeも消すため使用しない。
-docker compose --env-file "$SCRIPT_DIR/.env" -f "$COMPOSE_FILE" up -d --remove-orphans gate
+docker compose --env-file "$SCRIPT_DIR/.env" -f "$COMPOSE_FILE" up -d --remove-orphans gate trainer
 docker compose --env-file "$SCRIPT_DIR/.env" -f "$COMPOSE_FILE" ps

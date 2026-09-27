@@ -1,6 +1,5 @@
 services:
   trainer:
-    profiles: [paddle-training]
     platform: linux/amd64
     build:
       context: ..

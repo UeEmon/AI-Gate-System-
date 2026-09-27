@@ -45,10 +45,10 @@ cd onprem
 cp env.example .env
 # .envの管理パスワードを必ず変更する
 docker compose up -d --build
-docker compose logs --tail=100 gate
+docker compose logs --tail=100 gate trainer
 ```
 
-既定はlocalhost:8080に公開します。名前付きvolume `gate-data` / `gate-models` にデータ・モデルを保持します。
+`gate` と `trainer` が同時に起動します。運用の `gate` はLipla-jpだけを使います。`trainer` は学習コード・事前学習重みが揃うまで待機状態を表示し、運用側の起動には影響しません。既定はlocalhost:8080に公開します。名前付きvolume `gate-data` / `gate-models` にデータ・モデルを保持します。
 同じComposeプロジェクト名で再起動してください。`down -v` は保存領域を削除するため使用しないでください。
 ComposeのUSBデバイス割当は含めていません。Docker版では端末WebカメラまたはRTSPを利用します。
 この環境ではDockerビルドとWindows実機検証は未実施です。
@@ -57,7 +57,7 @@ ComposeのUSBデバイス割当は含めていません。Docker版では端末W
 
 通常運用はLipla-jpです。Web画面でナンバーを修正し、4項目と画像範囲を確認して学習データに保存すると、手動修正値が正解になります。Lipla-jpの未修正結果も、信頼度98%以上であれば**学習側だけ**に追加します。評価側には手動確認済みの画像のみを入れます。最低でも別番号の学習用5件・評価用2件が必要です。少量では実運用精度は判定できないため、実際には多様な撮影条件と十分な独立評価データを集めてください。
 
-学習は運用コンテナから隔離した `trainer` コンテナで行います。モデルと教師データは名前付きvolumeで共有します。`docker compose down -v` は学習データも削除するため、保存したい場合は使用しないでください。
+学習は運用コンテナから隔離した `trainer` コンテナで行います。標準の `docker compose up -d --build` で両方起動します。モデルと教師データは名前付きvolumeで共有します。`docker compose down -v` は学習データも削除するため、保存したい場合は使用しないでください。
 
 次に[PaddleOCR公式の学習用コード](https://github.com/PaddlePaddle/PaddleOCR)をリポジトリ直下の `PaddleOCR` ディレクトリに取得し、[PP-OCRv5_mobile_recの事前学習重み](https://paddle-model-ecology.bj.bcebos.com/paddlex/official_pretrained_model/PP-OCRv5_mobile_rec_pretrained.pdparams)を `gate-models` volume の `/models/PP-OCRv5_mobile_rec_pretrained.pdparams` に置きます。学習コンテナは `linux/amd64` で動かすため、Apple SiliconのDocker Desktopではエミュレーションにより学習・評価が遅くなる可能性があります。重みや依存ライブラリの取得・導入に失敗した場合はそこで停止してください。
 
@@ -68,16 +68,16 @@ mkdir -p models
 curl -fL -o models/PP-OCRv5_mobile_rec_pretrained.pdparams \
   https://paddle-model-ecology.bj.bcebos.com/paddlex/official_pretrained_model/PP-OCRv5_mobile_rec_pretrained.pdparams
 cd onprem
-docker compose -f compose.yaml -f compose.paddle.yaml --profile paddle-training build trainer
-docker compose -f compose.yaml -f compose.paddle.yaml run --rm \
+docker compose build trainer
+docker compose run --rm \
   -v "$PWD/../models:/transfer:ro" trainer \
   cp /transfer/PP-OCRv5_mobile_rec_pretrained.pdparams /models/
 ```
 
 ```sh
-docker compose -f compose.yaml -f compose.paddle.yaml run --rm trainer \
+docker compose run --rm trainer \
   python paddle_training.py --data /data --output /data/ocr-learning/paddle/run-001
-docker compose -f compose.yaml -f compose.paddle.yaml run --rm trainer \
+docker compose run --rm trainer \
   python paddle_finetune.py --dataset /data/ocr-learning/paddle/run-001 \
   --paddle-repo /training/PaddleOCR \
   --pretrained /models/PP-OCRv5_mobile_rec_pretrained.pdparams
@@ -86,13 +86,13 @@ docker compose -f compose.yaml -f compose.paddle.yaml run --rm trainer \
 このコマンドは車両画像のLipla-jp検出枠から1クラスのYOLOプレート検出器を学習し、確認済みの上下2行画像からPP-OCRv5_mobile_recを追加学習・評価・推論形式に変換します。学習したモデルは `/data/ocr-learning/paddle/run-001/weights/` に保存します。学習スクリプトは本番モデルを自動で切り替えません。評価用の手動確認画像で検出率、ナンバー完全一致率、遅延を計測し、別の実映像でも確認してください。
 
 ```sh
-docker compose -f compose.yaml -f compose.paddle.yaml run --rm trainer \
+docker compose run --rm trainer \
   python paddle_evaluate.py --data /data --dataset /data/ocr-learning/paddle/run-001 \
   --plate-weights /data/ocr-learning/paddle/run-001/weights/plate.pt \
   --recognition-dir /data/ocr-learning/paddle/run-001/weights/paddle-inference
 ```
 
-自動追加学習を行う場合は `docker compose -f compose.yaml -f compose.paddle.yaml --profile paddle-training up -d trainer` で学習コンテナを起動します。新しい手動修正データが保存されると約30秒ごとに確認し、条件を満たせばバックエンドで学習します。Web画面と `GET /api/paddle-training` で状態を確認できます。学習失敗時は `/data/ocr-learning/paddle/auto-*/train.log` を確認し、データを修正して再実行します。**学習済み重みは運用コンテナには読み込まれません。運用の検出・OCRは常にLipla-jpです。**
+新しい手動修正データが保存されると、`trainer` は約30秒ごとに確認し、学習コード・重みと教師データが揃った時点で自動学習を開始します。Web画面と `GET /api/paddle-training` で状態を確認できます。学習失敗時は `/data/ocr-learning/paddle/auto-*/train.log` を確認し、データを修正して再実行します。**学習済み重みは運用コンテナには読み込まれません。運用の検出・OCRは常にLipla-jpです。**
 
 ## 社内SMTP通知
 
