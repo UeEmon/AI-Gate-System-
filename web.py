@@ -23,7 +23,7 @@ from app import open_database
 import events
 import registry_csv
 import ocr_learning
-from plate_rules import OCR_RESULT_CONFIDENCE
+from plate_rules import OCR_RESULT_CONFIDENCE, VEHICLE_RESULT_CONFIDENCE
 from aigate.model_registry import ModelRegistry
 from aigate.performance import PerformanceManager
 from aigate.settings import SettingsManager
@@ -72,9 +72,9 @@ class JobManager:
                 id TEXT PRIMARY KEY, kind TEXT NOT NULL, label TEXT NOT NULL,
                 status TEXT NOT NULL, created_at TEXT NOT NULL,
                 ended_at TEXT, error TEXT, every INTEGER NOT NULL,
-                confidence REAL NOT NULL, ocr_confidence REAL NOT NULL DEFAULT 0.7)''')
+                confidence REAL NOT NULL, ocr_confidence REAL NOT NULL DEFAULT 0.8)''')
             if 'ocr_confidence' not in {row[1] for row in db.execute('PRAGMA table_info(jobs)')}:
-                db.execute('ALTER TABLE jobs ADD COLUMN ocr_confidence REAL NOT NULL DEFAULT 0.7')
+                db.execute('ALTER TABLE jobs ADD COLUMN ocr_confidence REAL NOT NULL DEFAULT 0.8')
             db.execute("UPDATE jobs SET status='interrupted', ended_at=?, error=? WHERE status IN ('starting','running','stopping')",
                        (now(), 'サーバー再起動により処理状態をリセットしました。'))
 
@@ -409,8 +409,8 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
             abort(400, description='入力方式を選択してください。')
         try:
             every = int(request.form.get('every', '1'))
-            confidence = float(request.form.get('vehicle_confidence', request.form.get('confidence', '0.8')))
-            ocr_confidence = float(request.form.get('ocr_confidence', '0.7'))
+            confidence = float(request.form.get('vehicle_confidence', request.form.get('confidence', str(VEHICLE_RESULT_CONFIDENCE))))
+            ocr_confidence = float(request.form.get('ocr_confidence', str(OCR_RESULT_CONFIDENCE)))
             if not 1 <= every <= 1000 or not 0 < confidence <= 1 or not 0 < ocr_confidence <= 1:
                 raise ValueError
         except ValueError:
@@ -550,7 +550,7 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
                        processed_at=item['processed_at'], frame_index=item['frame_index'],
                        vehicle_type=item['vehicle_type'], confidence=item['confidence'],
                        result_thresholds=item.get('result_thresholds',
-                                                  {'vehicle': .8, 'ocr': OCR_RESULT_CONFIDENCE}),
+                                                  {'vehicle': VEHICLE_RESULT_CONFIDENCE, 'ocr': OCR_RESULT_CONFIDENCE}),
                        plate_candidates=item.get('plate_candidates', []),
                        has_image=bool(item.get('image_path')))
 

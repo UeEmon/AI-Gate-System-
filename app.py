@@ -505,7 +505,7 @@ def main():
     parser.add_argument('--source', required=True, help='写真、動画のパス、カメラ番号（0）またはRTSP URL')
     parser.add_argument('--output', default='data')
     parser.add_argument('--every', type=int, default=10, help='動画・カメラをNフレームごとに処理')
-    parser.add_argument('--confidence', type=float, default=0.4)
+    parser.add_argument('--confidence', type=float, default=VEHICLE_RESULT_CONFIDENCE)
     parser.add_argument('--vehicle-threshold', type=float, default=VEHICLE_RESULT_CONFIDENCE)
     parser.add_argument('--ocr-threshold', type=float, default=OCR_RESULT_CONFIDENCE)
     parser.add_argument('--imgsz', type=int, default=960,
