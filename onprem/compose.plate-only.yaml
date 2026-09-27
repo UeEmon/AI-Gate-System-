@@ -4,7 +4,7 @@ services:
     image: ai-gate-system:plate-test
     init: true
     ports:
-      - "${GATE_BIND_ADDRESS:-127.0.0.1}:${GATE_BENCHMARK_PORT:-8888}:8080"
+      - "${GATE_BIND_ADDRESS:-127.0.0.1}:${GATE_BENCHMARK_PORT:-8889}:8080"
     environment:
       GATE_ADMIN_PASSWORD: ${GATE_ADMIN_PASSWORD:?Set an admin password}
       GATE_OFFLINE: "0"
