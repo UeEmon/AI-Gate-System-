@@ -53,6 +53,54 @@ docker compose logs --tail=100 gate
 ComposeのUSBデバイス割当は含めていません。Docker版では端末WebカメラまたはRTSPを利用します。
 この環境ではDockerビルドとWindows実機検証は未実施です。
 
+## 日本プレート専用検出器とPaddleOCRの追加学習（任意）
+
+通常運用はLipla-jpです。Web画面でナンバーを修正し、4項目と画像範囲を確認して学習データに保存すると、手動修正値が正解になります。Lipla-jpの未修正結果も、信頼度98%以上であれば**学習側だけ**に追加します。評価側には手動確認済みの画像のみを入れます。最低でも別番号の学習用5件・評価用2件が必要です。少量では実運用精度は判定できないため、実際には多様な撮影条件と十分な独立評価データを集めてください。
+
+`onprem/.env` を設定済みとして、最初に標準イメージをビルドします。モデルとデータは名前付きvolumeに保存されます。`docker compose down -v` は実行しないでください。
+
+```sh
+cd onprem
+DOCKER_DEFAULT_PLATFORM=linux/amd64 docker compose build gate
+docker compose run --rm gate python paddle_training.py \
+  --data /data --output /data/ocr-learning/paddle/run-001
+```
+
+次に[PaddleOCR公式の学習用コード](https://github.com/PaddlePaddle/PaddleOCR)をリポジトリ直下の `PaddleOCR` ディレクトリに取得し、[PP-OCRv5_mobile_recの事前学習重み](https://paddle-model-ecology.bj.bcebos.com/paddlex/official_pretrained_model/PP-OCRv5_mobile_rec_pretrained.pdparams)を `gate-models` volume の `/models/PP-OCRv5_mobile_rec_pretrained.pdparams` に置きます。Paddle版は `linux/amd64` で動かすため、Apple SiliconのDocker Desktopではエミュレーションにより学習・推論が遅くなる可能性があります。重みや依存ライブラリの取得・導入に失敗した場合はそこで停止してください。
+
+```sh
+# リポジトリのルートから実行
+git clone --depth 1 https://github.com/PaddlePaddle/PaddleOCR.git PaddleOCR
+mkdir -p models
+curl -fL -o models/PP-OCRv5_mobile_rec_pretrained.pdparams \
+  https://paddle-model-ecology.bj.bcebos.com/paddlex/official_pretrained_model/PP-OCRv5_mobile_rec_pretrained.pdparams
+cd onprem
+docker compose run --rm -v "$PWD/../models:/transfer:ro" gate \
+  cp /transfer/PP-OCRv5_mobile_rec_pretrained.pdparams /models/
+```
+
+```sh
+cd onprem
+docker compose -f compose.yaml -f compose.paddle.yaml build gate
+docker compose -f compose.yaml -f compose.paddle.yaml run --rm gate \
+  python paddle_finetune.py --dataset /data/ocr-learning/paddle/run-001 \
+  --paddle-repo /training/PaddleOCR \
+  --pretrained /models/PP-OCRv5_mobile_rec_pretrained.pdparams
+```
+
+このコマンドは車両画像のLipla-jp検出枠から1クラスのYOLOプレート検出器を学習し、確認済みの上下2行画像からPP-OCRv5_mobile_recを追加学習・評価・推論形式に変換します。学習したモデルは `/data/ocr-learning/paddle/run-001/weights/` に保存します。学習スクリプトは本番モデルを自動で切り替えません。評価用の手動確認画像で検出率、ナンバー完全一致率、遅延を計測し、別の実映像でも確認してください。
+
+```sh
+docker compose -f compose.yaml -f compose.paddle.yaml run --rm gate \
+  python paddle_evaluate.py --data /data --dataset /data/ocr-learning/paddle/run-001 \
+  --plate-weights /data/ocr-learning/paddle/run-001/weights/plate.pt \
+  --recognition-dir /data/ocr-learning/paddle/run-001/weights/paddle-inference
+```
+
+評価済みの `plate.pt` と `paddle-inference` の内容を、それぞれ `/models/plate.pt` と `/models/paddle-rec/` に配置します。`onprem/.env` の `GATE_PLATE_PIPELINE=paddle` を指定し、同じ2つのComposeファイルで `up -d` すると専用検出器→PaddleOCRの経路になります。Lipla-jpに戻す場合は `GATE_PLATE_PIPELINE=lipla` として再起動します。モデル選択用のWeb画面はありません。
+
+自動追加学習を行う場合、`onprem/.env` に `GATE_PADDLE_AUTO_TRAIN=1` を設定し、学習用コード・事前学習重みの配置後にPaddle版コンテナを起動します。学習可能な確認済みデータが揃い、新しい修正データを保存した際にバックエンドで学習を開始します。状態は `GET /api/paddle-training`、再試行は管理画面の認証・CSRFトークンを付けて `POST /api/paddle-training/start` で確認できます。学習失敗時は `/data/ocr-learning/paddle/auto-*/train.log` を確認してください。学習結果は自動では運用モデルに適用しません。
+
 ## 社内SMTP通知
 
 ネイティブ版はシェルの環境変数、Docker版は `onprem/.env` を設定します。

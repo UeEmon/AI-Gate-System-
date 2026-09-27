@@ -1,0 +1,4 @@
+FROM ai-gate-system:onprem
+USER root
+RUN python -m pip install --no-cache-dir 'paddlepaddle>=3,<4' 'paddleocr>=3,<4'
+USER gate

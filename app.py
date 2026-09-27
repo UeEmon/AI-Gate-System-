@@ -333,6 +333,12 @@ def read_plate(crop, reader, cv2, ocr_threshold=OCR_RESULT_CONFIDENCE, plate_mod
         if diagnostics is not None:
             diagnostics.update(report)
         return candidates
+    if len(reader) == 1 and reader[0][0] == 'paddle-plate':
+        from paddle_plate_pipeline import PaddlePlatePipeline
+        candidates, report = PaddlePlatePipeline(plate_model, reader[0][1], parse_plate).run(crop)
+        if diagnostics is not None:
+            diagnostics.update(report)
+        return candidates
     from plate_pipeline import PlateRecognitionPipeline, PlateRectifier
     pipeline = PlateRecognitionPipeline(
         make_plate_detector(cv2, plate_model), PlateRectifier(cv2),
@@ -527,6 +533,7 @@ def main():
     shared_address = os.getenv('GATE_MODEL_SERVICE_SOCKET')
     offline=os.getenv('GATE_OFFLINE')=='1'
     fixed_vehicle_model = str(Path(os.getenv('GATE_MODEL_ROOT', 'models')) / 'yolo26n.pt')
+    paddle_plate_model = os.getenv('GATE_PADDLE_PLATE_WEIGHTS') if os.getenv('GATE_PLATE_PIPELINE') == 'paddle' else None
     if offline and not shared_address and not Path(fixed_vehicle_model).is_file():
         raise ValueError('オフライン用のYOLOモデルを事前に配置してください。')
     out = Path(args.output)
@@ -539,7 +546,7 @@ def main():
     else:
         from ultralytics import YOLO
         model, plate_model, reader = initialize_models(
-            fixed_vehicle_model, None, out, None, YOLO, offline)
+            fixed_vehicle_model, paddle_plate_model, out, None, YOLO, offline)
     run_id = args.run_id or uuid.uuid4().hex
     db = open_database(out / 'gate.db')
     is_live = args.source_kind in ('camera', 'browser') or (args.source_kind == 'auto' and

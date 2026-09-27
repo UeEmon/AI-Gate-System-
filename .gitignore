@@ -8,6 +8,8 @@ data/
 *.onnx
 .env
 models/
+PaddleOCR/
+*.pdparams
 .visual-check.html
 dist/
 wheelhouse/

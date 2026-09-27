@@ -1,11 +1,15 @@
 """Train higher-accuracy vehicle or dedicated plate YOLO26 models."""
 import argparse
+import os
 from pathlib import Path
 
 
 def train(data, output, task, epochs, imgsz):
     from ultralytics import YOLO
     base = 'yolo26s.pt' if task == 'vehicle' else 'yolo26n.pt'
+    cached = Path(os.getenv('GATE_MODEL_ROOT', '/models')) / base
+    if cached.is_file():
+        base = str(cached)
     model = YOLO(base)
     result = model.train(data=str(data), epochs=epochs, imgsz=imgsz,
                          project=str(Path(output).parent), name=Path(output).stem,

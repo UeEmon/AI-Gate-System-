@@ -1,0 +1,10 @@
+services:
+  gate:
+    # Linux PaddlePaddle pip packages are supported on x86_64.
+    platform: linux/amd64
+    build:
+      context: ..
+      dockerfile: Dockerfile.paddle
+    image: ai-gate-system:paddle
+    volumes:
+      - ../PaddleOCR:/training/PaddleOCR:ro
