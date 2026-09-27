@@ -45,24 +45,6 @@ class LiplaPlateReader:
         return output
 
 
-class PaddleLineReader:
-    """Use a fine-tuned PP-OCRv5 inference model for one plate text line."""
-    def __init__(self, directory):
-        import paddleocr
-        directory = Path(directory)
-        if not (directory / 'inference.pdiparams').is_file():
-            raise FileNotFoundError(f'PaddleOCR推論モデルがありません: {directory}')
-        self.model = paddleocr.TextRecognition(model_name='PP-OCRv5_mobile_rec',
-                                                model_dir=str(directory), device='cpu')
-
-    def read(self, image):
-        import numpy as np
-        values = self.model.predict(input=np.ascontiguousarray(image), batch_size=1)
-        result = next(iter(values))
-        data = result.json
-        data = data.get('res', data)
-        return str(data.get('rec_text') or '').strip(), float(data.get('rec_score') or 0)
-
 
 
 def selected_backend(root):
@@ -73,14 +55,6 @@ def selected_backend(root):
 
 
 def make_readers(root, easyocr=None, offline=False):
-    """Load the configured plate recognition pipeline."""
-    mode = os.getenv('GATE_PLATE_PIPELINE', 'lipla').lower()
-    if mode not in ('lipla', 'paddle'):
-        raise ValueError('プレート認識方式はliplaまたはpaddleを指定してください。')
-    if mode == 'paddle':
-        directory = os.getenv('GATE_PADDLE_REC_MODEL_DIR')
-        if not directory:
-            raise ValueError('PaddleOCR推論モデルの場所を指定してください。')
-        return [('paddle-plate', PaddleLineReader(directory))]
+    """Production always uses Lipla-jp."""
     selected_backend(root)
     return [('lipla-jp', LiplaPlateReader(offline, root))]

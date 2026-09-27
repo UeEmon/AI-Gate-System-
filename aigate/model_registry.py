@@ -3,7 +3,6 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 import importlib.util
 from pathlib import Path
-import os
 
 
 class ModelRole(str, Enum):
@@ -74,14 +73,4 @@ class ModelRegistry:
     def plate_environment(self, model_id):
         if model_id != 'lipla-native-plate':
             raise ValueError('プレート検出はLipla-jpに固定されています。')
-        mode = os.getenv('GATE_PLATE_PIPELINE', 'lipla').lower()
-        if mode not in ('lipla', 'paddle'):
-            raise ValueError('プレート認識方式はliplaまたはpaddleを指定してください。')
-        if mode == 'paddle':
-            path = os.getenv('GATE_PADDLE_PLATE_WEIGHTS')
-            recognition = os.getenv('GATE_PADDLE_REC_MODEL_DIR')
-            if not path or not Path(path).is_file() or not recognition or not (Path(recognition) / 'inference.pdiparams').is_file():
-                raise ValueError('Paddle方式には学習済みの専用検出重みとOCR推論モデルが必要です。')
-            return {'GATE_PLATE_PIPELINE': 'paddle', 'GATE_PLATE_MODEL': path,
-                    'GATE_PADDLE_REC_MODEL_DIR': recognition}
-        return {'GATE_PLATE_PIPELINE': 'lipla', 'GATE_PLATE_MODEL': ''}
+        return {'GATE_PLATE_MODEL': ''}

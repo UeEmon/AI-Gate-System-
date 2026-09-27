@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import threading
@@ -56,10 +57,16 @@ class PaddleTrainingManager:
                 (r['id'], r['image_sha256'], r['top_text'], r['bottom_text'], r['fields_json'])
                 for r in rows], ensure_ascii=False).encode()).hexdigest()
             previous = self.status()
-            if previous.get('fingerprint') == fingerprint and previous.get('state') == 'completed':
+            if previous.get('fingerprint') == fingerprint and previous.get('state') in ('completed', 'failed'):
                 return previous
             directory = self.path.parent / ('auto-' + uuid.uuid4().hex)
-            report = export(self.root, directory)
+            try:
+                report = export(self.root, directory)
+            except Exception as error:
+                shutil.rmtree(directory, ignore_errors=True)
+                state = dict(state='failed', fingerprint=fingerprint, error=str(error))
+                self._save(state)
+                return state
             if report['det_train'] < 5 or report['det_val'] < 2:
                 state = dict(state='insufficient_data', error='検出器に必要な車両画像が不足しています。', report=report)
                 self._save(state)

@@ -8,12 +8,25 @@ import events
 from paddle_plate_pipeline import PaddlePlatePipeline
 
 
+class PaddleLineReader:
+    """Standalone evaluation reader; never imported by the production worker."""
+    def __init__(self, directory):
+        from paddleocr import TextRecognition
+        self.model = TextRecognition(model_name='PP-OCRv5_mobile_rec',
+                                     model_dir=str(directory), device='cpu')
+
+    def read(self, image):
+        import numpy as np
+        value = next(iter(self.model.predict(input=np.ascontiguousarray(image), batch_size=1))).json
+        value = value.get('res', value)
+        return str(value.get('rec_text') or '').strip(), float(value.get('rec_score') or 0)
+
+
 def evaluate(root, dataset, plate_weights, recognition_dir):
     import cv2
     import numpy as np
     from ultralytics import YOLO
     from app import parse_plate
-    from ocr_backends import PaddleLineReader
     from paddle_training import plate_box, safe_vehicle_image, partition
 
     manifest = json.loads((Path(dataset) / 'manifest.json').read_text())

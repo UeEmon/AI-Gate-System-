@@ -320,15 +320,6 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
     manager.models = models
     manager.performance = performance
     ocr_learning.initialize(manager.root)
-    from paddle_auto_train import PaddleTrainingManager
-    manager.paddle_training = PaddleTrainingManager(manager.root)
-
-    def schedule_paddle_training():
-        if os.getenv('GATE_PADDLE_AUTO_TRAIN') == '1':
-            try:
-                manager.paddle_training.maybe_start()
-            except Exception as error:
-                print(f'PaddleOCR追加学習の準備に失敗しました: {error}', file=sys.stderr, flush=True)
     app.extensions['jobs'] = manager
     app.extensions['settings'] = settings
     app.extensions['models'] = models
@@ -378,9 +369,7 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
     @app.get('/')
     def index():
         session.setdefault('csrf', secrets.token_hex(32))
-        return render_template('index.html', csrf=session['csrf'],
-                               plate_pipeline=os.getenv('GATE_PLATE_PIPELINE', 'lipla'),
-                               paddle_training_enabled=os.getenv('GATE_PADDLE_AUTO_TRAIN') == '1')
+        return render_template('index.html', csrf=session['csrf'])
 
     @app.get('/api/jobs')
     def jobs():
@@ -607,8 +596,7 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
             count = db.execute('SELECT count(*) FROM ocr_samples').fetchone()[0]
         for sample in samples:
             sample['fields'] = json.loads(sample.pop('fields_json') or 'null')
-        return jsonify(samples=samples, count=count,
-                       plate_pipeline=os.getenv('GATE_PLATE_PIPELINE', 'lipla'))
+        return jsonify(samples=samples, count=count)
 
     @app.get('/api/ocr-learning/preview/<observation_id>/<int:candidate_index>')
     def learning_preview(observation_id, candidate_index):
@@ -628,19 +616,15 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
                 identifier = ocr_learning.save_sample(manager.root, data.get('learning'), data, db)
         except (ValueError, KeyError, TypeError, AttributeError) as exc:
             abort(400, description=str(exc))
-        schedule_paddle_training()
         return jsonify(id=identifier), 201
 
     @app.get('/api/paddle-training')
     def paddle_training_status():
-        return jsonify(manager.paddle_training.status())
-
-    @app.post('/api/paddle-training/start')
-    def paddle_training_start():
+        path = manager.root / 'ocr-learning' / 'paddle' / 'auto-state.json'
         try:
-            return jsonify(manager.paddle_training.maybe_start())
-        except (OSError, ValueError) as error:
-            abort(400, description=str(error))
+            return jsonify(json.loads(path.read_text(encoding='utf-8')))
+        except (OSError, ValueError):
+            return jsonify(state='idle')
 
     @app.delete('/api/ocr-learning/samples/<identifier>')
     def learning_delete(identifier):
@@ -659,8 +643,6 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
                     ocr_learning.save_sample(manager.root, data['learning'], data, db)
         except (ValueError,KeyError,TypeError,sqlite3.IntegrityError) as error:
             abort(400,description='登録できません: ' + str(error))
-        if data.get('learning') is not None:
-            schedule_paddle_training()
         return jsonify(id=vehicle_id),201
 
     @app.post('/api/vehicles/batch')
@@ -706,8 +688,6 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
                     ocr_learning.save_sample(manager.root, data['learning'], data, db)
         except (ValueError,KeyError,TypeError,sqlite3.IntegrityError):
             abort(400,description='登録内容を確認してください。同じナンバーは重複登録できません。')
-        if data.get('learning') is not None:
-            schedule_paddle_training()
         return jsonify(id=vehicle_id)
 
     @app.get('/api/alerts')
@@ -776,11 +756,6 @@ def main():
     from model_service import ModelServiceProcess
     manager.model_service = ModelServiceProcess(manager.root, manager.model_configuration())
     atexit.register(manager.model_service.close)
-    if os.getenv('GATE_PADDLE_AUTO_TRAIN') == '1':
-        try:
-            manager.paddle_training.maybe_start()
-        except Exception as error:
-            print(f'PaddleOCR追加学習の準備に失敗しました: {error}', file=sys.stderr, flush=True)
     dispatcher = events.Dispatcher(manager.root)
     dispatcher.start()
     atexit.register(dispatcher.stop)

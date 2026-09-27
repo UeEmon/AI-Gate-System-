@@ -64,7 +64,7 @@ async function refreshLearning(){
   learningRefreshBusy=true;
   try{
     const data=await api('/api/ocr-learning');
-    $('learning-status').textContent='保存済み '+data.count+'件 / 認識方式: '+(data.plate_pipeline==='paddle'?'専用検出器＋PaddleOCR':'Lipla-jp');
+    $('learning-status').textContent='保存済み '+data.count+'件 / 運用方式: Lipla-jp';
     const training=await api('/api/paddle-training');
     $('paddle-training-status').textContent='PaddleOCR追加学習: '+({idle:'待機',running:'学習中',completed:'完了（未適用）',failed:'失敗',interrupted:'中断',insufficient_data:'データ不足',unavailable:'学習環境未準備'}[training.state]||training.state)+(training.error?' / '+training.error:'');
     $('learning-samples').replaceChildren();
@@ -88,10 +88,5 @@ async function refreshLearning(){
   }finally{learningRefreshBusy=false;}
 }
 $('learning-refresh').onclick=()=>refreshLearning().catch(e=>message(e.message));
-$('paddle-training-start').onclick=async()=>{
-  try{const result=await api('/api/paddle-training/start',{method:'POST'});
-    message(result.error||'追加学習状態を確認しました。');await refreshLearning();}
-  catch(error){message(error.message);}
-};
 refreshLearning().catch(e=>message(e.message));
 setInterval(()=>refreshLearning().catch(()=>{}),10000);

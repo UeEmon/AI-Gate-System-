@@ -29,6 +29,15 @@ class OCRBackendTests(unittest.TestCase):
         self.assertEqual(readers[0][0], 'lipla-jp')
         module.Recognizer.assert_called_once()
 
+    def test_training_environment_cannot_switch_production_reader(self):
+        from aigate.model_registry import ModelRegistry
+        module = types.SimpleNamespace(Recognizer=Mock(return_value=Mock()))
+        with patch.dict('sys.modules', {'lipla': module}), patch.dict(os.environ,
+                        {'GATE_PLATE_PIPELINE': 'paddle', 'GATE_OCR_BACKEND': 'lipla'}):
+            self.assertEqual(make_readers('/tmp/models')[0][0], 'lipla-jp')
+            self.assertEqual(ModelRegistry('/tmp/models').plate_environment('lipla-native-plate'),
+                             {'GATE_PLATE_MODEL': ''})
+
     def test_lipla_accepts_grayscale_binary_and_noncontiguous_images(self):
         reader = LiplaPlateReader.__new__(LiplaPlateReader)
         reader.model = Mock(return_value=[])

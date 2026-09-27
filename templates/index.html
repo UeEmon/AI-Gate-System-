@@ -76,7 +76,6 @@
 <section class="panel" data-page="registry" hidden><h2>確認済みOCRデータ</h2>
 <p class="hint">確認したナンバーと画像を保存できます。修正した正解はPaddleOCR追加学習データに使用できます。</p>
 <button id="learning-refresh" type="button">状態を更新</button>
-<button id="paddle-training-start" type="button" {% if not paddle_training_enabled %}disabled title="Paddle版イメージと自動追加学習の設定が必要です"{% endif %}>PaddleOCR追加学習を開始</button>
 <p id="learning-status" role="status"></p>
 <p id="paddle-training-status" role="status"></p>
 <details><summary>確認済みデータ（最新200件）</summary><div id="learning-samples"></div></details>
@@ -111,7 +110,7 @@
 <div class="registry-actions"><label><input id="delete-processing-history" type="checkbox" checked>処理履歴・入力ファイル・ログ・プレビュー</label><label><input id="delete-recognition-history" type="checkbox" checked>認識履歴・保存した車両画像</label><button id="delete-history" type="button">選択した履歴を一括削除</button></div>
 <p class="hint">削除は元に戻せません。実行中は削除できません。登録車両・通知履歴・通知映像・OCR学習データと学習済みモデルは残ります。認識履歴を削除すると、残した学習データの元画像を履歴から再編集できなくなります。</p></div></section>
 <section class="panel" id="system-page" data-page="system" hidden><div class="panel-title"><h2>システム性能</h2><span class="badge" id="realtime-state">未測定</span></div>
-<p class="hint">車両検出はYOLO26n、ナンバープレートは{% if plate_pipeline == 'paddle' %}専用YOLO検出器＋追加学習PaddleOCR{% else %}Lipla-jp{% endif %}を使用します。</p>
+<p class="hint">車両検出はYOLO26n、ナンバープレート検出・文字認識はLipla-jpを使用します。PaddleOCRは学習・評価専用です。</p>
 <div class="actions"><button id="run-benchmark" type="button">性能測定を実行</button></div>
 <div class="metrics system-metrics"><div><span>CPU</span><strong id="perf-cpu">—</strong></div><div><span>メモリ</span><strong id="perf-memory">—</strong></div><div><span>GPU</span><strong id="perf-gpu">—</strong></div><div><span>実測FPS</span><strong id="perf-fps">—</strong></div></div></section>
 <footer>AI Gate System · OpenCV / 車両区分・ナンバー認識 <span>登録照合・検知通知 / ゲート開閉は行いません</span></footer>
