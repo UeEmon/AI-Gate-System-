@@ -1,12 +1,13 @@
 FROM python:3.11-slim-bookworm
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 GATE_MODEL_ROOT=/models
-RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
+RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 RUN python -m pip install --no-cache-dir 'torch>=2.2,<3' 'torchvision>=0.17,<1' \
     --index-url https://download.pytorch.org/whl/cpu
 RUN python -m pip install --no-cache-dir 'ultralytics>=8.3,<9' 'paddlepaddle>=3,<4' \
     'paddleocr>=3,<4' 'lipla-jp>=0.3,<1' 'Pillow>=10,<13' 'numpy>=1.26,<3'
+RUN python -c 'import paddle; print("PaddlePaddle import OK:", paddle.__version__)'
 RUN useradd --create-home --uid 10001 gate && mkdir /data /models && chown gate:gate /data /models
 COPY --chown=gate:gate app.py events.py plate_rules.py ocr_learning.py vision_train.py \
   paddle_training.py paddle_finetune.py paddle_auto_train.py paddle_auto_worker.py \

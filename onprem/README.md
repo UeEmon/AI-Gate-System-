@@ -98,6 +98,8 @@ docker compose run --rm trainer \
 
 終了コード `-9` は学習プロセスが強制終了されたことを示します。MacのDocker Desktopでメモリ不足の可能性があるため、YOLO学習の画像サイズ640・バッチ1・ワーカー0、PaddleOCRのバッチ1、CPUスレッド2に設定しています。これは原因の確定ではありません。Docker Desktopのメモリ割当と `docker stats` を確認してください。修正後はWeb画面の「同じデータで学習を再実行」を押せます。約30秒ごとの確認後に新しい学習ログが作成されます。`docker compose -f onprem/compose.yaml up -d --build trainer` で学習コンテナだけを更新できます。
 
+`STAGE: recognizer` の直後に `ImportError: libgomp.so.1` と出る場合は古い学習用イメージです。`docker compose -f onprem/compose.yaml build trainer && docker compose -f onprem/compose.yaml up -d trainer` で再構築してください。学習用イメージは `libgomp1` を導入し、ビルド中に `import paddle` を検査します。再起動後にOCR学習タブの「同じデータで学習を再実行」を押してください。
+
 ## 社内SMTP通知
 
 ネイティブ版はシェルの環境変数、Docker版は `onprem/.env` を設定します。
