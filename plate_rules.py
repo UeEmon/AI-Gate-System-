@@ -6,8 +6,8 @@ import re
 PLATE_KANA = 'あいうえかきくけこさすせそたちつてとなにぬねのはひふほまみむめもやゆよらりるろわれを'
 KANA_PATTERN = f'[{re.escape(PLATE_KANA)}]'
 SERIAL_PATTERN = r'[0-9]{1,4}'
-VEHICLE_RESULT_CONFIDENCE = 0.90
-OCR_RESULT_CONFIDENCE = 0.80
+VEHICLE_RESULT_CONFIDENCE = 0.60
+OCR_RESULT_CONFIDENCE = 0.90
 
 
 def valid_kana(value):

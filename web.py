@@ -72,9 +72,9 @@ class JobManager:
                 id TEXT PRIMARY KEY, kind TEXT NOT NULL, label TEXT NOT NULL,
                 status TEXT NOT NULL, created_at TEXT NOT NULL,
                 ended_at TEXT, error TEXT, every INTEGER NOT NULL,
-                confidence REAL NOT NULL, ocr_confidence REAL NOT NULL DEFAULT 0.8)''')
+                confidence REAL NOT NULL, ocr_confidence REAL NOT NULL DEFAULT 0.9)''')
             if 'ocr_confidence' not in {row[1] for row in db.execute('PRAGMA table_info(jobs)')}:
-                db.execute('ALTER TABLE jobs ADD COLUMN ocr_confidence REAL NOT NULL DEFAULT 0.8')
+                db.execute('ALTER TABLE jobs ADD COLUMN ocr_confidence REAL NOT NULL DEFAULT 0.9')
             db.execute("UPDATE jobs SET status='interrupted', ended_at=?, error=? WHERE status IN ('starting','running','stopping')",
                        (now(), 'サーバー再起動により処理状態をリセットしました。'))
 
