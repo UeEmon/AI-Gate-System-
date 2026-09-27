@@ -16,6 +16,8 @@ docker compose --env-file onprem/.env -p ai-gate-lipla \
 
 `http://localhost:8888`、ユーザー名 `admin` でログインします。画像・動画またはRTMPを選んで検証します。既定は車両検出後に各車両範囲をLiplaへ渡します。GoPro受信用のRTMPコンテナが必要な場合は先に `python3 onprem/setup_rtmp_receiver.py` を実行して、composeコマンドに `-f onprem/compose.gopro.yaml` を加えます。
 
+8888が使用中なら `onprem/.env` に `GATE_BENCHMARK_PORT=8889` を追加して同じComposeコマンドで再作成します。このときブラウザは `http://localhost:8889` を開きます。コンテナ内のポートは8080のままです。
+
 初回はYOLO26nとLiplaモデルの取得が必要です。Liplaの内部推論はライブラリ既定のONNXランタイムで実行されます。MacのDockerではMPSを利用できません。車両検出のみMac上でMPSを試す場合は `bash onprem/start-plate-mac.sh` を使用します。
 
 `frames.jsonl` は車両範囲、四隅、各項目と結果文字列を保存します。`summary.json` の `plate_recognition_ms` はLipla内部の検出・補正・OCRを合わせた時間です。ライブラリの公開APIが認識結果を返さなかった場合、その原因が検出失敗かOCR失敗かは区別できません。正解ラベルを登録していない検証の `accuracy` は null です。
