@@ -1,4 +1,5 @@
 FROM python:3.11-slim-bookworm
+LABEL jp.ai-gate-system.cleanup-scope="onprem"
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
     EASYOCR_MODULE_PATH=/models/easyocr YOLO_CONFIG_DIR=/data/ultralytics \
     GATE_OCR_BACKEND=lipla
