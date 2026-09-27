@@ -58,6 +58,58 @@ def save_observation(db, record):
             record['image_path'], json.dumps(record, ensure_ascii=False)))
 
 
+class ConsecutivePlateBest:
+    """Keep the best OCR observation for a plate in adjacent processed frames."""
+    def __init__(self):
+        self.previous = []
+
+    @staticmethod
+    def overlap(a, b):
+        x1, y1 = max(a[0], b[0]), max(a[1], b[1])
+        x2, y2 = min(a[2], b[2]), min(a[3], b[3])
+        intersection = max(0, x2-x1) * max(0, y2-y1)
+        area_a = max(0, a[2]-a[0]) * max(0, a[3]-a[1])
+        area_b = max(0, b[2]-b[0]) * max(0, b[3]-b[1])
+        return intersection / max(1, area_a + area_b - intersection)
+
+    def select(self, records):
+        """Return (record, previous winner) for this frame; None means discard."""
+        import events
+        current, decisions, used = [], [], set()
+        for record in records:
+            candidates = record['plate_candidates']
+            best = max((c for c in candidates if c.get('fields')),
+                       key=lambda c: float(c.get('confidence', 0)), default=None)
+            key = None
+            if best is not None:
+                try:
+                    key = events.plate_key(best['fields'])
+                except (KeyError, TypeError, ValueError):
+                    pass
+            if key is None:
+                decisions.append((record, None))
+                continue
+            record['plate_candidates'] = [best]
+            record['plate_status'] = 'candidate'
+            match = next((i for i, old in enumerate(self.previous) if i not in used and
+                          old['key'] == key and self.overlap(old['bbox'], record['bbox']) >= .3), None)
+            if match is None:
+                winner = record
+                decisions.append((record, None))
+            else:
+                used.add(match)
+                prior = self.previous[match]['winner']
+                if best['confidence'] > prior['plate_candidates'][0]['confidence']:
+                    winner = record
+                    decisions.append((record, prior))
+                else:
+                    winner = prior
+                    decisions.append((None, None))
+            current.append(dict(key=key, bbox=record['bbox'], winner=winner))
+        self.previous = current
+        return decisions
+
+
 def plate_regions(crop, cv2):
     """Heuristic rectangle candidates; no trained plate detector is bundled."""
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
@@ -509,6 +561,7 @@ def main():
                   frames(args.source, cv2, args.every, recorder.feed))
     processed, observations = 0, 0
     timings = deque(maxlen=120)
+    plate_best = ConsecutivePlateBest()
     try:
         for index, media_ms, frame in stream:
             if stopped.is_set(): break
@@ -520,6 +573,7 @@ def main():
             detection_ms = (time.perf_counter() - detection_started) * 1000
             ocr_ms = storage_ms = decision_ms = notification_ms = 0.0
             plate_detection_ms = rectification_ms = plate_recognition_ms = 0.0
+            frame_records = []
             for box in result.boxes:
                 label = result.names[int(box.cls.item())]
                 if label not in VEHICLES:
@@ -546,16 +600,6 @@ def main():
                                                      args.vehicle_threshold, args.ocr_threshold)
                 decision_ms += (time.perf_counter() - decision_started) * 1000
                 observation_id = uuid.uuid4().hex
-                image_path = None
-                if args.save_images:
-                    folder = out / 'images'
-                    folder.mkdir(exist_ok=True)
-                    image = folder / (observation_id + '.jpg')
-                    ok, encoded = cv2.imencode('.jpg', crop)
-                    if not ok:
-                        raise OSError('車両画像の保存に失敗しました。')
-                    encoded.tofile(image)
-                    image_path = str(image.resolve())
                 record = dict(id=observation_id, run_id=run_id,
                               processed_at=datetime.now(timezone.utc).isoformat(),
                               frame_index=index, media_ms=media_ms, vehicle_type=vehicle_type,
@@ -563,7 +607,7 @@ def main():
                               bbox=[x1, y1, x2, y2], plate_candidates=plates,
                               plate_detection=plate_report,
                               plate_status='unreadable' if not plates else 'needs_review',
-                              image_path=image_path, result_eligible=result_eligible,
+                              image_path=None, result_eligible=result_eligible,
                               result_thresholds={'vehicle': args.vehicle_threshold,
                                                  'ocr': args.ocr_threshold})
                 if canvas is not None:
@@ -573,10 +617,40 @@ def main():
                     for candidate in plate_report.get('proposals', plates):
                         a, b, c, d = candidate['bbox_in_vehicle']
                         cv2.rectangle(canvas, (x1+a, y1+b), (x1+c, y1+d), (0,200,255), 2)
+                frame_records.append((record, crop))
+            for (selected, previous), (_, crop) in zip(
+                    plate_best.select([record for record, _ in frame_records]), frame_records):
+                if selected is None:
+                    continue
+                record = selected
+                if previous is not None:
+                    record['id'] = previous['id']
+                    record['processed_at'] = previous['processed_at']
+                    record['image_path'] = previous['image_path']
+                if args.save_images:
+                    folder = out / 'images'
+                    folder.mkdir(exist_ok=True)
+                    image = folder / (record['id'] + '.jpg')
+                    ok, encoded = cv2.imencode('.jpg', crop)
+                    if not ok:
+                        raise OSError('車両画像の保存に失敗しました。')
+                    encoded.tofile(image)
+                    record['image_path'] = str(image.resolve())
                 storage_started = time.perf_counter()
-                save_observation(db, record)
+                if previous is None:
+                    save_observation(db, record)
+                    observations += int(record['result_eligible'])
+                else:
+                    with db:
+                        db.execute('UPDATE observations SET frame_index=?,media_ms=?,vehicle_type=?,confidence=?,image_path=?,details_json=? WHERE id=?',
+                                   (record['frame_index'], record['media_ms'], record['vehicle_type'],
+                                    record['confidence'], record['image_path'],
+                                    json.dumps(record, ensure_ascii=False), record['id']))
+                    observations += int(record['result_eligible']) - int(previous['result_eligible'])
                 storage_ms += (time.perf_counter() - storage_started) * 1000
-                observations += int(result_eligible)
+                if previous is not None:
+                    print(json.dumps(record, ensure_ascii=False), flush=True)
+                    continue
                 if recorder:
                     notification_started = time.perf_counter()
                     event_id = events.evaluate(out, record, (media_ms or 0) / 1000)
