@@ -131,11 +131,12 @@ def bounded_plate_regions(regions, width, height, limit=5):
     return selected
 
 
-def make_plate_detector(cv2, plate_model=None):
+def make_plate_detector(cv2, plate_model=None, geometry_fallback=True):
     from plate_pipeline import PlateDetector
     return PlateDetector(cv2, lambda crop: plate_regions(crop, cv2), bounded_plate_regions,
                          (lambda crop, size: learned_plate_regions(crop, plate_model, size))
-                         if plate_model is not None else None)
+                         if plate_model is not None else None,
+                         geometry_fallback=geometry_fallback)
 
 
 def vehicle_plate_regions(crop, cv2, plate_model=None):
@@ -272,12 +273,13 @@ def recognize_plate_roi(roi, bbox, quad, rectification, reader, cv2, ocr_thresho
 
 
 def read_plate(crop, reader, cv2, ocr_threshold=OCR_RESULT_CONFIDENCE, plate_model=None,
-               diagnostics=None):
+               diagnostics=None, allow_fallback=True):
     from plate_pipeline import PlateRecognitionPipeline, PlateRectifier
     pipeline = PlateRecognitionPipeline(
-        make_plate_detector(cv2, plate_model), PlateRectifier(cv2),
+        make_plate_detector(cv2, plate_model, geometry_fallback=allow_fallback), PlateRectifier(cv2),
         lambda roi, bbox, quad, method: recognize_plate_roi(
-            roi, bbox, quad, method, reader, cv2, ocr_threshold))
+            roi, bbox, quad, method, reader, cv2, ocr_threshold),
+        allow_fallback=allow_fallback)
     candidates, report = pipeline.run(crop)
     if diagnostics is not None:
         diagnostics.update(report)

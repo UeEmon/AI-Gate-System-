@@ -19,8 +19,9 @@ class PlateDetector:
     Callbacks keep inference backends replaceable without loading models here.
     Geometry proposals are explicitly distinguished from trained AI detections.
     """
-    def __init__(self, cv2, geometry, bound, learned=None):
+    def __init__(self, cv2, geometry, bound, learned=None, geometry_fallback=True):
         self.cv2, self.geometry, self.bound, self.learned = cv2, geometry, bound, learned
+        self.geometry_fallback = geometry_fallback
 
     def detect(self, crop, fallback_only=False):
         cv2 = self.cv2
@@ -42,6 +43,9 @@ class PlateDetector:
                 regions = attempt(source, lambda: self.learned(crop, size))
                 if regions:
                     return PlateDetection(regions, source, attempts)
+
+            if not self.geometry_fallback:
+                return PlateDetection([], 'none', attempts)
 
         regions = attempt('geometry', lambda: self.geometry(crop))
         if regions:
@@ -73,8 +77,9 @@ class PlateRectifier:
 
 class PlateRecognitionPipeline:
     """Detect -> rectify -> OCR; retain detection evidence even when OCR fails."""
-    def __init__(self, detector, rectifier, recognize):
+    def __init__(self, detector, rectifier, recognize, allow_fallback=True):
         self.detector, self.rectifier, self.recognize = detector, rectifier, recognize
+        self.allow_fallback = allow_fallback
 
     def run(self, crop):
         started = time.perf_counter()
@@ -104,7 +109,7 @@ class PlateRecognitionPipeline:
                     results.append(candidate)
 
         read_regions(detection)
-        if detection.source.startswith('plate_model_') and not any(
+        if self.allow_fallback and detection.source.startswith('plate_model_') and not any(
                 c.get('fields') is not None for c in results):
             stage = time.perf_counter()
             fallback = self.detector.detect(crop, fallback_only=True)

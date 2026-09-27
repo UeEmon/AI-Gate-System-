@@ -21,6 +21,7 @@ class PlateWebTests(unittest.TestCase):
 
     def test_rtmp_live_progress_stop_and_url_validation(self):
         with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / 'plate.pt').write_bytes(b'model placeholder')
             app = create_app(tmp, tmp, password='test-password')
             app.testing = True
             client = app.test_client()
@@ -28,6 +29,9 @@ class PlateWebTests(unittest.TestCase):
             client.get('/', headers=auth)
             with client.session_transaction() as session:
                 csrf = session['csrf']
+            missing = client.post('/run', headers=auth, data=dict(
+                csrf=csrf, source=(io.BytesIO(b'fake'), 'plate.jpg'), ocr='paddle'))
+            self.assertEqual(missing.status_code, 400)
             invalid = client.post('/run', headers=auth, data=dict(
                 csrf=csrf, source_kind='rtmp', stream_url='https://example.org/secret'))
             self.assertEqual(invalid.status_code, 400)
@@ -50,6 +54,7 @@ class PlateWebTests(unittest.TestCase):
             with patch('plate_benchmark_web.subprocess.Popen', side_effect=launch):
                 response = client.post('/run', headers=auth, data=dict(
                     csrf=csrf, source_kind='rtmp',
+                    model='plate.pt',
                     stream_url='rtmp://user:secret@example.org/live/test?token=private'))
             self.assertEqual(response.status_code, 302)
             live = client.get(response.location, headers=auth)
@@ -64,6 +69,7 @@ class PlateWebTests(unittest.TestCase):
 
     def test_upload_results_and_access_controls(self):
         with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / 'plate.pt').write_bytes(b'model placeholder')
             app = create_app(tmp, tmp, password='test-password')
             app.testing = True
             client = app.test_client()
@@ -76,7 +82,8 @@ class PlateWebTests(unittest.TestCase):
                 csrf = session['csrf']
 
             def launch(command, **kwargs):
-                self.assertNotIn('--model', command)
+                self.assertEqual(command[command.index('--plate-model') + 1],
+                                 str(Path(tmp) / 'plate.pt'))
                 self.assertEqual(command[command.index('--mode') + 1], 'vehicle-first')
                 output = Path(command[command.index('--output')+1]) / 'result'
                 output.mkdir(parents=True)
@@ -92,7 +99,8 @@ class PlateWebTests(unittest.TestCase):
 
             with patch('plate_benchmark_web.subprocess.Popen', side_effect=launch) as process:
                 response = client.post('/run', headers=auth, data=dict(
-                    csrf=csrf, source=(io.BytesIO(b'fake'), 'plate.jpg'), ocr='paddle'))
+                    csrf=csrf, source=(io.BytesIO(b'fake'), 'plate.jpg'),
+                    ocr='paddle', model='plate.pt'))
                 self.assertEqual(response.status_code, 302)
                 process.assert_called_once()
             result = client.get(response.location, headers=auth)

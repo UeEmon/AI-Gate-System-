@@ -2,7 +2,7 @@
 <title>プレート検出・OCR検証</title>
 {% if job and code is none %}<meta http-equiv="refresh" content="3">{% endif %}
 <style>body{font:16px system-ui;background:#f1f5f9;color:#172a41;margin:0}main{max-width:1100px;margin:auto;padding:28px}section,article{background:white;border:1px solid #dbe3ec;border-radius:12px;padding:22px;margin:18px 0}h1{font-size:27px}label{display:block;margin:15px 0}input,select,button{font:inherit;padding:9px;max-width:100%;box-sizing:border-box}button{background:#125cbe;color:white;border:0;border-radius:7px;cursor:pointer}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px}img{max-width:100%;height:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{color:#125cbe}.muted{color:#52647a}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:9px;border-bottom:1px solid #ddd}</style>
-<main><h1>プレート検出・OCR検証</h1><p>車両検出 → 車両の範囲からプレート検出 → OCR。全画面方式との比較もできます。</p>
+<main><h1>専用検出器＋PaddleOCR検証</h1><p>車両検出 → 専用プレート検出重み → 台形補正 → PaddleOCR。追加学習モデルも選択できます。</p>
 {% if not job %}
 <section><h2>入力とモデル</h2><form method="post" action="/run" enctype="multipart/form-data">
 <input type="hidden" name="csrf" value="{{ session.csrf }}">
@@ -13,11 +13,12 @@
 <p class="muted">DockerからMac上の配信サーバーに接続する場合、URLのホストには host.docker.internal を指定します。接続を止めるには検証画面の停止ボタンを押してください。</p>
 <label>処理の流れ<br><select name="mode"><option value="vehicle-first">車両検出 → 車両範囲内のプレート検出 → OCR（推奨）</option><option value="plate-only">全画面のプレート検出 → OCR（比較用）</option></select></label>
 <p class="muted">車両が検出されないフレームではプレート検出とOCRを実行しません。車両検出には yolo26n.pt を使用します。</p>
-<div class="grid"><label>プレート検出<br><select name="model"><option value="">OpenCV 輪郭抽出</option>{% for model in models %}<option>{{ model }}</option>{% endfor %}</select></label>
-<label>OCR<br><select name="ocr">{% for key,label in backend_choices.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></label></div>
+<div class="grid"><label>専用プレート検出重み（必須）<br><select name="model" required><option value="">選択してください</option>{% for model in models %}<option>{{ model }}</option>{% endfor %}</select></label>
+<label>PaddleOCR認識モデル<br><select name="paddle_model"><option value="">PP-OCRv6 medium（追加学習前）</option>{% for model in paddle_models %}<option value="{{ model }}">{{ model }}（追加学習済み）</option>{% endfor %}</select></label></div>
+{% if not models %}<p class="muted">先に専用の検出重み（.pt）を benchmark-models に配置してください。未配置の場合は検証を開始できません。</p>{% endif %}
 <label>実行デバイス<br><select name="device"><option value="cpu">CPU</option><option value="auto">自動（CUDA → MPS → CPU）</option><option value="mps">Mac GPU / MPS（Mac直接起動・EasyOCR）</option><option value="cuda">NVIDIA CUDA（対応環境・EasyOCR）</option></select></label>
-<p class="muted">MacのDockerではCPUになります。MPSはMac上でWebサーバーを直接起動してください。GPU指定時のOCRはEasyOCRを選択します。</p>
-<p class="muted">AI検出用の専用重み（.pt）をMacの benchmark-models に置くと選択できます。OpenCVは学習済みAIモデルではありません。</p>
+<p class="muted">MacのDockerではCPUになります。追加学習済みPaddleOCRモデルの推論用ディレクトリは benchmark-paddle-models に置きます。PaddleOCRはCPUで動作します。</p>
+<p class="muted">専用検出重みがない場合は検証を開始できません。専用検出器の結果がない場合も輪郭抽出へ切り替えません。</p>
 <div class="grid"><label>処理間隔（フレーム）<br><input name="every" type="number" min="1" max="100" value="1" required></label><label>最大処理枚数<br><input name="maximum" type="number" min="1" max="300" value="100" required></label><label>速度集計から除く初期枚数<br><input name="warmup" type="number" min="0" max="299" value="0" required></label></div>
 <button>検証を開始</button></form></section><script>const mode=document.getElementById('source-kind'),file=document.getElementById('file-input'),stream=document.getElementById('stream-input');function changeSource(){const live=mode.value==='rtmp';file.hidden=live;stream.hidden=!live;file.querySelector('input').disabled=live;stream.querySelector('input').disabled=!live;stream.querySelector('input').required=live}mode.addEventListener('change',changeSource);changeSource()</script>
 <section><h2>この起動中の検証</h2>{% for id in jobs %}<p><a href="/jobs/{{ id }}">{{ id }}</a></p>{% else %}<p>まだ検証はありません。</p>{% endfor %}</section>

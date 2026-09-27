@@ -7,9 +7,18 @@ import numpy as np
 
 import app
 from plate_only_benchmark import analyze_frame
+from plate_pipeline import PlateDetector
 
 
 class VehicleFirstTests(unittest.TestCase):
+    def test_dedicated_detector_miss_does_not_invoke_geometry(self):
+        geometry = Mock(side_effect=AssertionError('unexpected contour fallback'))
+        detector = PlateDetector(Mock(), geometry, lambda regions, width, height: regions,
+                                 learned=lambda crop, size: [], geometry_fallback=False)
+        result = detector.detect(np.zeros((60, 80, 3), dtype=np.uint8))
+        self.assertEqual(result.regions, [])
+        geometry.assert_not_called()
+
     def test_no_vehicle_skips_plate_detection_and_ocr(self):
         model = Mock()
         model.predict.return_value = [SimpleNamespace(boxes=[], names={})]
@@ -28,7 +37,7 @@ class VehicleFirstTests(unittest.TestCase):
                               conf=Mock(item=lambda: .8))
         model = Mock()
         model.predict.return_value = [SimpleNamespace(boxes=[box], names={0: 'car'})]
-        def recognize(crop, readers, cv2, plate_model=None, diagnostics=None):
+        def recognize(crop, readers, cv2, plate_model=None, diagnostics=None, allow_fallback=True):
             self.assertEqual(crop.shape, (40, 80, 3))
             diagnostics.update(proposals=[dict(bbox_in_vehicle=[2, 3, 20, 12])],
                                plate_detection_ms=3, rectification_ms=1, ocr_ms=2)

@@ -32,6 +32,10 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
     def model_choices():
         return sorted(p.name for p in models.glob('*.pt') if p.is_file() and not p.is_symlink())
 
+    def paddle_model_choices():
+        root = Path(os.getenv('GATE_BENCHMARK_PADDLE_MODELS', '/paddle-models'))
+        return sorted(p.name for p in root.iterdir() if p.is_dir() and not p.is_symlink()) if root.is_dir() else []
+
     @app.before_request
     def authenticate():
         if request.path == '/healthz':
@@ -53,6 +57,7 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
         session.setdefault('csrf', secrets.token_hex(32))
         return render_template('plate_benchmark.html', models=model_choices(), jobs=list(jobs),
                                job=None, backend_choices=backend_choices,
+                               paddle_models=paddle_model_choices(),
                                local_rtmp_url=os.getenv('GATE_RTMP_LOCAL_URL', ''))
 
     @app.post('/run')
@@ -80,13 +85,13 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
         if mode not in {'vehicle-first', 'plate-only'}:
             abort(400, '検証モードが不正です。')
         model = request.form.get('model', '')
+        paddle_model = request.form.get('paddle_model', '')
         device = request.form.get('device', 'cpu')
         if device not in {'cpu', 'auto', 'mps', 'cuda'}:
             abort(400, 'デバイス設定が不正です。')
-        if device in {'mps', 'cuda'} and backend != 'easyocr':
-            abort(400, 'GPUでOCRを実行する場合はEasyOCRを選択してください。')
-        if backend not in backend_choices or (model and model not in model_choices()):
-            abort(400, 'モデル設定が不正です。')
+        if backend != 'paddle' or model not in model_choices() or (
+                paddle_model and paddle_model not in paddle_model_choices()):
+            abort(400, '専用プレート検出重みとPaddleOCRモデルを選択してください。')
         try:
             every = int(request.form.get('every', 1))
             maximum = int(request.form.get('maximum', 100))
@@ -112,6 +117,8 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
                 command += ['--plate-model', str(models / model)]
             env = dict(os.environ, GATE_OCR_BACKEND=backend, GATE_PLATE_MODEL='',
                        GATE_INFERENCE_DEVICE=device,
+                       GATE_PADDLE_MODEL_DIR=(str(Path(os.getenv('GATE_BENCHMARK_PADDLE_MODELS', '/paddle-models')) / paddle_model)
+                                              if paddle_model else ''),
                        GATE_FAST_OCR_MODEL_PATH='', GATE_FAST_OCR_CONFIG_PATH='')
             with (folder / 'run.log').open('w') as log:
                 process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, env=env)

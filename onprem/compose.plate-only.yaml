@@ -13,6 +13,7 @@ services:
       - plate-test-data:/data
       - plate-test-models:/models
       - ../benchmark-models:/plate-models:ro
+      - ../benchmark-paddle-models:/paddle-models:ro
 volumes:
   plate-test-data:
   plate-test-models:

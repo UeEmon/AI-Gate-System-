@@ -13,8 +13,12 @@ class PaddlePlateReader:
         if offline:
             os.environ.setdefault('PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK', 'True')
         from paddleocr import TextRecognition
+        model_dir = os.getenv('GATE_PADDLE_MODEL_DIR', '').strip()
+        if model_dir and not Path(model_dir).is_dir():
+            raise ValueError('指定した追加学習PaddleOCRモデルのディレクトリがありません。')
+        options = {'model_dir': model_dir} if model_dir else {}
         self.model = TextRecognition(model_name=os.getenv('GATE_PADDLE_MODEL', 'PP-OCRv6_medium_rec'),
-                                     device='cpu')
+                                     device='cpu', **options)
 
     @staticmethod
     def _value(result):

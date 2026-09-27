@@ -1,7 +1,8 @@
 """Paddle's resize stage requires HWC images even for grayscale OCR variants."""
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+import tempfile
 import numpy as np
 from ocr_backends import PaddlePlateReader
 
@@ -45,3 +46,11 @@ class PaddleImageShapeTests(unittest.TestCase):
     def test_invalid_dimensions_raise_clear_error(self):
         with self.assertRaises(ValueError):
             self.reader().readtext(np.zeros((5,10,2), dtype=np.uint8))
+
+    def test_finetuned_directory_passed_to_paddle_predictor(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict('os.environ', {'GATE_PADDLE_MODEL_DIR': directory}), \
+                patch.dict('sys.modules', {'paddleocr': SimpleNamespace(TextRecognition=Mock())}) as modules:
+            PaddlePlateReader()
+            modules['paddleocr'].TextRecognition.assert_called_once_with(
+                model_name='PP-OCRv6_medium_rec', device='cpu', model_dir=directory)

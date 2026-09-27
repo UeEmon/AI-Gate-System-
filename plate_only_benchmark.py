@@ -69,7 +69,8 @@ def analyze_frame(frame, readers, cv2, plate_model, vehicle_model, device,
         x1, y1, x2, y2 = region['bbox_in_frame']
         local = {}
         found = read_plate(frame[y1:y2, x1:x2], readers, cv2,
-                           plate_model=plate_model, diagnostics=local)
+                           plate_model=plate_model, diagnostics=local,
+                           allow_fallback=False)
         for key in ('plate_detection_ms', 'rectification_ms', 'ocr_ms'):
             report[key] += local.get(key, 0.0)
         for source, target in ((found, candidates), (local.get('proposals', []), proposals)):
@@ -103,11 +104,12 @@ def run(args):
     if mode == 'vehicle-first':
         from ultralytics import YOLO
         vehicle_model = YOLO(vehicle_path)
-    if args.plate_model:
-        if not Path(args.plate_model).is_file():
-            raise ValueError('専用プレートモデルが見つかりません。')
-        from ultralytics import YOLO
-        plate_model = YOLO(args.plate_model)
+    if not args.plate_model or not Path(args.plate_model).is_file():
+        raise ValueError('この検証には学習済みの専用プレート検出重み（.pt）が必要です。')
+    from ultralytics import YOLO
+    plate_model = YOLO(args.plate_model)
+    if os.getenv('GATE_OCR_BACKEND', 'paddle') != 'paddle':
+        raise ValueError('この検証にはPaddleOCRを指定してください。')
     readers = make_readers(Path(args.data), easyocr, os.getenv('GATE_OFFLINE') == '1')
     initialization_ms = (time.perf_counter() - started) * 1000
     live = is_rtmp(args.source)
@@ -164,7 +166,8 @@ def run(args):
     summary = dict(mode=mode, vehicle_detection=vehicle_model is not None,
                    vehicle_model=vehicle_path if vehicle_model is not None else None,
                    source=public_source(args.source), live_stream=live,
-                   plate_model=args.plate_model or 'opencv-plate-contours',
+                   plate_model=args.plate_model, engine='dedicated-detector-paddle',
+                   paddle_model_dir=os.getenv('GATE_PADDLE_MODEL_DIR') or None,
                    ocr_backends=[name for name, _ in readers],
                    requested_device=os.getenv('GATE_INFERENCE_DEVICE', 'cpu'),
                    detector_device=device if plate_model or vehicle_model else 'cpu',
