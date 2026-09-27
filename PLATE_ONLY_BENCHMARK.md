@@ -1,189 +1,23 @@
-# 車両検出とプレートOCRの検証ブランチ
+# Lipla-jp方式の検証
 
-ブランチ: `experiment/plate-only-benchmark`。専用Web画面とCLI検証機能です。
-既存Web画面は通常の車両検出経路のままです。
+ブランチ: `experiment/lipla-jp-vehicle-roi`。車両検出（YOLO26n）の後、車両画像をLipla-jpの公開APIに直接渡し、同ライブラリ内の四隅検出、正規化、項目別OCRをまとめて測ります。追加のOpenCV輪郭抽出や専用YOLOプレート検出は使いません。全画面方式は車両検出を外した比較用です。
 
-既定の処理順は車両検出→検出した車両の範囲内でプレート検出→台形補正→OCRです。
-車両が未検出のフレームではプレート検出とOCRを実行しません。
-比較用にWeb画面から「全画面」を選ぶと車両検出を省略できます。
-車両検出には `yolo26n.pt` を使用し、初回はモデルを取得します。
-専用重み未指定の場合はOpenCV輪郭抽出です。AIプレート検出を測る場合は
-利用条件を確認した専用重みを`--plate-model /models/plate.pt`で指定してください。
-
-## Web画面で検証（推奨）
-
-リポジトリ直下で起動します。
+## Mac DockerのWeb検証
 
 ```bash
 git fetch origin
-git switch experiment/plate-only-benchmark
-git pull --ff-only
+git switch --track origin/experiment/lipla-jp-vehicle-roi
 mkdir -p benchmark-models
 test -f onprem/.env || cp onprem/env.example onprem/.env
-```
-
-`onprem/.env`の`GATE_ADMIN_PASSWORD`を設定してから実行してください。
-
-```bash
-docker compose --env-file onprem/.env -p ai-gate-plate-test \
+# onprem/.env の GATE_ADMIN_PASSWORD を設定
+docker compose --env-file onprem/.env -p ai-gate-lipla \
   -f onprem/compose.plate-only.yaml up -d --build
 ```
 
-http://localhost:8888 を開き、ユーザー名`admin`、設定したパスワードでログインします。
-画像・動画と処理方式（既定は車両範囲内）、プレート検出方式、OCR、処理間隔、最大枚数を指定して「検証を開始」を押します。
-RTMP配信を測る場合は入力方式を「RTMP / RTMPS ライブ配信」に切り替え、
-`rtmp://host:1935/live/stream` または `rtmps://...` を入力します。
-Web画面には直近10フレームの検出枠とOCR結果を逐次表示し、停止ボタンで終了できます。
-最大処理枚数（1〜300枚）に達した場合は自動終了し、FPSと遅延を集計します。
-撮影速度より推論が遅い場合は最新フレームのみを処理して滞留を防ぎます。
-RTMPサーバーがMac上の場合、DockerからはURL内に`host.docker.internal`を使用します。
-Mac直接起動の場合は`localhost`を使用します。必要な配信URLやログイン情報は公開しないでください。
-ログイン情報やクエリトークンを含む配信URLは結果画面・集計JSONには保存しません。
-接続が中断した場合は失敗と表示され、配信が戻ったら新しい検証を開始できます。
-処理中は自動更新され、完了後に検出枠付き画像、OCR文字列、FPS・p95遅延が表示されます。
-専用YOLOプレート重み（.pt）は`benchmark-models`へ置くと選択肢に表示されます。
-ライセンスと取得元を確認した専用重みを使用してください。
+`http://localhost:8888`、ユーザー名 `admin` でログインします。画像・動画またはRTMPを選んで検証します。既定は車両検出後に各車両範囲をLiplaへ渡します。GoPro受信用のRTMPコンテナが必要な場合は先に `python3 onprem/setup_rtmp_receiver.py` を実行して、composeコマンドに `-f onprem/compose.gopro.yaml` を加えます。
 
-- アップロード上限は1GB、処理上限は300フレーム、同時実行は1件です。
-- 検証結果とモデルキャッシュは専用ボリュームに保存します。
-- 起動中のジョブ一覧はメモリ管理です。再起動後も保存ファイルは残りますが一覧には復元しません。
-- 通常のWebサーバーとは別サービスです。計測時は通常サービスを停止し、負荷条件を揃えてください。
-- LAN公開時は`.env`の`GATE_BIND_ADDRESS=0.0.0.0`を設定して再作成し、`http://MacのIP:8888`を開きます。
+初回はYOLO26nとLiplaモデルの取得が必要です。Liplaの内部推論はライブラリ既定のONNXランタイムで実行されます。MacのDockerではMPSを利用できません。車両検出のみMac上でMPSを試す場合は `bash onprem/start-plate-mac.sh` を使用します。
 
-停止：
-```bash
-docker compose --env-file onprem/.env -p ai-gate-plate-test \
-  -f onprem/compose.plate-only.yaml stop
-```
+`frames.jsonl` は車両範囲、四隅、各項目と結果文字列を保存します。`summary.json` の `plate_recognition_ms` はLipla内部の検出・補正・OCRを合わせた時間です。ライブラリの公開APIが認識結果を返さなかった場合、その原因が検出失敗かOCR失敗かは区別できません。正解ラベルを登録していない検証の `accuracy` は null です。
 
-## CLIで実行（任意）
-
-
-リポジトリ直下で以下を実行します。入力動画を`benchmark-input/test.mp4`に置いてください。
-
-```bash
-git fetch origin
-git switch --track origin/experiment/plate-only-benchmark
-mkdir -p benchmark-input benchmark-output
-docker compose --env-file onprem/.env -f onprem/compose.yaml build gate
-docker compose --env-file onprem/.env -f onprem/compose.yaml run --rm --no-deps \
-  -v "$PWD/benchmark-input:/input:ro" \
-  -v "$PWD/benchmark-output:/benchmark" \
-  -e GATE_OCR_BACKEND=paddle gate \
-  python plate_only_benchmark.py --source /input/test.mp4 \
-  --output /benchmark --every 1 --warmup 5 --max-frames 300 --save-images
-```
-
-写真の場合は`--source /input/test.jpg --warmup 0 --max-frames 1`に変更します。
-同時実行負荷を避けるには、実行前に通常のgateサービスを停止してください。
-
-## 出力
-
-各実行は別ディレクトリに保存します。
-- `frames.jsonl`: 車両とプレートの全画面座標、車両範囲内の座標、OCR文字列、各段階の時間。
-- 番号付きJPEG: OCR失敗時も検出候補枠を表示。文字はJSONと照合します。
-- `summary.json`: 初期化時間、車両・プレート検出/OCR件数、車両検出・プレート検出・補正・OCR平均時間、
-  推論FPSとp95遅延、読込・画像保存・JSON書込を含む実効FPS。
-
-推論FPSと段階別平均はwarmupを除外し、実効FPSは全処理フレームを対象にします。
-終了後のsummaryファイル書込とモデル初期化は実効FPSに含みません。
-保存画像あり/なしでは実効FPSが変わるため、比較時は条件を揃えてください。
-
-正解ラベル未指定なので検出率・OCR正解率は算出せず`accuracy: null`とします。
-`detected_frames`や`text_read_frames`は正解数ではありません。
-全画面からの輪郭抽出は背景の誤検出が増える可能性があります。
-実画像、Mac Dockerでの速度・精度は実行後に確認してください。
-
-## MacのGPUを利用するWeb起動
-
-通常のMac DockerコンテナからこのPyTorch処理へMPS GPUを渡すことはできません。
-同じWeb検証画面をMacで直接起動し、EasyOCRと専用YOLOモデルにMPSを使います。
-MPSが利用できない端末では明示指定をエラーにし、自動指定時だけCPUへ切り替えます。
-PaddleOCR/Lipla/FastALPRのGPU対応は今回の変更範囲に含めません。
-
-Python 3.11を使えるMacで、リポジトリ直下から次を実行してください。
-Docker版検証サーバーが起動中なら、8888の重複を避けるため先に停止します。
-
-```bash
-docker compose --env-file onprem/.env -p ai-gate-plate-test \
-  -f onprem/compose.plate-only.yaml stop
-bash onprem/start-plate-mac.sh
-```
-
-初回は専用仮想環境へ必要なパッケージを導入します。
-Webログイン用パスワードを入力し、http://localhost:8888 を開いてください。
-ユーザー名はadminです。OCRはEasyOCR、実行デバイスはMPSを選んで検証します。
-専用重みがない場合のOpenCV検出はCPU、EasyOCRはMPSとなります。
-専用YOLO重みを選ぶと検出にもMPSを指定します。
-
-結果に検出・OCRそれぞれの使用デバイスを記録します。
-推論FPSはCUDA/MPSの処理完了を待って測定します。
-初回の初期化や演算準備はCPUと異なるため、動画の比較では初期数枚を集計から除外してください。
-Mac版のデータはbenchmark-data、重みキャッシュはbenchmark-cacheに保存します。
-ブラウザから未導入のOCRを選ばないよう、Mac起動ではEasyOCRだけを表示します。
-
-## GoProなどからRTMP映像を受け取る
-
-GoProなどの送信側から直接配信するには、別コンテナのMediaMTXを起動します。
-既存のURL入力のみでは配信を受け付けられません。
-MediaMTXはMITライセンスです。GoProとMacが相互に通信できる同じLAN上に必要です。
-
-リポジトリ直下で以下を実行します。`onprem/.env`にWebログイン用の
-`GATE_ADMIN_PASSWORD`を設定してください。
-
-```bash
-git switch experiment/plate-only-benchmark
-git pull --ff-only
-test -f onprem/.env || cp onprem/env.example onprem/.env
-python3 onprem/setup_rtmp_receiver.py
-docker compose --env-file onprem/.env -p ai-gate-plate-test \
-  -f onprem/compose.plate-only.yaml -f onprem/compose.gopro.yaml \
-  up -d --build
-```
-
-最初のPythonコマンドでランダムな配信パスを`onprem/.env`に記録し、
-`onprem/mediamtx.gopro.yml`に受信設定を作成します。再実行しても同じパスを使います。
-これらのファイルはGitの追跡対象外です。配信キーを他人に共有しないでください。
-
-`ipconfig getifaddr en0`などでMacのLAN IPを確認します。
-GoPro Quik等の「カスタムRTMP」欄にPythonコマンドが表示した送信先
-`rtmp://<MacのLAN IP>:1935/gopro-<生成されたキー>`を入力してください。
-アプリがサーバーURLとストリームキーを別々に要求する場合は、
-サーバーを`rtmp://<MacのLAN IP>:1935/`、キーを`gopro-<生成されたキー>`とします。
-カメラとMacを同じLANへ接続し、GoProで配信を開始してください。
-
-ブラウザで http://localhost:8888 を開き、入力方式をRTMPへ切り替えます。
-Docker版の読取URLは`rtmp://rtmp-ingest:1935/gopro-<キー>`で自動入力されます。
-「検証を開始」を押すとフレームごとにプレート検出とOCRを実行し、直近の結果を表示します。
-Macで直接GPU検証画面を起動する場合は、DockerのWebポート8888との重複を避け、
-受信サーバーだけを起動してから`bash onprem/start-plate-mac.sh`を実行します。
-
-```bash
-docker compose --env-file onprem/.env -p ai-gate-plate-test \
-  -f onprem/compose.plate-only.yaml -f onprem/compose.gopro.yaml \
-  stop plate-test
-docker compose --env-file onprem/.env -p ai-gate-plate-test \
-  -f onprem/compose.plate-only.yaml -f onprem/compose.gopro.yaml \
-  up -d rtmp-ingest
-bash onprem/start-plate-mac.sh
-```
-
-Mac版画面には`rtmp://127.0.0.1:1935/gopro-<キー>`が自動入力されます。
-受信ポート1935/TCPはLANから到達できる必要があります。配信を終えたら
-`docker compose --env-file onprem/.env -p ai-gate-plate-test -f onprem/compose.plate-only.yaml -f onprem/compose.gopro.yaml stop rtmp-ingest`
-で受信サーバーを停止できます。受信とOCRの負荷を同時に測定する場合、
-FPSは映像転送・デコードの状態にも依存します。
-
-GoPro実機との連接は未検証です。実機で映像が届かないときは、
-Macのファイアウォール、GoProのWi-Fi接続先、配信URLと
-`docker compose --env-file onprem/.env -p ai-gate-plate-test -f onprem/compose.plate-only.yaml -f onprem/compose.gopro.yaml logs rtmp-ingest`
-を確認してください。
-
-CUDA選択には別途CUDA対応PyTorchとGPUを認識する環境が必要です。
-既存DockerfileはCPU版PyTorchのため、CUDA対応Dockerイメージを提供する変更ではありません。
-
-参考：
-- https://docs.docker.com/desktop/features/gpu/
-- https://docs.pytorch.org/docs/stable/notes/mps.html
-
-デバイス選択は模擬テスト済み。実機GPU上の精度・速度・対応演算は未検証です。
+Mac Dockerで両方式を同じ8888番ポートで動かす場合、ブランチの切り替え前に現在の検証サービスを停止してください。画像と重みのライセンス・取り扱いは利用前に確認してください。

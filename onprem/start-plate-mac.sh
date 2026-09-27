@@ -12,7 +12,7 @@ if [[ -z "${GATE_ADMIN_PASSWORD:-}" ]]; then
   read -r -s -p 'Webログイン用パスワードを入力: ' GATE_ADMIN_PASSWORD
   echo
 fi
-export GATE_BENCHMARK_OCR_CHOICES=easyocr
+export GATE_BENCHMARK_OCR_CHOICES=lipla
 export GATE_ADMIN_PASSWORD
 export GATE_BENCHMARK_DATA="$PWD/benchmark-data"
 export GATE_BENCHMARK_MODELS="$PWD/benchmark-models"

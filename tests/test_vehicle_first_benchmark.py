@@ -10,6 +10,26 @@ from plate_only_benchmark import analyze_frame
 
 
 class VehicleFirstTests(unittest.TestCase):
+    def test_native_lipla_receives_vehicle_crop_and_returns_quadrilateral(self):
+        box = SimpleNamespace(cls=Mock(item=lambda: 0),
+                              xyxy=[Mock(tolist=lambda: [10, 20, 90, 60])],
+                              conf=Mock(item=lambda: .8))
+        model = Mock()
+        model.predict.return_value = [SimpleNamespace(boxes=[box], names={0: 'car'})]
+        result = SimpleNamespace(vertices=[[3, 4], [3, 15], [26, 15], [26, 4]],
+                                 area='品川', class_number='300', kana='あ', number=1234,
+                                 area_score=.9, class_number_score=.8, kana_score=.85,
+                                 number_score=.95, score=.75)
+        native = Mock(return_value=[result])
+        candidates, report, vehicles = analyze_frame(
+            np.zeros((120, 160, 3), dtype=np.uint8), [], Mock(), None,
+            model, 'cpu', native_recognizer=native)
+        self.assertEqual(native.call_args.args[0].shape, (40, 80, 3))
+        self.assertEqual(candidates[0]['bbox_in_frame'], [13, 24, 36, 35])
+        self.assertEqual(report['proposals'][0]['bbox_in_frame'], [13, 24, 36, 35])
+        self.assertEqual(candidates[0]['fields']['region'], '品川')
+        self.assertEqual(len(vehicles), 1)
+
     def test_no_vehicle_skips_plate_detection_and_ocr(self):
         model = Mock()
         model.predict.return_value = [SimpleNamespace(boxes=[], names={})]

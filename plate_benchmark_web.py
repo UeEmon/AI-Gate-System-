@@ -75,7 +75,7 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
                 valid = False
             if not valid or len(stream_url) > 2048 or any(ord(char) < 32 for char in stream_url):
                 abort(400, 'rtmp:// または rtmps:// のURLを指定してください。')
-        backend = request.form.get('ocr', 'paddle')
+        backend = request.form.get('ocr', 'lipla')
         mode = request.form.get('mode', 'vehicle-first')
         if mode not in {'vehicle-first', 'plate-only'}:
             abort(400, '検証モードが不正です。')
@@ -83,10 +83,8 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
         device = request.form.get('device', 'cpu')
         if device not in {'cpu', 'auto', 'mps', 'cuda'}:
             abort(400, 'デバイス設定が不正です。')
-        if device in {'mps', 'cuda'} and backend != 'easyocr':
-            abort(400, 'GPUでOCRを実行する場合はEasyOCRを選択してください。')
-        if backend not in backend_choices or (model and model not in model_choices()):
-            abort(400, 'モデル設定が不正です。')
+        if backend != 'lipla' or model:
+            abort(400, 'Lipla単体の検証では他のOCR・プレート検出モデルは選択できません。')
         try:
             every = int(request.form.get('every', 1))
             maximum = int(request.form.get('maximum', 100))
@@ -107,9 +105,7 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
             command = [sys.executable, str(Path(__file__).with_name('plate_only_benchmark.py')),
                        '--source', str(source), '--output', str(folder / 'results'),
                        '--data', str(folder), '--every', str(every), '--max-frames', str(maximum),
-                       '--warmup', str(warmup), '--mode', mode, '--save-images']
-            if model:
-                command += ['--plate-model', str(models / model)]
+                       '--warmup', str(warmup), '--mode', mode, '--engine', 'lipla-native', '--save-images']
             env = dict(os.environ, GATE_OCR_BACKEND=backend, GATE_PLATE_MODEL='',
                        GATE_INFERENCE_DEVICE=device,
                        GATE_FAST_OCR_MODEL_PATH='', GATE_FAST_OCR_CONFIG_PATH='')

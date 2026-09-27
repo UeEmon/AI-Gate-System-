@@ -92,7 +92,7 @@ class PlateWebTests(unittest.TestCase):
 
             with patch('plate_benchmark_web.subprocess.Popen', side_effect=launch) as process:
                 response = client.post('/run', headers=auth, data=dict(
-                    csrf=csrf, source=(io.BytesIO(b'fake'), 'plate.jpg'), ocr='paddle'))
+                    csrf=csrf, source=(io.BytesIO(b'fake'), 'plate.jpg'), ocr='lipla'))
                 self.assertEqual(response.status_code, 302)
                 process.assert_called_once()
             result = client.get(response.location, headers=auth)

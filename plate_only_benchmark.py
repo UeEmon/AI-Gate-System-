@@ -48,8 +48,42 @@ def frame_coordinates(item, x, y):
     return item
 
 
+def recognize_lipla(image, recognizer):
+    """Run Lipla's own four-corner detector and OCR once on the vehicle BGR image."""
+    import numpy as np
+    started = time.perf_counter()
+    results = recognizer(np.ascontiguousarray(image))
+    elapsed = (time.perf_counter() - started) * 1000
+    candidates, proposals = [], []
+    for result in results:
+        points = np.asarray(result.vertices, dtype=float).reshape(4, 2)
+        if not np.isfinite(points).all():
+            continue
+        x1, y1 = np.floor(points.min(axis=0)).astype(int)
+        x2, y2 = np.ceil(points.max(axis=0)).astype(int)
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(image.shape[1], x2), min(image.shape[0], y2)
+        if x2 <= x1 or y2 <= y1:
+            continue
+        quad = points.tolist()
+        bbox = [int(x1), int(y1), int(x2), int(y2)]
+        fields = dict(region=str(result.area), category=str(result.class_number),
+                      kana=str(result.kana), serial=str(result.number))
+        confidence = min(float(getattr(result, key)) for key in
+                         ('area_score', 'class_number_score', 'kana_score', 'number_score'))
+        candidates.append(dict(bbox_in_vehicle=bbox, quad_in_vehicle=quad,
+                               text=f"{fields['region']} {fields['category']} {fields['kana']} {fields['serial']}",
+                               fields=fields, confidence=confidence, ocr_backend='lipla-native',
+                               detection_source='lipla-native', detection_score=float(result.score)))
+        proposals.append(dict(bbox_in_vehicle=bbox, quad_in_vehicle=quad,
+                              detection_source='lipla-native', text_found=True))
+    return candidates, dict(proposals=proposals, plate_detection_ms=None,
+                            rectification_ms=None, ocr_ms=None,
+                            plate_recognition_ms=elapsed)
+
+
 def analyze_frame(frame, readers, cv2, plate_model, vehicle_model, device,
-                  confidence=.25, imgsz=960):
+                  confidence=.25, imgsz=960, native_recognizer=None):
     from app import read_plate
     from inference_device import synchronize
     regions = []
@@ -64,14 +98,21 @@ def analyze_frame(frame, readers, cv2, plate_model, vehicle_model, device,
         regions = [dict(bbox_in_frame=[0, 0, frame.shape[1], frame.shape[0]])]
     candidates, proposals = [], []
     report = dict(proposals=proposals, vehicle_detection_ms=vehicle_ms,
-                  plate_detection_ms=0.0, rectification_ms=0.0, ocr_ms=0.0)
+                  plate_detection_ms=0.0 if native_recognizer is None else None,
+                  rectification_ms=0.0 if native_recognizer is None else None,
+                  ocr_ms=0.0 if native_recognizer is None else None,
+                  plate_recognition_ms=0.0 if native_recognizer is not None else None)
     for number, region in enumerate(regions):
         x1, y1, x2, y2 = region['bbox_in_frame']
         local = {}
-        found = read_plate(frame[y1:y2, x1:x2], readers, cv2,
-                           plate_model=plate_model, diagnostics=local)
-        for key in ('plate_detection_ms', 'rectification_ms', 'ocr_ms'):
-            report[key] += local.get(key, 0.0)
+        if native_recognizer is not None:
+            found, local = recognize_lipla(frame[y1:y2, x1:x2], native_recognizer)
+            report['plate_recognition_ms'] += local['plate_recognition_ms']
+        else:
+            found = read_plate(frame[y1:y2, x1:x2], readers, cv2,
+                               plate_model=plate_model, diagnostics=local)
+            for key in ('plate_detection_ms', 'rectification_ms', 'ocr_ms'):
+                report[key] += local.get(key, 0.0)
         for source, target in ((found, candidates), (local.get('proposals', []), proposals)):
             for item in source:
                 translated = frame_coordinates(item, x1, y1)
@@ -83,10 +124,8 @@ def analyze_frame(frame, readers, cv2, plate_model, vehicle_model, device,
 
 def run(args):
     import cv2
-    import easyocr
     import numpy as np
     from app import frames, live_frames
-    from ocr_backends import make_readers
 
     destination = Path(args.output) / uuid.uuid4().hex
     destination.mkdir(parents=True)
@@ -94,6 +133,9 @@ def run(args):
     device = torch_device()
     started = time.perf_counter()
     plate_model = None
+    engine = getattr(args, 'engine', 'lipla-native')
+    if engine != 'lipla-native':
+        raise ValueError('このブランチの検証方式はlipla-nativeです。')
     mode = getattr(args, 'mode', 'plate-only')
     if mode not in {'vehicle-first', 'plate-only'}:
         raise ValueError('検証モードが不正です。')
@@ -104,17 +146,16 @@ def run(args):
         from ultralytics import YOLO
         vehicle_model = YOLO(vehicle_path)
     if args.plate_model:
-        if not Path(args.plate_model).is_file():
-            raise ValueError('専用プレートモデルが見つかりません。')
-        from ultralytics import YOLO
-        plate_model = YOLO(args.plate_model)
-    readers = make_readers(Path(args.data), easyocr, os.getenv('GATE_OFFLINE') == '1')
+        raise ValueError('Lipla自身の検出器を検証するため専用プレートモデルは指定できません。')
+    from ocr_backends import LiplaPlateReader
+    native_recognizer = LiplaPlateReader(os.getenv('GATE_OFFLINE') == '1', Path(args.data)).model
+    readers = [('lipla-native', native_recognizer)]
     initialization_ms = (time.perf_counter() - started) * 1000
     live = is_rtmp(args.source)
     stream = (live_frames(args.source, cv2, args.every) if live else
               frames(args.source, cv2, args.every))
     latencies = []
-    stages = {key: [] for key in ('vehicle_detection_ms', 'plate_detection_ms', 'rectification_ms', 'ocr_ms')}
+    stages = {key: [] for key in ('vehicle_detection_ms', 'plate_recognition_ms')}
     detected = read = count = vehicle_detected = 0
     processing_started = time.perf_counter()
     try:
@@ -125,7 +166,7 @@ def run(args):
                 candidates, report, vehicles = analyze_frame(
                     frame, readers, cv2, plate_model, vehicle_model, device,
                     getattr(args, 'vehicle_confidence', .25),
-                    getattr(args, 'vehicle_imgsz', 960))
+                    getattr(args, 'vehicle_imgsz', 960), native_recognizer)
                 synchronize(device)
                 inference_ms = (time.perf_counter() - started) * 1000
                 record = dict(frame_index=index, media_ms=media_ms,
@@ -164,11 +205,11 @@ def run(args):
     summary = dict(mode=mode, vehicle_detection=vehicle_model is not None,
                    vehicle_model=vehicle_path if vehicle_model is not None else None,
                    source=public_source(args.source), live_stream=live,
-                   plate_model=args.plate_model or 'opencv-plate-contours',
+                   plate_model='lipla-native', engine=engine,
                    ocr_backends=[name for name, _ in readers],
                    requested_device=os.getenv('GATE_INFERENCE_DEVICE', 'cpu'),
                    detector_device=device if plate_model or vehicle_model else 'cpu',
-                   ocr_devices={name: device if name == 'easyocr' else 'backend default (CPU configuration)' for name, _ in readers},
+                   ocr_devices={'lipla-native': 'backend default (ONNX runtime)'},
                    initialization_ms=initialization_ms, frames=count,
                    vehicle_detected_frames=vehicle_detected, detected_frames=detected, text_read_frames=read,
                    measured_frames=len(latencies), warmup_frames=min(count, args.warmup),
@@ -186,6 +227,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', required=True)
     parser.add_argument('--plate-model', default=os.getenv('GATE_PLATE_MODEL') or None)
+    parser.add_argument('--engine', choices=('lipla-native',), default='lipla-native')
     parser.add_argument('--mode', choices=('vehicle-first', 'plate-only'), default='vehicle-first')
     parser.add_argument('--vehicle-model', default=None)
     parser.add_argument('--vehicle-confidence', type=float, default=.25)

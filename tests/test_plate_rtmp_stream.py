@@ -19,21 +19,16 @@ class RTMPStreamTests(unittest.TestCase):
         url = 'rtmp://account:secret@example.net:1935/live/plate?token=hidden'
         frame = np.zeros((16, 24, 3), dtype=np.uint8)
 
-        def fake_read(_frame, _readers, _cv2, plate_model=None, diagnostics=None):
-            diagnostics.update(proposals=[], plate_detection_ms=1,
-                               rectification_ms=0, ocr_ms=0)
-            return []
-
         with tempfile.TemporaryDirectory() as folder, \
-                patch.dict(sys.modules, {'cv2': Mock(), 'easyocr': Mock()}), \
+                patch.dict(sys.modules, {'cv2': Mock()}), \
                 patch.object(app, 'frames', side_effect=AssertionError('file path used')), \
                 patch.object(app, 'live_frames',
                              side_effect=lambda source, cv, every: (x for x in [(4, 130, frame)])) as live, \
-                patch.object(app, 'read_plate', side_effect=fake_read), \
-                patch.object(ocr_backends, 'make_readers', return_value=[('easyocr', None)]):
+                patch.object(ocr_backends, 'LiplaPlateReader',
+                             return_value=SimpleNamespace(model=lambda image: [])):
             plate_only_benchmark.run(SimpleNamespace(
                 source=url, output=folder, data=folder, plate_model=None,
-                every=1, warmup=0, max_frames=1, save_images=False))
+                mode='plate-only', every=1, warmup=0, max_frames=1, save_images=False))
             live.assert_called_once()
             result = next(Path(folder).iterdir())
             summary_text = (result / 'summary.json').read_text()
