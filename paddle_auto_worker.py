@@ -15,6 +15,7 @@ def run(root, interval=30):
     while not stop.is_set():
         try:
             manager.maybe_start()
+            manager.maybe_compare()
         except Exception as error:
             with manager.lock:
                 manager._save(dict(state='failed', error=str(error)))

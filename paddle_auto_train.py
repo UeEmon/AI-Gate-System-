@@ -17,11 +17,25 @@ class PaddleTrainingManager:
     def __init__(self, root):
         self.root = Path(root)
         self.path = self.root / 'ocr-learning' / 'paddle' / 'auto-state.json'
+        self.comparison_path = self.path.parent / 'comparison-state.json'
         self.lock = threading.RLock()
         self.process = None
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if self.status().get('state') == 'running':
             self._save(dict(state='interrupted', error='コンテナ再起動で学習が中断されました。'))
+        if self.comparison_status().get('state') == 'running':
+            self._save_comparison(dict(state='interrupted', error='コンテナ再起動で比較が中断されました。'))
+
+    def comparison_status(self):
+        try:
+            return json.loads(self.comparison_path.read_text())
+        except (OSError, ValueError):
+            return dict(state='idle')
+
+    def _save_comparison(self, data):
+        temporary = self.comparison_path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+        os.replace(temporary, self.comparison_path)
 
     def status(self):
         try:
@@ -46,6 +60,8 @@ class PaddleTrainingManager:
             return state
         with self.lock:
             if self.process is not None and self.process.poll() is None:
+                return self.status()
+            if self.comparison_status().get('state') == 'running':
                 return self.status()
             try:
                 rows = ocr_learning.dataset_snapshot(self.root)
@@ -92,6 +108,48 @@ class PaddleTrainingManager:
                         'exit_code': code})
         if code == 0:
             try:
-                self.maybe_start()
+                self.maybe_compare()
             except (OSError, ValueError):
                 pass
+
+    def maybe_compare(self):
+        with self.lock:
+            training = self.status()
+            if training.get('state') != 'completed' or (self.process is not None and self.process.poll() is None):
+                return self.comparison_status()
+            dataset = Path(training['dataset']).resolve()
+            if not dataset.is_relative_to(self.path.parent.resolve()) or not dataset.is_dir():
+                return self.comparison_status()
+            weights = dataset / 'weights'
+            if not (weights / 'plate.pt').is_file() or not (weights / 'paddle-inference' / 'inference.pdiparams').is_file():
+                return self.comparison_status()
+            request = self.path.parent / 'compare-request.json'
+            previous = self.comparison_status()
+            requested = request.is_file()
+            if not requested and previous.get('dataset') == str(dataset) and previous.get('state') in ('completed', 'failed', 'running'):
+                return previous
+            if requested:
+                request.unlink(missing_ok=True)
+            state = dict(state='running', dataset=str(dataset), log=str(dataset / 'comparison.log'))
+            self._save_comparison(state)
+            with (dataset / 'comparison.log').open('wb') as log:
+                process = subprocess.Popen([
+                    sys.executable, str(Path(__file__).with_name('paddle_evaluate.py')),
+                    '--data', str(self.root), '--dataset', str(dataset),
+                    '--plate-weights', str(weights / 'plate.pt'),
+                    '--recognition-dir', str(weights / 'paddle-inference'), '--compare-lipla'],
+                    stdout=log, stderr=subprocess.STDOUT)
+            self.process = process
+            threading.Thread(target=self._watch_comparison, args=(process, state), daemon=True).start()
+            return state
+
+    def _watch_comparison(self, process, state):
+        code = process.wait()
+        with self.lock:
+            result = {**state, 'state': 'completed' if code == 0 else 'failed', 'exit_code': code}
+            if code == 0:
+                try:
+                    result['report'] = json.loads((Path(state['dataset']) / 'comparison.json').read_text())
+                except (OSError, ValueError) as error:
+                    result.update(state='failed', error=str(error))
+            self._save_comparison(result)

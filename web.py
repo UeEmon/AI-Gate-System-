@@ -620,11 +620,49 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
 
     @app.get('/api/paddle-training')
     def paddle_training_status():
-        path = manager.root / 'ocr-learning' / 'paddle' / 'auto-state.json'
+        directory = manager.root / 'ocr-learning' / 'paddle'
+        def read_state(name):
+            try:
+                return json.loads((directory / name).read_text(encoding='utf-8'))
+            except (OSError, ValueError):
+                return dict(state='idle')
+        training, comparison = read_state('auto-state.json'), read_state('comparison-state.json')
+        log = training.get('log')
+        if log:
+            path = Path(log).resolve()
+            if path.is_relative_to(directory.resolve()) and path.is_file():
+                with path.open('rb') as stream:
+                    stream.seek(max(0, path.stat().st_size - 8192))
+                    lines = stream.read().decode('utf-8', errors='replace').splitlines()
+                training['recent_log'] = '\n'.join(lines[-12:])[-4000:]
+                for line in reversed(lines):
+                    if line.startswith('STAGE: '):
+                        training['stage'] = line[7:]
+                        break
+        comparison_log = comparison.get('log')
+        if comparison_log:
+            path = Path(comparison_log).resolve()
+            if path.is_relative_to(directory.resolve()) and path.is_file() and comparison.get('state') == 'failed':
+                with path.open('rb') as stream:
+                    stream.seek(max(0, path.stat().st_size - 2048))
+                    comparison['error'] = stream.read().decode('utf-8', errors='replace').splitlines()[-1:][0] if path.stat().st_size else '比較処理が失敗しました。'
+        return jsonify(**training, comparison=comparison)
+
+    @app.post('/api/paddle-training/compare')
+    def request_paddle_comparison():
+        directory = manager.root / 'ocr-learning' / 'paddle'
         try:
-            return jsonify(json.loads(path.read_text(encoding='utf-8')))
+            state = json.loads((directory / 'auto-state.json').read_text(encoding='utf-8'))
         except (OSError, ValueError):
-            return jsonify(state='idle')
+            state = {}
+        dataset = Path(state.get('dataset') or '/nonexistent').resolve()
+        if state.get('state') != 'completed' or not dataset.is_relative_to(directory.resolve()) or not (dataset / 'weights' / 'plate.pt').is_file() or not (dataset / 'weights' / 'paddle-inference' / 'inference.pdiparams').is_file():
+            abort(409, description='比較できる学習済みモデルがありません。')
+        request_path = directory / 'compare-request.json'
+        temporary = request_path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(dict(dataset=str(dataset), requested_at=now())), encoding='utf-8')
+        os.replace(temporary, request_path)
+        return jsonify(state='queued'), 202
 
     @app.delete('/api/ocr-learning/samples/<identifier>')
     def learning_delete(identifier):

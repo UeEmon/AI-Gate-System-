@@ -78,6 +78,13 @@
 <button id="learning-refresh" type="button">状態を更新</button>
 <p id="learning-status" role="status"></p>
 <p id="paddle-training-status" role="status"></p>
+<p id="paddle-training-details" class="hint"></p>
+<details><summary>学習ログ（最新12行）</summary><pre id="paddle-training-log"></pre></details>
+<h3>Lipla-jp / 学習済みPaddleOCR 比較</h3>
+<p class="hint">同一の手動確認済み評価画像で比較します。両方式とも車両画像からプレート検出・OCRまで測定します。運用モデルはLipla-jpです。</p>
+<button id="paddle-compare" type="button" disabled>比較を再実行</button>
+<p id="paddle-compare-status" role="status"></p>
+<div id="paddle-comparison"></div>
 <details><summary>確認済みデータ（最新200件）</summary><div id="learning-samples"></div></details>
 </section>
 <div class="workspace" data-page="monitor">

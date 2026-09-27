@@ -67,6 +67,27 @@ async function refreshLearning(){
     $('learning-status').textContent='保存済み '+data.count+'件 / 運用方式: Lipla-jp';
     const training=await api('/api/paddle-training');
     $('paddle-training-status').textContent='PaddleOCR追加学習: '+({idle:'待機',running:'学習中',completed:'完了（未適用）',failed:'失敗',interrupted:'中断',insufficient_data:'データ不足',unavailable:'学習環境未準備'}[training.state]||training.state)+(training.error?' / '+training.error:'');
+    const stage={detector:'プレート検出器',recognizer:'PaddleOCR',validation:'評価',export:'推論形式への変換'}[training.stage]||training.stage;
+    const counts=training.report||{};
+    $('paddle-training-details').textContent=[stage?'工程: '+stage:'',counts.det_train!==undefined?'検出器 学習 '+counts.det_train+'件 / 評価 '+counts.det_val+'件':'',training.exit_code!==undefined?'終了コード: '+training.exit_code:''].filter(Boolean).join(' / ');
+    $('paddle-training-log').textContent=training.recent_log||'ログはまだありません。';
+    const comparison=training.comparison||{state:'idle'};
+    $('paddle-compare').disabled=training.state!=='completed'||comparison.state==='running';
+    $('paddle-compare-status').textContent='同一画像での比較: '+({idle:'未実施',running:'実行中',completed:'完了',failed:'失敗',interrupted:'中断'}[comparison.state]||comparison.state)+(comparison.error?' / '+comparison.error:'');
+    const target=$('paddle-comparison');target.replaceChildren();
+    const report=comparison.report;
+    if(report&&comparison.dataset===training.dataset){
+      const caption=document.createElement('p');caption.textContent='手動確認済み '+report.evaluated+'件（除外 '+report.skipped+'件） / IoU 0.50 / 車両画像からの処理時間';target.append(caption);
+      const table=document.createElement('table');
+      const head=document.createElement('tr');
+      for(const title of ['方式','検出率','ナンバー完全一致率','平均遅延 (ms)','95%遅延 (ms)','処理速度 (FPS)']){const cell=document.createElement('th');cell.textContent=title;head.append(cell);}table.append(head);
+      for(const [title,key] of [['Lipla-jp','lipla'],['学習済みPaddleOCR','paddle']]){
+        const metrics=report[key];if(!metrics)continue;
+        const row=document.createElement('tr');
+        for(const value of [title,(metrics.plate_recall_at_iou_50*100).toFixed(1)+'%',(metrics.exact_plate_accuracy*100).toFixed(1)+'%',metrics.average_latency_ms.toFixed(1),metrics.p95_latency_ms.toFixed(1),metrics.throughput_fps.toFixed(1)]){const cell=document.createElement('td');cell.textContent=value;row.append(cell);}table.append(row);
+      }target.append(table);
+      const paired=document.createElement('p');paired.textContent='両方正解 '+report.paired.both_correct+'件 / PaddleOCRのみ正解 '+report.paired.paddle_only+'件 / Lipla-jpのみ正解 '+report.paired.lipla_only+'件';target.append(paired);
+    }
     $('learning-samples').replaceChildren();
     for(const sample of data.samples){
       const row=document.createElement('div');const label=document.createElement('span');
@@ -88,5 +109,6 @@ async function refreshLearning(){
   }finally{learningRefreshBusy=false;}
 }
 $('learning-refresh').onclick=()=>refreshLearning().catch(e=>message(e.message));
+$('paddle-compare').onclick=async()=>{try{await api('/api/paddle-training/compare',{method:'POST'});message('比較を予約しました。');await refreshLearning();}catch(e){message(e.message);}};
 refreshLearning().catch(e=>message(e.message));
 setInterval(()=>refreshLearning().catch(()=>{}),10000);

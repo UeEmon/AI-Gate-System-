@@ -1,7 +1,9 @@
 """Evaluate trained plate detection and OCR against held-out manual reviews."""
 import argparse
 import json
+import os
 from pathlib import Path
+import statistics
 import time
 
 import events
@@ -22,66 +24,117 @@ class PaddleLineReader:
         return str(value.get('rec_text') or '').strip(), float(value.get('rec_score') or 0)
 
 
-def evaluate(root, dataset, plate_weights, recognition_dir):
+def overlap(a, b):
+    x1, y1 = max(a[0], b[0]), max(a[1], b[1])
+    x2, y2 = min(a[2], b[2]), min(a[3], b[3])
+    intersection = max(0, x2-x1) * max(0, y2-y1)
+    area_a = max(0, a[2]-a[0]) * max(0, a[3]-a[1])
+    area_b = max(0, b[2]-b[0]) * max(0, b[3]-b[1])
+    return intersection / max(1, area_a + area_b - intersection)
+
+
+def score_pipeline(pipeline, vehicle, expected, truth):
+    started = time.perf_counter()
+    found, report = pipeline.run(vehicle)
+    elapsed = time.perf_counter() - started
+    detected = any(overlap(p['bbox_in_vehicle'], expected) >= .5
+                   for p in report.get('proposals', []))
+    recognized = False
+    for candidate in found:
+        if overlap(candidate['bbox_in_vehicle'], expected) < .5 or not candidate.get('fields'):
+            continue
+        try:
+            if events.plate_key(candidate['fields']) == truth:
+                recognized = True
+                break
+        except (ValueError, KeyError, TypeError):
+            continue
+    return dict(detected=detected, recognized=recognized, latency_ms=elapsed*1000)
+
+
+def summarize(items):
+    durations = sorted(item['latency_ms'] for item in items)
+    n = len(items)
+    return dict(evaluated=n, plate_recall_at_iou_50=sum(x['detected'] for x in items)/n,
+                exact_plate_accuracy=sum(x['recognized'] for x in items)/n,
+                average_latency_ms=statistics.mean(durations),
+                p95_latency_ms=durations[max(0, (95*n+99)//100-1)],
+                throughput_fps=1000*n/sum(durations) if sum(durations) else 0)
+
+
+def evaluate(root, dataset, plate_weights, recognition_dir, compare=False,
+             paddle_pipeline=None, lipla_pipeline=None):
     import cv2
     import numpy as np
     from ultralytics import YOLO
     from app import parse_plate
-    from paddle_training import plate_box, safe_vehicle_image, partition
+    from paddle_training import plate_box, safe_vehicle_image
 
     manifest = json.loads((Path(dataset) / 'manifest.json').read_text())
     sample_ids = [item['sample'] for item in manifest['samples']
                   if item['partition'] == 'val' and item['label_source'] == 'manual']
     if not sample_ids:
         raise ValueError('手動確認済みの評価画像がありません。')
-    detector = YOLO(str(plate_weights))
-    reader = PaddleLineReader(str(recognition_dir))
-    pipeline = PaddlePlatePipeline(detector, reader, parse_plate)
-    recognized = detected = evaluated = 0
-    elapsed = 0.0
+    if paddle_pipeline is None:
+        paddle_pipeline = PaddlePlatePipeline(YOLO(str(plate_weights)),
+                                              PaddleLineReader(str(recognition_dir)), parse_plate)
+    if compare and lipla_pipeline is None:
+        import lipla
+        from lipla_pipeline import LiplaPlatePipeline
+        lipla_pipeline = LiplaPlatePipeline(lipla.Recognizer(
+            cache_dir=str(Path(os.getenv('GATE_MODEL_ROOT', '/models')) / 'lipla')), parse_plate)
+    scores = {'paddle': [], 'lipla': []}
+    skipped = 0
     with events.connection(root) as db:
         for identifier in sample_ids:
             row = db.execute('''SELECT s.*,o.details_json FROM ocr_samples s
                 JOIN observations o ON o.id=s.observation_id WHERE s.id=?''', (identifier,)).fetchone()
             if row is None:
+                skipped += 1
                 continue
             record = json.loads(row['details_json'])
             source = safe_vehicle_image(root, record)
             if source is None:
+                skipped += 1
                 continue
             vehicle = cv2.imdecode(np.fromfile(source, dtype=np.uint8), cv2.IMREAD_COLOR)
             if vehicle is None:
+                skipped += 1
                 continue
             candidates = record.get('plate_candidates', [])
             if row['candidate_index'] >= len(candidates):
+                skipped += 1
                 continue
             expected = plate_box(candidates[row['candidate_index']],
                                  (vehicle.shape[1], vehicle.shape[0]))
             if expected is None:
+                skipped += 1
                 continue
-            started = time.perf_counter()
-            found, report = pipeline.run(vehicle)
-            elapsed += time.perf_counter() - started
-            evaluated += 1
-            def overlap(a, b):
-                x1, y1 = max(a[0], b[0]), max(a[1], b[1])
-                x2, y2 = min(a[2], b[2]), min(a[3], b[3])
-                intersect = max(0, x2-x1) * max(0, y2-y1)
-                area_a = max(0, a[2]-a[0]) * max(0, a[3]-a[1])
-                area_b = max(0, b[2]-b[0]) * max(0, b[3]-b[1])
-                return intersect / max(1, area_a + area_b - intersect)
-            proposals = report.get('proposals', [])
-            detected += int(any(overlap(p['bbox_in_vehicle'], expected) >= .5
-                                for p in proposals))
             truth = events.plate_key(parse_plate(row['top_text'] + row['bottom_text']))
-            recognized += int(any(overlap(c['bbox_in_vehicle'], expected) >= .5 and
-                                  events.plate_key(c['fields']) == truth for c in found))
-    if evaluated == 0:
+            # Alternate ordering to avoid a consistent warm-cache advantage.
+            methods = [('paddle', paddle_pipeline)]
+            if compare:
+                methods = [('paddle', paddle_pipeline), ('lipla', lipla_pipeline)]
+                if len(scores['paddle']) % 2:
+                    methods.reverse()
+            for name, pipeline in methods:
+                scores[name].append(score_pipeline(pipeline, vehicle, expected, truth))
+    if not scores['paddle']:
         raise ValueError('読み取り可能な評価用車両画像がありません。')
-    report = dict(evaluated=evaluated, plate_recall_at_iou_50=detected/evaluated,
-                  exact_plate_accuracy=recognized/evaluated,
-                  average_latency_ms=1000*elapsed/evaluated, throughput_fps=evaluated/elapsed)
-    (Path(dataset) / 'evaluation.json').write_text(json.dumps(report, indent=2))
+    if compare:
+        report = dict(evaluated=len(scores['paddle']), skipped=skipped,
+                      ground_truth='manual_review', iou_threshold=.5,
+                      paddle=summarize(scores['paddle']), lipla=summarize(scores['lipla']),
+                      paired=dict(both_correct=sum(a['recognized'] and b['recognized'] for a,b in zip(scores['paddle'],scores['lipla'])),
+                                  paddle_only=sum(a['recognized'] and not b['recognized'] for a,b in zip(scores['paddle'],scores['lipla'])),
+                                  lipla_only=sum(b['recognized'] and not a['recognized'] for a,b in zip(scores['paddle'],scores['lipla']))))
+        destination = Path(dataset) / 'comparison.json'
+    else:
+        report = summarize(scores['paddle'])
+        destination = Path(dataset) / 'evaluation.json'
+    temporary = destination.with_suffix('.tmp')
+    temporary.write_text(json.dumps(report, indent=2, ensure_ascii=False))
+    os.replace(temporary, destination)
     return report
 
 
@@ -91,6 +144,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', required=True)
     parser.add_argument('--plate-weights', required=True)
     parser.add_argument('--recognition-dir', required=True)
+    parser.add_argument('--compare-lipla', action='store_true')
     args = parser.parse_args()
     print(json.dumps(evaluate(args.data, args.dataset, args.plate_weights,
-                              args.recognition_dir), ensure_ascii=False))
+                              args.recognition_dir, compare=args.compare_lipla), ensure_ascii=False))

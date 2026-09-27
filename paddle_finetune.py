@@ -29,6 +29,7 @@ def run(dataset, repository, pretrained, epochs=20, imgsz=960):
         raise ValueError('エポック数は1〜200です。')
     from vision_train import train
     detector_weights = dataset / 'weights' / 'plate.pt'
+    print('STAGE: detector', flush=True)
     train(dataset / 'det' / 'dataset.yaml', detector_weights, 'plate', epochs, imgsz)
     rec = dataset / 'rec'
     output = dataset / 'weights' / 'paddle'
@@ -44,6 +45,7 @@ def run(dataset, repository, pretrained, epochs=20, imgsz=960):
                f'Train.dataset.label_file_list=[{rec / "train.txt"}]',
                f'Eval.dataset.data_dir={rec}',
                f'Eval.dataset.label_file_list=[{rec / "val.txt"}]']
+    print('STAGE: recognizer', flush=True)
     subprocess.run([sys.executable, 'tools/train.py', '-c', REC_CONFIG,
                     '-o', *options], cwd=repository, check=True)
     best = output / 'best_accuracy'
@@ -51,9 +53,11 @@ def run(dataset, repository, pretrained, epochs=20, imgsz=960):
         raise RuntimeError('PaddleOCRの評価済み重みが出力されませんでした。')
     model_options = [o for o in options if not o.startswith('Global.pretrained_model=')]
     model_options.append(f'Global.pretrained_model={best}')
+    print('STAGE: validation', flush=True)
     subprocess.run([sys.executable, 'tools/eval.py', '-c', REC_CONFIG,
                     '-o', *model_options], cwd=repository, check=True)
     exported = dataset / 'weights' / 'paddle-inference'
+    print('STAGE: export', flush=True)
     subprocess.run([sys.executable, 'tools/export_model.py', '-c', REC_CONFIG,
                     '-o', *model_options, f'Global.save_inference_dir={exported}'],
                    cwd=repository, check=True)
