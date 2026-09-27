@@ -102,6 +102,8 @@ docker compose run --rm trainer \
 `STAGE: recognizer` の直後に `ImportError: libgomp.so.1` と出る場合は古い学習用イメージです。`docker compose -f onprem/compose.yaml build trainer && docker compose -f onprem/compose.yaml up -d trainer` で再構築してください。学習用イメージは `libgomp1` を導入し、ビルド中に `import paddle` を検査します。再起動後にOCR学習タブの「同じデータで学習を再実行」を押してください。
 `STAGE: recognizer` で `ModuleNotFoundError: No module named 'skimage'` が出る場合も学習用イメージを再構築してください。PaddleOCR公式の学習用 `requirements.txt` に基づく依存パッケージを学習用イメージへ導入し、ビルド中に主要モジュールを読み込んで検査します。`OMP_NUM_THREADS` はPaddlePaddleの警告に合わせて1に設定しています。再構築後はOCR学習タブから同じデータで再実行できます。
 
+PaddleOCRの学習開始直後にプロセスが `SIGKILL` で止まる場合、元のPP-OCRv5設定ではMultiScaleSamplerの初期バッチ128と複数のデータローダーワーカーが使われます。学習コードではサンプラー初期バッチ・学習/評価バッチを各1、ワーカーを0に固定しました。`git pull` 後に `docker compose -f onprem/compose.yaml up -d --build trainer` でコードを更新し、WebのOCR学習タブから「同じデータで学習を再実行」を押してください。強制終了の原因はログだけでは確定できないため、再発時はDocker Desktopのメモリ割当と `docker stats` を確認してください。
+
 ## 社内SMTP通知
 
 ネイティブ版はシェルの環境変数、Docker版は `onprem/.env` を設定します。

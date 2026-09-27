@@ -13,6 +13,26 @@ import sys
 REC_CONFIG = 'configs/rec/PP-OCRv5/PP-OCRv5_mobile_rec.yml'
 
 
+def recognition_options(pretrained, output, epochs, rec):
+    """Override both the loader and sampler; the upstream sampler defaults to 128."""
+    return [f'Global.pretrained_model={pretrained}',
+            f'Global.save_model_dir={output}',
+            f'Global.epoch_num={epochs}',
+            'Global.use_gpu=False',
+            'Global.eval_batch_step=[0,10]',
+            'Global.save_epoch_step=1',
+            'Train.sampler.first_bs=1',
+            'Train.sampler.fix_bs=True',
+            'Train.loader.batch_size_per_card=1',
+            'Train.loader.num_workers=0',
+            'Eval.loader.batch_size_per_card=1',
+            'Eval.loader.num_workers=0',
+            f'Train.dataset.data_dir={rec}',
+            f'Train.dataset.label_file_list=[{rec / "train.txt"}]',
+            f'Eval.dataset.data_dir={rec}',
+            f'Eval.dataset.label_file_list=[{rec / "val.txt"}]']
+
+
 def run(dataset, repository, pretrained, epochs=20, imgsz=640):
     dataset, repository, pretrained = (Path(p).resolve() for p in
                                        (dataset, repository, pretrained))
@@ -33,18 +53,7 @@ def run(dataset, repository, pretrained, epochs=20, imgsz=640):
     train(dataset / 'det' / 'dataset.yaml', detector_weights, 'plate', epochs, imgsz)
     rec = dataset / 'rec'
     output = dataset / 'weights' / 'paddle'
-    options = [f'Global.pretrained_model={pretrained}',
-               f'Global.save_model_dir={output}',
-               f'Global.epoch_num={epochs}',
-               'Global.use_gpu=False',
-               'Global.eval_batch_step=[0,10]',
-               'Global.save_epoch_step=1',
-               'Train.loader.batch_size_per_card=1',
-               'Eval.loader.batch_size_per_card=1',
-               f'Train.dataset.data_dir={rec}',
-               f'Train.dataset.label_file_list=[{rec / "train.txt"}]',
-               f'Eval.dataset.data_dir={rec}',
-               f'Eval.dataset.label_file_list=[{rec / "val.txt"}]']
+    options = recognition_options(pretrained, output, epochs, rec)
     print('STAGE: recognizer', flush=True)
     subprocess.run([sys.executable, 'tools/train.py', '-c', REC_CONFIG,
                     '-o', *options], cwd=repository, check=True)
