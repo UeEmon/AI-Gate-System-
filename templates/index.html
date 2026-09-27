@@ -12,7 +12,7 @@
 </head>
 <body>
 <header><div class="brand"><span class="mark">G</span><div>AI GATE SYSTEM<small>車両認識・管理コンソール</small></div></div><span class="connection" id="connection">接続確認中</span></header>
-<nav class="main-nav" aria-label="機能メニュー"><button type="button" data-page-button="monitor" class="active">ライブ監視</button><button type="button" data-page-button="alerts">通知</button><button type="button" data-page-button="registry">登録・学習</button><button type="button" data-page-button="history">履歴</button><button type="button" data-page-button="system">モデル・性能</button></nav>
+<nav class="main-nav" aria-label="機能メニュー"><button type="button" data-page-button="monitor" class="active">ライブ監視</button><button type="button" data-page-button="alerts">通知</button><button type="button" data-page-button="registry">登録・確認</button><button type="button" data-page-button="history">履歴</button><button type="button" data-page-button="system">システム性能</button></nav>
 <main>
 <div class="intro" data-page="monitor"><div class="eyebrow">VEHICLE RECOGNITION</div><h1>映像から、車両を記録。</h1><p>カメラのリアルタイム認識と、保存した画像・動画のファイル処理をひとつの画面で。</p></div>
 <div id="message" role="status" hidden></div>
@@ -73,14 +73,11 @@
 </div>
 <div class="registry-actions"><label><input type="checkbox" id="watch">この車両の検知時に通知する</label><label><input type="checkbox" id="vehicle-enabled" checked>登録を有効にする</label><button class="primary" type="submit">登録・更新</button><button id="vehicle-reset" type="button">入力クリア</button></div>
 </form><div id="vehicle-list" class="job-list"></div></section>
-<section class="panel" data-page="registry" hidden><h2>OCR再学習</h2>
-<p class="hint">確認済みデータから日本語OCRを追加学習します。学習用5種類・評価用2種類以上の異なるナンバーが必要です。振り分けはナンバー単位で固定します。MacのCPUでは時間がかかります。</p>
-<button id="learning-train" type="button">再学習を開始</button>
+<section class="panel" data-page="registry" hidden><h2>確認済みOCRデータ</h2>
+<p class="hint">確認したナンバーと画像を保存できます。Lipla-jpに対応する追加学習モデルの適用機能はありません。</p>
 <button id="learning-refresh" type="button">状態を更新</button>
-<button id="learning-reset" type="button">標準OCRに戻す</button>
-<p id="learning-status" role="status"></p><div id="learning-runs"></div>
-<details><summary>確認済み学習データ（最新200件）</summary><div id="learning-samples"></div></details>
-<p class="hint">評価用の項目画像・従来の行画像で文字誤り率が改善し、項目・行全体の一致率が悪化しなかったモデルだけ適用できます。適用後は認識処理を停止して再開してください。実カメラでの精度は別途確認が必要です。データの削除は今後の学習に反映され、過去のモデル・学習時点のコピーには反映されません。</p>
+<p id="learning-status" role="status"></p>
+<details><summary>確認済みデータ（最新200件）</summary><div id="learning-samples"></div></details>
 </section>
 <div class="workspace" data-page="monitor">
 <section class="panel controls"><h2><span class="number">01</span> 入力と認識</h2>
@@ -111,6 +108,9 @@
 <div class="registration-review"><h3>履歴の一括削除</h3>
 <div class="registry-actions"><label><input id="delete-processing-history" type="checkbox" checked>処理履歴・入力ファイル・ログ・プレビュー</label><label><input id="delete-recognition-history" type="checkbox" checked>認識履歴・保存した車両画像</label><button id="delete-history" type="button">選択した履歴を一括削除</button></div>
 <p class="hint">削除は元に戻せません。実行中は削除できません。登録車両・通知履歴・通知映像・OCR学習データと学習済みモデルは残ります。認識履歴を削除すると、残した学習データの元画像を履歴から再編集できなくなります。</p></div></section>
-<section class="panel" id="system-page" data-page="system" hidden><div class="panel-title"><h2>モデル選択・性能管理</h2><span class="badge" id="realtime-state">未測定</span></div><p class="hint">導入済みで互換性を確認できたモデルだけ選択できます。候補一覧にはライセンスと利用できない理由も表示します。</p><form id="model-form"><div class="registry-fields"><label class="field">車両検出モデル<select id="vehicle-model"></select></label><label class="field">ナンバープレート検出モデル<select id="plate-model"></select></label><label class="field">OCRモデル<select id="ocr-model"></select></label><label class="field">動作プロファイル<select id="performance-profile"><option value="auto">自動</option><option value="speed">速度優先</option><option value="balanced">バランス</option><option value="accuracy">精度優先</option></select></label></div><div class="actions"><button class="primary" type="submit">モデル設定を保存</button><button id="run-benchmark" type="button">性能測定を実行</button></div></form><div class="metrics system-metrics"><div><span>CPU</span><strong id="perf-cpu">—</strong></div><div><span>メモリ</span><strong id="perf-memory">—</strong></div><div><span>GPU</span><strong id="perf-gpu">—</strong></div><div><span>実測FPS</span><strong id="perf-fps">—</strong></div></div><div class="table-scroll"><table><thead><tr><th>用途</th><th>モデル</th><th>ライセンス</th><th>状態</th></tr></thead><tbody id="model-list"></tbody></table></div></section>
+<section class="panel" id="system-page" data-page="system" hidden><div class="panel-title"><h2>システム性能</h2><span class="badge" id="realtime-state">未測定</span></div>
+<p class="hint">車両検出はYOLO26n、ナンバープレート検出と文字認識はLipla-jpを使用します。</p>
+<div class="actions"><button id="run-benchmark" type="button">性能測定を実行</button></div>
+<div class="metrics system-metrics"><div><span>CPU</span><strong id="perf-cpu">—</strong></div><div><span>メモリ</span><strong id="perf-memory">—</strong></div><div><span>GPU</span><strong id="perf-gpu">—</strong></div><div><span>実測FPS</span><strong id="perf-fps">—</strong></div></div></section>
 <footer>AI Gate System · OpenCV / 車両区分・ナンバー認識 <span>登録照合・検知通知 / ゲート開閉は行いません</span></footer>
 </main></body></html>

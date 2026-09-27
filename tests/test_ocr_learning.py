@@ -130,7 +130,7 @@ class LearningTests(unittest.TestCase):
         self.data['learning']['candidate_index'] = -1
         self.assertEqual(self.post('/api/ocr-learning/samples').status_code, 400)
         self.assertEqual(self.client.post('/api/ocr-learning/samples', json=self.data).status_code, 403)
-        self.assertEqual(self.post('/api/ocr-learning/train').status_code, 400)
+        self.assertEqual(self.post('/api/ocr-learning/train').status_code, 404)
 
     def test_external_image_path_rejected(self):
         with self.manager.connect() as db:
@@ -139,19 +139,10 @@ class LearningTests(unittest.TestCase):
             db.execute('UPDATE observations SET details_json=?', (json.dumps(record),))
         self.assertEqual(self.post('/api/ocr-learning/samples').status_code, 400)
 
-    def test_activation_requires_evaluation_and_can_restore_standard(self):
+    def test_alternative_model_activation_is_unavailable(self):
         identifier = 'a'*32
-        self.assertEqual(self.post('/api/ocr-learning/activate', {'id': identifier}).status_code, 400)
-        with events.connection(self.root) as db:
-            db.execute('INSERT INTO ocr_training_runs VALUES (?,?,?,?,NULL)',
-                       (identifier, 'completed', events.utc(), json.dumps({'eligible': True})))
-        folder = learning.model_dir(self.root, identifier); folder.mkdir()
-        (folder / 'weights.pth').write_bytes(b'test checkpoint')
-        self.assertEqual(self.post('/api/ocr-learning/activate', {'id': identifier}).status_code, 200)
-        self.assertEqual(learning.active_model(self.root), identifier)
-        self.post('/api/ocr-learning/activate', {'id': None})
-        self.assertIsNone(learning.active_model(self.root))
-        self.assertEqual(self.post('/api/ocr-learning/activate', {'id': '../bad'}).status_code, 400)
+        self.assertEqual(self.post('/api/ocr-learning/activate', {'id': identifier}).status_code, 404)
+        self.assertEqual(self.post('/api/ocr-learning/activate', {'id': None}).status_code, 404)
 
     def test_split_is_stable_by_plate_and_snapshot_immutable(self):
         # Distinct pixels and keys; consecutive observations of the same plate stay together.
@@ -175,13 +166,3 @@ class LearningTests(unittest.TestCase):
         self.assertFalse(eligible(base, base))
         self.assertFalse(eligible(base, {'cer': .1, 'line_accuracy': 0}))
         self.assertTrue(eligible(base, metrics(['1234','5678'], ['1234','5678'])))
-
-    def test_start_failure_is_durable_and_does_not_change_active(self):
-        sample = dict(id='a', image=b'image')
-        with patch.object(learning, 'dataset_snapshot', return_value=[sample]), \
-             patch.object(learning.subprocess, 'Popen', side_effect=OSError('cannot spawn')):
-            with self.assertRaises(OSError):
-                self.app.extensions['ocr_training'].start()
-        result = self.client.get('/api/ocr-learning').json
-        self.assertEqual(result['runs'][0]['status'], 'failed')
-        self.assertIsNone(result['active'])

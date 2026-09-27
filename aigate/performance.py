@@ -56,11 +56,11 @@ class PerformanceManager:
         memory = self._memory()
         total = memory["total_bytes"] or 0
         if gpu["available"]:
-            recommendation = {"profile": "accuracy", "vehicle_model": "ultralytics-yolo26s", "imgsz": 1280, "frame_stride": 1}
+            recommendation = {"profile": "accuracy", "imgsz": 1280, "frame_stride": 1}
         elif cores >= 8 and total >= 12 * 1024**3:
-            recommendation = {"profile": "balanced", "vehicle_model": "ultralytics-yolo26n", "imgsz": 960, "frame_stride": 1}
+            recommendation = {"profile": "balanced", "imgsz": 960, "frame_stride": 1}
         else:
-            recommendation = {"profile": "speed", "vehicle_model": "ultralytics-yolo11n", "imgsz": 640, "frame_stride": 2}
+            recommendation = {"profile": "speed", "imgsz": 640, "frame_stride": 2}
         report = {"measured_at": datetime.now(timezone.utc).isoformat(), "platform": platform.platform(),
                   "python": platform.python_version(), "cpu_count": cores,
                   "cpu_iterations_per_second": round(statistics.median(scores), 1),

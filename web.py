@@ -44,7 +44,7 @@ class BusyError(Exception):
 
 
 class JobManager:
-    def __init__(self, root, model='yolo26s.pt', popen=subprocess.Popen, max_cameras=None):
+    def __init__(self, root, model='yolo26n.pt', popen=subprocess.Popen, max_cameras=None):
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.model = model
@@ -108,31 +108,10 @@ class JobManager:
         runtime = runtime or self.settings.read()
         environment = {**self.models.ocr_environment(runtime['ocr_model']),
                        **self.models.plate_environment(runtime['plate_model'])}
-        fast_active = ocr_learning.active_fast_model(self.root)
-        if fast_active and runtime['ocr_model'] in ('fast-plate-ocr-jp', 'fast-alpr'):
-            environment.update(GATE_FAST_OCR_MODEL_PATH=fast_active['model'],
-                               GATE_FAST_OCR_CONFIG_PATH=fast_active['config'])
         return dict(root=str(self.root), model=self.models.vehicle_argument(runtime['vehicle_model']),
                     plate_model=environment.get('GATE_PLATE_MODEL') or None,
                     imgsz=runtime['imgsz'],
                     environment=environment)
-
-    def apply_settings(self, changes):
-        with self.lock:
-            current = self.settings.read()
-            proposed = {**current, **changes}
-            model_changed = any(proposed[key] != current[key] for key in
-                                ('vehicle_model', 'plate_model', 'ocr_model'))
-            if model_changed and self.processes:
-                raise BusyError('モデル変更の前に実行中の処理を停止してください。')
-            if model_changed and self.model_service is not None:
-                self.model_service.reload(self.model_configuration(proposed))
-            try:
-                return self.settings.update(changes)
-            except Exception:
-                if model_changed and self.model_service is not None:
-                    self.model_service.reload(self.model_configuration(current))
-                raise
 
     def start(self, kind, source, label, every, confidence, upload=None,
               ocr_confidence=OCR_RESULT_CONFIDENCE):
@@ -162,11 +141,9 @@ class JobManager:
                            (job_id, kind, label, 'starting', now(), None, None, every,
                             confidence, ocr_confidence))
             runtime = self.settings.read() if self.settings else None
-            selected_model = self.model
             child_environment = os.environ.copy()
             if runtime and self.models:
                 config = self.model_configuration(runtime)
-                selected_model = config['model']
                 child_environment.update(config['environment'])
                 if runtime['profile'] == 'auto':
                     every = max(every, int(runtime['frame_stride']))
@@ -175,7 +152,7 @@ class JobManager:
                 child_environment['GATE_MODEL_SERVICE_KEY'] = self.model_service.key
             command = [sys.executable, '-u', str(ROOT / 'app.py'), '--source', str(source),
                        '--source-kind', kind, '--output', str(self.root), '--run-id', job_id,
-                       '--model', selected_model, '--every', str(every), '--confidence', str(confidence),
+                       '--every', str(every), '--confidence', str(confidence),
                        '--imgsz', str(runtime['imgsz'] if runtime else 960),
                        '--vehicle-threshold', str(confidence), '--ocr-threshold', str(ocr_confidence),
                        '--save-images', '--alerts', '--progress', str(folder / 'progress.json'),
@@ -326,7 +303,7 @@ class JobManager:
             return dict(deleted=deleted, file_errors=errors)
 
 
-def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None):
+def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None):
     app = Flask(__name__)
     app.config.update(SECRET_KEY=secrets.token_hex(32), MAX_CONTENT_LENGTH=512 * 1024 * 1024,
                       SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Strict')
@@ -342,16 +319,13 @@ def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None)
     manager.settings = settings
     manager.models = models
     manager.performance = performance
+    ocr_learning.initialize(manager.root)
     app.extensions['jobs'] = manager
     app.extensions['settings'] = settings
     app.extensions['models'] = models
     app.extensions['performance'] = performance
     app.extensions['services'] = ApplicationServices.build(manager.root, performance)
-    app.register_blueprint(create_system_blueprint(settings, models, performance,
-                                                  apply_settings=manager.apply_settings))
-    trainer = ocr_learning.TrainingManager(manager.root)
-    app.extensions['ocr_training'] = trainer
-    atexit.register(trainer.shutdown)
+    app.register_blueprint(create_system_blueprint(settings, performance))
     password = password if password is not None else os.environ.get('GATE_ADMIN_PASSWORD')
 
     @app.before_request
@@ -620,16 +594,9 @@ def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None)
         with events.connection(manager.root) as db:
             samples = [dict(r) for r in db.execute("SELECT s.id,s.observation_id,s.candidate_index,s.plate_key,s.top_text,s.bottom_text,s.original_text,s.created_at,f.fields_json,CASE WHEN o.id IS NULL THEN 0 ELSE 1 END AS has_observation FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id LEFT JOIN observations o ON o.id=s.observation_id ORDER BY s.created_at DESC LIMIT 200")]
             count = db.execute('SELECT count(*) FROM ocr_samples').fetchone()[0]
-            runs = [dict(r) for r in db.execute('SELECT * FROM ocr_training_runs ORDER BY created_at DESC LIMIT 20')]
         for sample in samples:
             sample['fields'] = json.loads(sample.pop('fields_json') or 'null')
-        for run in runs:
-            run['report'] = json.loads(run.pop('report_json') or 'null')
-        return jsonify(samples=samples, count=count, runs=runs,
-                       active=ocr_learning.active_model(manager.root),
-                       active_fast=ocr_learning.active_fast_model(manager.root),
-                       training_backend=os.getenv('GATE_OCR_TRAINING_BACKEND', 'easyocr'),
-                       training_auto=os.getenv('GATE_OCR_TRAINING_AUTO', '0') in ('1', 'true', 'yes'))
+        return jsonify(samples=samples, count=count)
 
     @app.get('/api/ocr-learning/preview/<observation_id>/<int:candidate_index>')
     def learning_preview(observation_id, candidate_index):
@@ -649,7 +616,6 @@ def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None)
                 identifier = ocr_learning.save_sample(manager.root, data.get('learning'), data, db)
         except (ValueError, KeyError, TypeError, AttributeError) as exc:
             abort(400, description=str(exc))
-        trainer.maybe_start_auto()
         return jsonify(id=identifier), 201
 
     @app.delete('/api/ocr-learning/samples/<identifier>')
@@ -658,36 +624,6 @@ def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None)
             db.execute('DELETE FROM ocr_sample_fields WHERE sample_id=?', (identifier,))
             db.execute('DELETE FROM ocr_samples WHERE id=?', (identifier,))
         return jsonify(status='deleted')
-
-    @app.post('/api/ocr-learning/train')
-    def learning_train():
-        try:
-            identifier = trainer.start()
-        except ValueError as exc:
-            abort(400, description=str(exc))
-        return jsonify(id=identifier), 202
-
-    @app.post('/api/ocr-learning/activate')
-    def learning_activate():
-        data = request.get_json()
-        if not isinstance(data, dict) or 'id' not in data:
-            abort(400, description='適用するモデルを指定してください。')
-        try:
-            with trainer.lock:
-                run_id = data['id']
-                with events.connection(manager.root) as db:
-                    row = db.execute('SELECT report_json FROM ocr_training_runs WHERE id=?', (run_id,)).fetchone() if run_id else None
-                report = json.loads(row['report_json']) if row and row['report_json'] else {}
-                if run_id is None:
-                    ocr_learning.set_active(manager.root, None)
-                    ocr_learning.set_active_fast(manager.root, None)
-                elif report.get('backend') == 'fast-plate-ocr':
-                    ocr_learning.set_active_fast(manager.root, run_id)
-                else:
-                    ocr_learning.set_active(manager.root, run_id)
-        except ValueError as exc:
-            abort(400, description=str(exc))
-        return jsonify(active=data['id'], message='次に開始する認識処理から適用します。')
 
     @app.post('/api/vehicles')
     def add_vehicle():
@@ -699,8 +635,6 @@ def create_app(data_dir='data', model='yolo26s.pt', password=None, manager=None)
                     ocr_learning.save_sample(manager.root, data['learning'], data, db)
         except (ValueError,KeyError,TypeError,sqlite3.IntegrityError) as error:
             abort(400,description='登録できません: ' + str(error))
-        if data.get('learning') is not None:
-            trainer.maybe_start_auto()
         return jsonify(id=vehicle_id),201
 
     @app.post('/api/vehicles/batch')
@@ -806,11 +740,10 @@ def main():
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=8080)
     parser.add_argument('--data', default='data')
-    parser.add_argument('--model', default='yolo26s.pt')
     args = parser.parse_args()
     if args.host not in ('127.0.0.1', 'localhost', '::1') and not os.environ.get('GATE_ADMIN_PASSWORD'):
         parser.error('LAN公開には環境変数GATE_ADMIN_PASSWORDを設定してください。')
-    app = create_app(args.data, args.model)
+    app = create_app(args.data)
     manager = app.extensions['jobs']
     from model_service import ModelServiceProcess
     manager.model_service = ModelServiceProcess(manager.root, manager.model_configuration())

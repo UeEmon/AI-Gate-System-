@@ -451,9 +451,6 @@ def initialize_models(model_path, plate_model_path, root, easyocr, yolo_class, o
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', required=True, help='写真、動画のパス、カメラ番号（0）またはRTSP URL')
-    parser.add_argument('--model', default='yolo26s.pt', help='COCOクラス名を持つUltralytics検出モデル')
-    parser.add_argument('--plate-model', default=os.getenv('GATE_PLATE_MODEL'),
-                        help='追加学習した一クラスのナンバープレートYOLOモデル')
     parser.add_argument('--output', default='data')
     parser.add_argument('--every', type=int, default=10, help='動画・カメラをNフレームごとに処理')
     parser.add_argument('--confidence', type=float, default=0.4)
@@ -477,7 +474,8 @@ def main():
     import cv2
     shared_address = os.getenv('GATE_MODEL_SERVICE_SOCKET')
     offline=os.getenv('GATE_OFFLINE')=='1'
-    if offline and not shared_address and not Path(args.model).is_file():
+    fixed_vehicle_model = str(Path(os.getenv('GATE_MODEL_ROOT', 'models')) / 'yolo26n.pt')
+    if offline and not shared_address and not Path(fixed_vehicle_model).is_file():
         raise ValueError('オフライン用のYOLOモデルを事前に配置してください。')
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
@@ -487,10 +485,9 @@ def main():
         model.request('ping')
         plate_model = None
     else:
-        import easyocr
         from ultralytics import YOLO
         model, plate_model, reader = initialize_models(
-            args.model, args.plate_model, out, easyocr, YOLO, offline)
+            fixed_vehicle_model, None, out, None, YOLO, offline)
     run_id = args.run_id or uuid.uuid4().hex
     db = open_database(out / 'gate.db')
     is_live = args.source_kind in ('camera', 'browser') or (args.source_kind == 'auto' and

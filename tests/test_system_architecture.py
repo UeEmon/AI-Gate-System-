@@ -30,19 +30,12 @@ class ArchitectureTests(unittest.TestCase):
         registry = ModelRegistry('/tmp/models-not-required')
         items = registry.list()
         self.assertTrue({role.value for role in ModelRole}.issubset({item['role'] for item in items}))
-        self.assertEqual(len(items), 13)
+        self.assertEqual(len(items), 3)
         self.assertTrue(all(item['license'] and item['source'] for item in items))
-        self.assertTrue(any(item['id'] == 'paddle-ppocr-v6' and item['japanese'] for item in items))
         self.assertTrue(any(item['id'] == 'lipla-jp' and item['license'] == 'MIT' for item in items))
-        ids = {item['id'] for item in items}
-        self.assertNotIn('lprs-jp', ids)
-        self.assertNotIn('alpr-jp-openalpr', ids)
+        self.assertEqual({item['id'] for item in items},
+                         {'ultralytics-yolo26n', 'lipla-native-plate', 'lipla-jp'})
         self.assertTrue(all(item['license_scope'] for item in items))
-        fast = next(item for item in items if item['id'] == 'fast-alpr')
-        self.assertEqual(fast['role'], 'ocr')
-        self.assertEqual(fast['license'], 'MIT')
-        jp = next(item for item in items if item['id'] == 'fast-plate-ocr-jp')
-        self.assertFalse(jp['available'])
 
     def test_settings_are_atomic_and_bounded(self):
         with tempfile.TemporaryDirectory() as root:
@@ -81,14 +74,13 @@ class ArchitectureTests(unittest.TestCase):
             client = app.test_client(); client.get('/')
             with client.session_transaction() as session:
                 headers = {'X-CSRF-Token': session['csrf']}
-            catalog = client.get('/api/models').get_json()
-            self.assertEqual(len(catalog['models']), 13)
+            self.assertEqual(client.get('/api/models').status_code, 404)
             performance = client.get('/api/system/performance').get_json()
             self.assertIn('recommendation', performance['startup'])
             response = client.put('/api/settings/models', json={'vehicle_model': 'missing'}, headers=headers)
-            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.status_code, 404)
 
-    def test_legacy_defaults_migrate_once_without_erasing_model_choice(self):
+    def test_legacy_model_choices_are_ignored(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / 'system-settings.json'
             path.write_text(json.dumps({'plate_model': 'opencv-plate-contours',
@@ -96,8 +88,10 @@ class ArchitectureTests(unittest.TestCase):
             manager = SettingsManager(root)
             self.assertEqual(manager.read()['ocr_model'], 'lipla-jp')
             self.assertEqual(manager.read()['plate_model'], 'lipla-native-plate')
-            manager.update({'ocr_model': 'paddle-ppocr-v6', 'plate_model': 'opencv-plate-contours'})
-            self.assertEqual(SettingsManager(root).read()['ocr_model'], 'paddle-ppocr-v6')
+            with self.assertRaises(ValueError):
+                manager.update({'ocr_model': 'paddle-ppocr-v6'})
+            manager.update({'imgsz': 640})
+            self.assertEqual(SettingsManager(root).read()['ocr_model'], 'lipla-jp')
 
 
 if __name__ == '__main__':

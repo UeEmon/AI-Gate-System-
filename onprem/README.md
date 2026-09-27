@@ -79,12 +79,12 @@ SMTP設定時にSESを呼び出しません。S3未設定では映像はロー�
 ## 閉域・オフライン運用の準備
 
 1. 接続可能な同一OS・CPU・Pythonの準備端末でセットアップと実際の認識を一度完了させます。
-2. `models/yolo26s.pt`、PaddleOCRモデル、必要なら `models/plate-yolo26n.pt` とEasyOCR比較用モデルを保存し、取得元とSHA-256を記録します。
+2. `models/yolo26n.pt` とLipla-jpモデルを保存し、取得元とSHA-256を記録します。
 3. `data/dependencies/installed-versions.txt` を基に同一環境用wheelを準備します。
    `python -m pip download -r data/dependencies/installed-versions.txt -d wheelhouse` を準備端末で実行します。
 4. 閉域側でPython・OS共有ライブラリを導入し、仮想環境に `pip install --no-index --find-links wheelhouse -r installed-versions.txt` で導入します。
    バイナリwheelが得られない依存先は準備端末でビルドし、そのソースと配布条件も確認します。
-5. モデルを上記パスへ配置し、`GATE_OFFLINE=1` で起動します。YOLOモデル未配置はエラー、EasyOCRの自動ダウンロードは無効です。
+5. モデルを上記パスへ配置し、`GATE_OFFLINE=1` で起動します。YOLO・Lipla-jpのモデルが未配置なら起動に失敗します。
 6. Dockerの場合は準備端末でビルド済みイメージをsave/loadし、モデルvolumeも移送します。閉域側は `docker compose up -d --no-build --pull never` で起動します。
 
 オフライン設定はモデル未配置時の取得を抑えるものです。依存ソフトの全ネットワーク動作を保証するものではありません。
@@ -99,18 +99,10 @@ DBと映像は同じ保存領域で管理し、単一サーバーのみ起動し
 `python scripts/build_package.py --revision <commit-SHA>` でソースZIPとファイル別SHA-256マニフェストを再生成できます。
 Python環境は `scripts/dependency_inventory.py --output data/dependencies` で版とライセンスを収集します。
 
-## OCR修正データで再学習
+## 確認済みナンバーの保存
 
-Web画面の登録候補で番号を修正し、地名・分類番号・ひらがな・一連指定番号の各画像範囲と正解を確認して学習データを保存します。
-登録用の4項目は学習正解にも共通使用し、OCR候補が修正前データとして自動入力されます。
-処理結果一覧には車種80%以上・OCR70%以上の結果だけを表示します。
-ひらがなには小書き・濁音・半濁音を使用できません。一連指定番号は半角数字1〜4桁で入力します。
-「OCR再学習」で学習を開始し、評価に合格したモデルを適用してください。
-認識処理を停止・再開するとモデルが切り替わります。「標準OCRに戻す」で復帰できます。
-Dockerイメージの追加インストールは不要です。モデルと学習画像は `gate-data` に保存されます。
-学習にはCPUとメモリを使用するため、必要に応じて認識を停止して実行してください。
-画像保存を無効にした履歴からは学習データを作成できません。
-詳しい実行条件・評価範囲・保存先はルートのREADMEを参照してください。
+Web画面で認識候補を訂正し、画像範囲と正解を確認して保存できます。
+Lipla-jp以外のOCRモデルの学習・適用は提供していません。旧データは保持します。
 
 ## 履歴の一括削除
 

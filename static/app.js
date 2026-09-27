@@ -214,17 +214,9 @@ $('ack-all-alerts').onclick=async()=>{
 };
 loadVehicles().catch(e=>message(e.message));
 
-const modelRoleNames={vehicle_detection:'車両検出',plate_detection:'プレート検出',ocr:'OCR'};
 async function loadSystem(){
   if(!$('system-page'))return;
-  const [catalog,performance]=await Promise.all([api('/api/models'),api('/api/system/performance')]);
-  const fields={vehicle_detection:['vehicle-model','vehicle_model'],plate_detection:['plate-model','plate_model'],ocr:['ocr-model','ocr_model']};
-  for(const [role,[id,key]] of Object.entries(fields)){
-    const options=catalog.models.filter(model=>model.role===role).map(model=>{const option=new Option(model.name+(model.available?'':'（利用不可）'),model.id);option.disabled=!model.available;return option;});
-    $(id).replaceChildren(...options);$(id).value=catalog.selection[key];
-  }
-  $('performance-profile').value=catalog.selection.profile;
-  $('model-list').replaceChildren(...catalog.models.map(model=>{const tr=document.createElement('tr');tr.append(cell(modelRoleNames[model.role]),cell(model.name),cell(model.license),cell(model.availability_reason,model.available?'ok':'hint'));return tr;}));
+  const performance=await api('/api/system/performance');
   const startup=performance.startup||{},runtime=performance.runtime||{};
   $('perf-cpu').textContent=(startup.cpu_count??'—')+' cores';
   $('perf-memory').textContent=startup.memory?.total_bytes?Math.round(startup.memory.total_bytes/1073741824)+' GB':'—';
@@ -232,11 +224,6 @@ async function loadSystem(){
   $('perf-fps').textContent=runtime.fps??'—';
   $('realtime-state').textContent=runtime.realtime===null?'実映像未測定':runtime.realtime?'リアルタイム適合':'要設定調整';
 }
-if($('model-form'))$('model-form').onsubmit=async event=>{
-  event.preventDefault();
-  try{await api('/api/settings/models',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({vehicle_model:$('vehicle-model').value,plate_model:$('plate-model').value,ocr_model:$('ocr-model').value,profile:$('performance-profile').value})});message('モデル設定を保存しました。次に開始する処理から適用します。');await loadSystem();}
-  catch(error){message(error.message);}
-};
 if($('run-benchmark'))$('run-benchmark').onclick=async()=>{try{message('性能測定を実行しています。');await api('/api/system/benchmark',{method:'POST'});await loadSystem();message('性能測定が完了しました。');}catch(error){message(error.message);}};
 if($('system-page'))showPage(globalThis.location?.hash?.slice(1)||'monitor');
 

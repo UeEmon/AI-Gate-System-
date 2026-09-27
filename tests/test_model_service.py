@@ -11,7 +11,7 @@ import numpy as np
 
 import app
 from model_service import ModelClient, ModelServer, _reply
-from web import BusyError, JobManager, create_app
+from web import JobManager, create_app
 
 
 class ModelServiceTests(unittest.TestCase):
@@ -94,23 +94,16 @@ class ModelServiceTests(unittest.TestCase):
                 self.assertEqual(os.environ['GATE_OCR_BACKEND'], 'lipla')
             self.assertIs(server.vehicle, old)
 
-    def test_model_change_reloads_service_and_rejects_change_with_active_job(self):
+    def test_model_change_is_disabled_and_performance_settings_preserved(self):
         with tempfile.TemporaryDirectory() as root:
             manager = JobManager(root, popen=Mock())
             create_app(manager=manager, password='')
             manager.model_service = Mock()
-            manager.apply_settings({'imgsz': 640})
+            manager.settings.update({'imgsz': 640})
             manager.model_service.reload.assert_not_called()
-            # Use another available built-in vehicle model; no weights are downloaded here.
-            current = manager.settings.read()['vehicle_model']
-            changed = next(value for value in ('ultralytics-yolo11n', 'ultralytics-yolov8n',
-                                               'ultralytics-yolo26s') if value != current)
-            manager.apply_settings({'vehicle_model': changed})
-            manager.model_service.reload.assert_called_once()
-            manager.processes['running'] = (Mock(), 'camera')
-            with self.assertRaises(BusyError):
-                manager.apply_settings({'vehicle_model': current})
-            manager.processes.clear()
+            self.assertEqual(manager.settings.read()['imgsz'], 640)
+            with self.assertRaises(ValueError):
+                manager.settings.update({'vehicle_model': 'ultralytics-yolo11n'})
 
 
 if __name__ == '__main__':

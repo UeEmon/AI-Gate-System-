@@ -54,32 +54,17 @@ $('learning-save').onclick=async()=>{
     const payload={learning:learningPayload()};
     for(const id of ['region','category','kana','serial'])payload[id]=$(id).value;
     await api('/api/ocr-learning/samples',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    message('修正内容と画像を学習データとして保存しました。モデルへの反映には再学習が必要です。');
+    message('確認したナンバーと画像を保存しました。');
     await refreshLearning();
   }catch(error){message(error.message);}
 };
-async function activateLearning(id){
-  try{await api('/api/ocr-learning/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});await refreshLearning();message('モデルを選択しました。認識処理を停止して再開すると反映されます。');}catch(error){message(error.message);}
-}
 let learningRefreshBusy=false;
 async function refreshLearning(){
   if(learningRefreshBusy)return;
   learningRefreshBusy=true;
   try{
     const data=await api('/api/ocr-learning');
-    $('learning-status').textContent='保存済み '+data.count+'件 / 使用モデル: '+(data.active||'標準OCR');
-    $('learning-train').disabled=data.runs.some(r=>r.status==='running');
-    $('learning-runs').replaceChildren();
-    const names={running:'学習中',completed:'完了',failed:'失敗',interrupted:'中断'};
-    for(const run of data.runs){
-      const row=document.createElement('div');
-      const label=document.createElement('p');
-      label.textContent=date(run.created_at)+' · '+(names[run.status]||run.status)+(run.error?' · '+run.error:'');
-      if(run.report){const r=run.report;if(r.backend==='fast-plate-ocr'){const c=r.candidate||{};label.textContent+=' · FastPlateOCR日本向け · 評価 '+(c.plates||0)+'枚 · CER '+((c.cer||0)*100).toFixed(1)+'% · 完全一致 '+((c.plate_accuracy||0)*100).toFixed(1)+'% · '+(r.eligible?'適用可能':'検証未達');}else if(r.baseline&&r.candidate){label.textContent+=' · 比較元: '+(r.baseline_model||'標準OCR')+' · 評価 '+r.validation_lines+'画像 · 文字誤り率 '+(r.baseline.cer*100).toFixed(1)+'% → '+(r.candidate.cer*100).toFixed(1)+'% · 項目・行一致率 '+(r.baseline.line_accuracy*100).toFixed(1)+'% → '+(r.candidate.line_accuracy*100).toFixed(1)+'% · '+(r.eligible?'適用可能':'改善基準に未達');}}
-      row.append(label);
-      if(run.report?.eligible){const button=document.createElement('button');button.textContent='このモデルを適用';button.disabled=data.active===run.id;button.onclick=()=>activateLearning(run.id);row.append(button);}
-      $('learning-runs').append(row);
-    }
+    $('learning-status').textContent='保存済み '+data.count+'件 / 認識方式: Lipla-jp';
     $('learning-samples').replaceChildren();
     for(const sample of data.samples){
       const row=document.createElement('div');const label=document.createElement('span');
@@ -100,11 +85,6 @@ async function refreshLearning(){
     }
   }finally{learningRefreshBusy=false;}
 }
-$('learning-train').onclick=async()=>{
-  $('learning-train').disabled=true;
-  try{await api('/api/ocr-learning/train',{method:'POST'});message('再学習を開始しました。状態は自動更新されます。');}catch(error){message(error.message);}finally{await refreshLearning().catch(e=>message(e.message));}
-};
-$('learning-reset').onclick=()=>activateLearning(null);
 $('learning-refresh').onclick=()=>refreshLearning().catch(e=>message(e.message));
 refreshLearning().catch(e=>message(e.message));
 setInterval(()=>refreshLearning().catch(()=>{}),10000);

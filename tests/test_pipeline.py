@@ -25,19 +25,19 @@ class PipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory); source=root/'日本語.jpg'
             cv2.imencode('.jpg',np.zeros((100,160,3),dtype=np.uint8))[1].tofile(source)
-            reader=types.SimpleNamespace(readtext=lambda *a,**k:[])
-            modules={'ultralytics':types.SimpleNamespace(YOLO=FakeModel),'easyocr':types.SimpleNamespace(Reader=lambda *a,**k:reader)}
+            modules={'ultralytics':types.SimpleNamespace(YOLO=FakeModel),
+                     'lipla':types.SimpleNamespace(Recognizer=lambda **kwargs: lambda crop: [])}
             argv=['app.py','--source',str(source),'--source-kind','file','--output',str(root),'--run-id','test-run',
                   '--vehicle-threshold','.65','--ocr-threshold','.55','--alerts','--save-images',
                   '--preview',str(root/'preview.jpg'),'--progress',str(root/'progress.json')]
-            with patch.dict(sys.modules,modules),patch.dict(os.environ,{'GATE_OCR_BACKEND':'easyocr'}),patch.object(sys,'argv',argv),patch('builtins.print'): app.main()
+            with patch.dict(sys.modules,modules),patch.dict(os.environ,{'GATE_OCR_BACKEND':'lipla'}),patch.object(sys,'argv',argv),patch('builtins.print'): app.main()
             progress=json.loads((root/'progress.json').read_text())
             self.assertEqual(progress['frames_processed'],1); self.assertEqual(progress['observations'],0)
             self.assertIsNotNone(cv2.imread(str(root/'preview.jpg')))
             db=sqlite3.connect(root/'gate.db'); record=json.loads(db.execute('SELECT details_json FROM observations').fetchone()[0]); db.close()
             self.assertEqual(record['run_id'],'test-run'); self.assertTrue(Path(record['image_path']).is_file())
             self.assertEqual(record['plate_status'],'unreadable')
-            self.assertEqual(record['plate_detection']['status'], 'not_detected')
+            self.assertEqual(record['plate_detection']['status'], 'not_detected_or_unreadable')
             self.assertEqual(record['plate_detection']['proposals'], [])
             for stage in ('plate_detection_ms', 'rectification_ms', 'ocr_ms'):
                 self.assertIn(stage, progress['performance'])
