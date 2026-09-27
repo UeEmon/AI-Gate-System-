@@ -12,6 +12,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 from types import SimpleNamespace
 
 
@@ -50,11 +51,10 @@ class ModelServer:
         self.vehicle = self.plate = self.readers = None
 
     def _load(self, config):
-        import easyocr
         from ultralytics import YOLO
         from app import initialize_models
         return initialize_models(config['model'], config.get('plate_model'), self.root,
-                                 easyocr, YOLO, os.getenv('GATE_OFFLINE') == '1')
+                                 None, YOLO, os.getenv('GATE_OFFLINE') == '1')
 
     def reload(self, config):
         # Infer with the previous models until all replacements have loaded.
@@ -131,13 +131,22 @@ def _reply(connection, server):
 
 
 class ModelServiceProcess:
-    def __init__(self, root, config, timeout=900):
+    def __init__(self, root, config, timeout=None):
+        if timeout is None:
+            try:
+                timeout = max(30, float(os.getenv('GATE_MODEL_INIT_TIMEOUT', '900'))) + 120
+            except ValueError:
+                timeout = 1020
         self.address = str(Path(root) / '.model-service.sock')
         self.key = secrets.token_hex(32)
         self.client = ModelClient(self.address, self.key)
         self.process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()),
                                          '--serve', self.address, self.key],
-                                        stdin=subprocess.PIPE, cwd=Path(__file__).resolve().parent)
+                                        stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        cwd=Path(__file__).resolve().parent)
+        self._stderr = bytearray()
+        self._stderr_thread = threading.Thread(target=self._forward_stderr, daemon=True)
+        self._stderr_thread.start()
         try:
             import json
             self.process.stdin.write(json.dumps(config).encode() + b'\n')
@@ -145,7 +154,9 @@ class ModelServiceProcess:
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
                 if self.process.poll() is not None:
-                    raise RuntimeError('モデル常駐プロセスの初期化に失敗しました。')
+                    self._stderr_thread.join(timeout=2)
+                    detail = self._stderr.decode('utf-8', errors='replace').strip()[-6000:]
+                    raise RuntimeError(f'モデル常駐プロセスの初期化に失敗しました (終了コード: {self.process.returncode})。\n{detail}')
                 if Path(self.address).exists():
                     try:
                         if self.client.request('ping')['ready']:
@@ -153,10 +164,18 @@ class ModelServiceProcess:
                     except (OSError, EOFError, ConnectionError):
                         pass
                 time.sleep(.2)
-            raise TimeoutError('モデルの起動待ちがタイムアウトしました。')
+            raise TimeoutError(f'モデルの起動待ちが{timeout:g}秒でタイムアウトしました。直前のコンテナログを確認してください。')
         except BaseException:
             self.close()
             raise
+
+    def _forward_stderr(self):
+        for line in self.process.stderr:
+            self._stderr.extend(line)
+            if len(self._stderr) > 12000:
+                del self._stderr[:-12000]
+            sys.stderr.buffer.write(line)
+            sys.stderr.buffer.flush()
 
     def reload(self, config):
         return self.client.request('reload', config=config)
