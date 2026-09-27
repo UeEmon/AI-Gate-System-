@@ -8,7 +8,8 @@
 <input type="hidden" name="csrf" value="{{ session.csrf }}">
 <label>入力方式<br><select name="source_kind" id="source-kind"><option value="file">画像・動画をアップロード</option><option value="rtmp">RTMP / RTMPS ライブ配信</option></select></label>
 <label id="file-input">画像・動画（最大1GB）<br><input name="source" type="file" accept=".jpg,.jpeg,.png,.bmp,.webp,.mp4,.mov,.avi,.mkv" required></label>
-<label id="stream-input" hidden>配信URL（rtmp:// または rtmps://）<br><input name="stream_url" type="url" placeholder="rtmp://host:1935/live/stream" autocomplete="off" spellcheck="false" style="width:100%" disabled></label>
+<label id="stream-input" hidden>読取URL（rtmp:// または rtmps://）<br><input name="stream_url" type="url" placeholder="rtmp://host:1935/live/stream" value="{{ local_rtmp_url or '' }}" autocomplete="off" spellcheck="false" style="width:100%" disabled></label>
+{% if local_rtmp_url %}<p class="muted">GoPro受信コンテナを選択できます。カメラ側にはMacのLAN IPを使った送信先を設定してください（onprem/setup_rtmp_receiver.py が表示します）。</p>{% endif %}
 <p class="muted">DockerからMac上の配信サーバーに接続する場合、URLのホストには host.docker.internal を指定します。接続を止めるには検証画面の停止ボタンを押してください。</p>
 <div class="grid"><label>プレート検出<br><select name="model"><option value="">OpenCV 輪郭抽出</option>{% for model in models %}<option>{{ model }}</option>{% endfor %}</select></label>
 <label>OCR<br><select name="ocr">{% for key,label in backend_choices.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></label></div>

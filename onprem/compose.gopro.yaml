@@ -1,0 +1,13 @@
+services:
+  plate-test:
+    depends_on:
+      - rtmp-ingest
+    environment:
+      GATE_RTMP_LOCAL_URL: rtmp://rtmp-ingest:1935/gopro-${GATE_RTMP_STREAM_KEY:?Run python3 onprem/setup_rtmp_receiver.py first}
+  rtmp-ingest:
+    image: bluenviron/mediamtx:1.21.1
+    restart: unless-stopped
+    ports:
+      - "${GATE_RTMP_BIND_ADDRESS:-0.0.0.0}:${GATE_RTMP_PORT:-1935}:1935"
+    volumes:
+      - ./mediamtx.gopro.yml:/mediamtx.yml:ro

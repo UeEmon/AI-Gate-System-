@@ -16,6 +16,17 @@ export GATE_BENCHMARK_OCR_CHOICES=easyocr
 export GATE_ADMIN_PASSWORD
 export GATE_BENCHMARK_DATA="$PWD/benchmark-data"
 export GATE_BENCHMARK_MODELS="$PWD/benchmark-models"
+if [[ -f onprem/.env ]]; then
+  stream_key=''
+  while IFS='=' read -r name value; do
+    if [[ "$name" == GATE_RTMP_STREAM_KEY ]]; then
+      stream_key="$value"
+    fi
+  done < onprem/.env
+  if [[ "$stream_key" =~ ^[a-f0-9]{32}$ ]]; then
+    export GATE_RTMP_LOCAL_URL="rtmp://127.0.0.1:1935/gopro-$stream_key"
+  fi
+fi
 export EASYOCR_MODULE_PATH="$PWD/benchmark-cache/easyocr"
 export YOLO_CONFIG_DIR="$PWD/benchmark-cache/ultralytics"
 export GATE_BENCHMARK_HOST=127.0.0.1

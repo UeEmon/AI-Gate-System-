@@ -51,7 +51,9 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
     @app.get('/')
     def index():
         session.setdefault('csrf', secrets.token_hex(32))
-        return render_template('plate_benchmark.html', models=model_choices(), jobs=list(jobs), job=None, backend_choices=backend_choices)
+        return render_template('plate_benchmark.html', models=model_choices(), jobs=list(jobs),
+                               job=None, backend_choices=backend_choices,
+                               local_rtmp_url=os.getenv('GATE_RTMP_LOCAL_URL', ''))
 
     @app.post('/run')
     def start():

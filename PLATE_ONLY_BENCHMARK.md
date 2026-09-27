@@ -120,6 +120,63 @@ Webログイン用パスワードを入力し、http://localhost:8888 を開い�
 Mac版のデータはbenchmark-data、重みキャッシュはbenchmark-cacheに保存します。
 ブラウザから未導入のOCRを選ばないよう、Mac起動ではEasyOCRだけを表示します。
 
+## GoProなどからRTMP映像を受け取る
+
+GoProなどの送信側から直接配信するには、別コンテナのMediaMTXを起動します。
+既存のURL入力のみでは配信を受け付けられません。
+MediaMTXはMITライセンスです。GoProとMacが相互に通信できる同じLAN上に必要です。
+
+リポジトリ直下で以下を実行します。`onprem/.env`にWebログイン用の
+`GATE_ADMIN_PASSWORD`を設定してください。
+
+```bash
+git switch experiment/plate-only-benchmark
+git pull --ff-only
+test -f onprem/.env || cp onprem/env.example onprem/.env
+python3 onprem/setup_rtmp_receiver.py
+docker compose --env-file onprem/.env -p ai-gate-plate-test \
+  -f onprem/compose.plate-only.yaml -f onprem/compose.gopro.yaml \
+  up -d --build
+```
+
+最初のPythonコマンドでランダムな配信パスを`onprem/.env`に記録し、
+`onprem/mediamtx.gopro.yml`に受信設定を作成します。再実行しても同じパスを使います。
+これらのファイルはGitの追跡対象外です。配信キーを他人に共有しないでください。
+
+`ipconfig getifaddr en0`などでMacのLAN IPを確認します。
+GoPro Quik等の「カスタムRTMP」欄にPythonコマンドが表示した送信先
+`rtmp://<MacのLAN IP>:1935/gopro-<生成されたキー>`を入力してください。
+アプリがサーバーURLとストリームキーを別々に要求する場合は、
+サーバーを`rtmp://<MacのLAN IP>:1935/`、キーを`gopro-<生成されたキー>`とします。
+カメラとMacを同じLANへ接続し、GoProで配信を開始してください。
+
+ブラウザで http://localhost:8888 を開き、入力方式をRTMPへ切り替えます。
+Docker版の読取URLは`rtmp://rtmp-ingest:1935/gopro-<キー>`で自動入力されます。
+「検証を開始」を押すとフレームごとにプレート検出とOCRを実行し、直近の結果を表示します。
+Macで直接GPU検証画面を起動する場合は、DockerのWebポート8888との重複を避け、
+受信サーバーだけを起動してから`bash onprem/start-plate-mac.sh`を実行します。
+
+```bash
+docker compose --env-file onprem/.env -p ai-gate-plate-test \
+  -f onprem/compose.plate-only.yaml -f onprem/compose.gopro.yaml \
+  stop plate-test
+docker compose --env-file onprem/.env -p ai-gate-plate-test \
+  -f onprem/compose.plate-only.yaml -f onprem/compose.gopro.yaml \
+  up -d rtmp-ingest
+bash onprem/start-plate-mac.sh
+```
+
+Mac版画面には`rtmp://127.0.0.1:1935/gopro-<キー>`が自動入力されます。
+受信ポート1935/TCPはLANから到達できる必要があります。配信を終えたら
+`docker compose --env-file onprem/.env -p ai-gate-plate-test -f onprem/compose.plate-only.yaml -f onprem/compose.gopro.yaml stop rtmp-ingest`
+で受信サーバーを停止できます。受信とOCRの負荷を同時に測定する場合、
+FPSは映像転送・デコードの状態にも依存します。
+
+GoPro実機との連接は未検証です。実機で映像が届かないときは、
+Macのファイアウォール、GoProのWi-Fi接続先、配信URLと
+`docker compose --env-file onprem/.env -p ai-gate-plate-test -f onprem/compose.plate-only.yaml -f onprem/compose.gopro.yaml logs rtmp-ingest`
+を確認してください。
+
 CUDA選択には別途CUDA対応PyTorchとGPUを認識する環境が必要です。
 既存DockerfileはCPU版PyTorchのため、CUDA対応Dockerイメージを提供する変更ではありません。
 

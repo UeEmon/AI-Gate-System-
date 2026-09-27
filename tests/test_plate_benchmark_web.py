@@ -9,6 +9,16 @@ from plate_benchmark_web import create_app
 
 
 class PlateWebTests(unittest.TestCase):
+    def test_local_receiver_url_is_prefilled_in_browser(self):
+        url = 'rtmp://rtmp-ingest:1935/gopro-0123456789abcdef0123456789abcdef'
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.dict('os.environ', {'GATE_RTMP_LOCAL_URL': url}):
+            app = create_app(tmp, tmp, password='test-password')
+            response = app.test_client().get('/', headers={
+                'Authorization': 'Basic YWRtaW46dGVzdC1wYXNzd29yZA=='})
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(url, response.get_data(as_text=True))
+
     def test_rtmp_live_progress_stop_and_url_validation(self):
         with tempfile.TemporaryDirectory() as tmp:
             app = create_app(tmp, tmp, password='test-password')
