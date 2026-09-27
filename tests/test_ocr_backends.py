@@ -53,6 +53,33 @@ class OCRBackendTests(unittest.TestCase):
         self.assertEqual(items[0][1], '品川330さ1234')
         self.assertEqual(items[0][2], .88)
 
+    def test_lipla_accepts_grayscale_binary_and_noncontiguous_plate_variants(self):
+        model = Mock(return_value=[])
+        reader = LiplaPlateReader.__new__(LiplaPlateReader)
+        reader.model = model
+        gray = np.arange(800, dtype=np.uint8).reshape(40, 20)
+        variants = (gray, (gray > 128).astype(np.uint8) * 255,
+                    gray[..., None], np.dstack([gray] * 4)[:, ::2],
+                    np.dstack([gray] * 3)[:, ::2])
+        for variant in variants:
+            with self.subTest(shape=variant.shape):
+                reader.readtext(variant)
+                prepared = model.call_args.args[0]
+                self.assertEqual(prepared.shape[:2], variant.shape[:2])
+                self.assertEqual(prepared.shape[2], 3)
+                self.assertEqual(prepared.dtype, np.uint8)
+                self.assertTrue(prepared.flags.c_contiguous)
+                np.testing.assert_array_equal(prepared[:, :, 0],
+                                              variant if variant.ndim == 2 else variant[:, :, 0])
+
+    def test_lipla_rejects_invalid_dimensions_and_skips_empty_image(self):
+        reader = LiplaPlateReader.__new__(LiplaPlateReader)
+        reader.model = Mock()
+        self.assertEqual(reader.readtext(np.empty((0, 40), dtype=np.uint8)), [])
+        reader.model.assert_not_called()
+        with self.assertRaises(ValueError):
+            reader.readtext(np.zeros((40, 40, 2), dtype=np.uint8))
+
     def test_lipla_backend_is_selectable(self):
         class LiplaResult:
             area='品川'; class_number='330'; kana='さ'; number=1234

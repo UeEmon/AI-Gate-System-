@@ -67,9 +67,21 @@ class LiplaPlateReader:
                        for name in ('area', 'class_number', 'kana', 'number')).strip()
 
     def readtext(self, image, **_options):
+        import numpy as np
+        image = np.asarray(image)
+        if image.ndim == 2:
+            image = np.repeat(image[..., None], 3, axis=2)
+        elif image.ndim == 3 and image.shape[2] == 1:
+            image = np.repeat(image, 3, axis=2)
+        elif image.ndim == 3 and image.shape[2] == 4:
+            image = image[..., :3]
+        if image.ndim != 3 or image.shape[2] != 3:
+            raise ValueError('Lipla-jpにはグレー・BGR・BGRA画像を指定してください。')
         output = []
         height, width = image.shape[:2]
-        for result in self.model(image):
+        if not height or not width:
+            return []
+        for result in self.model(np.ascontiguousarray(image)):
             text = self._text(result)
             if not text:
                 continue
