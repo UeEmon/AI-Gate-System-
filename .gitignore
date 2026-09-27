@@ -17,4 +17,5 @@ benchmark-cache/
 benchmark-input/
 benchmark-output/
 benchmark-models/
+benchmark-paddle-models/
 onprem/mediamtx.gopro.yml
