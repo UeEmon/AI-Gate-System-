@@ -1,11 +1,10 @@
 'use strict';
 const learningFields=['region','category','kana','serial'];
 let learningImage=null, learningGeneration=0;
-function resetLearning(newRegistration=false){
+function resetLearning(){
   learningGeneration++;learningImage=null;
   $('learning-review').hidden=true;
   $('learning-confirm').checked=false;
-  if(newRegistration)$('learning-with-registration').checked=true;
 }
 function fieldBox(name){return ['x1','y1','x2','y2'].map(part=>Number($('learning-'+name+'-'+part).value)/100);}
 function drawLearning(){
@@ -40,8 +39,9 @@ function prepareLearning(savedFields=null){
   img.onerror=()=>{if(generation===learningGeneration)message('この候補は学習画像として取得できません。画像保存設定と候補枠を確認してください。');};
   img.src='/api/ocr-learning/preview/'+encodeURIComponent(registrationDraft.observation_id)+'/'+Number($('registration-candidate').value);
 }
-function learningPayload(){
-  if(!learningImage||!registrationDraft||!$('learning-confirm').checked)throw new Error('4項目それぞれの学習画像と正解を確認してください。');
+function learningPayload(requireConfirmation=true){
+  if(!learningImage||!registrationDraft)throw new Error('学習用画像を読み込めません。画像の保存と候補の範囲を確認してください。');
+  if(requireConfirmation&&!$('learning-confirm').checked)throw new Error('4項目それぞれの学習画像と正解を確認してください。');
   const fields={};
   for(const name of learningFields)fields[name]={text:$(name).value,box:fieldBox(name)};
   return {observation_id:registrationDraft.observation_id,candidate_index:Number($('registration-candidate').value),fields,confirmed:true};

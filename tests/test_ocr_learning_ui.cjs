@@ -11,7 +11,6 @@ function setup(){
     registrationDraft:{observation_id:'source',has_image:true,plate_candidates:[{
       fields:{region:'品川',category:'330',kana:'さ',serial:'1234'}}]}});
   $('registration-candidate').value='0';
-  $('learning-with-registration').checked=true;
   vm.runInContext(source.slice(0,source.indexOf('for(const name of learningFields){\n  for(const part')),context);
   return {$,images,context};
 }
@@ -25,6 +24,16 @@ test('requires displayed image and explicit confirmation; split change clears co
   images[0].onload();$('learning-confirm').checked=true;
   const payload=context.learningPayload();assert.equal(payload.observation_id,'source');assert.equal(payload.candidate_index,0);assert.deepEqual(JSON.parse(JSON.stringify(payload.fields.category.box)),[.55,0,1,.45]);
   $('learning-category-x1').value='50';context.drawLearning();assert.throws(()=>context.learningPayload(),/確認/);
+});
+test('registration builds reviewed sample from visible image without a second confirmation',()=>{
+  const {$,images,context}=setup();context.prepareLearning();
+  assert.throws(()=>context.learningPayload(false),/画像/);
+  images[0].onload();
+  assert.equal($('learning-confirm').checked,false);
+  const result=context.learningPayload(false);
+  assert.equal(result.confirmed,true);
+  assert.equal(result.fields.serial.text,'1234');
+  assert.throws(()=>context.learningPayload(),/確認/);
 });
 test('saved corrections override detected values',()=>{
   const {$,context}=setup();
@@ -40,18 +49,6 @@ test('late image cannot attach to a new candidate or cleared draft',()=>{
   const {$,images,context}=setup();context.prepareLearning();context.resetLearning();
   images[0].onload();assert.equal($('learning-review').hidden,true);
   $('learning-confirm').checked=true;assert.throws(()=>context.learningPayload(),/確認/);
-});
-test('registration learning defaults on and preserves opt out until next registration',()=>{
-  const {$,context}=setup();
-  context.prepareLearning();
-  assert.equal($('learning-with-registration').checked,true);
-  $('learning-with-registration').checked=false;
-  context.prepareLearning();
-  assert.equal($('learning-with-registration').checked,false);
-  context.resetLearning(true);
-  assert.equal($('learning-with-registration').checked,true);
-  assert.match(fs.readFileSync(path.join(__dirname,'../templates/index.html'),'utf8'),
-    /id="learning-with-registration" type="checkbox" checked/);
 });
 test('training status and comparison have a separate navigation page',()=>{
   const markup=fs.readFileSync(path.join(__dirname,'../templates/index.html'),'utf8');

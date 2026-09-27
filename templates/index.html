@@ -56,8 +56,8 @@
 <div class="registry-fields"><label class="field">左（%）<input id="learning-kana-x1" type="number" min="0" max="100" step="0.5"></label><label class="field">上（%）<input id="learning-kana-y1" type="number" min="0" max="100" step="0.5"></label><label class="field">右（%）<input id="learning-kana-x2" type="number" min="0" max="100" step="0.5"></label><label class="field">下（%）<input id="learning-kana-y2" type="number" min="0" max="100" step="0.5"></label></div></fieldset>
 <fieldset><legend>一連指定番号</legend><canvas id="learning-serial-image" style="max-width:100%;border:1px solid #bbb" aria-label="一連指定番号の学習画像"></canvas>
 <div class="registry-fields"><label class="field">左（%）<input id="learning-serial-x1" type="number" min="0" max="100" step="0.5"></label><label class="field">上（%）<input id="learning-serial-y1" type="number" min="0" max="100" step="0.5"></label><label class="field">右（%）<input id="learning-serial-x2" type="number" min="0" max="100" step="0.5"></label><label class="field">下（%）<input id="learning-serial-y2" type="number" min="0" max="100" step="0.5"></label></div></fieldset>
-<label><input id="learning-confirm" type="checkbox">4項目すべての画像範囲と正解が一致することを確認した</label>
-<label><input id="learning-with-registration" type="checkbox" checked>登録・更新と同時に学習データを保存する</label>
+<p class="hint">「登録・更新」で表示中のナンバーと画像範囲を学習データにも自動保存します。登録前に内容を確認してください。</p>
+<label><input id="learning-confirm" type="checkbox">学習データのみ保存する場合は、4項目の画像範囲と正解を確認した</label>
 <button id="learning-save" type="button">学習データのみ保存</button>
 <p class="hint">同じ認識結果の再保存は正解を更新します。連続取り込みの一括登録は学習データに自動追加しません。</p>
 </div>

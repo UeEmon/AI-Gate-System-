@@ -87,3 +87,31 @@ test('failed import does not switch pages',async()=>{
   await context.importRegistration('missing');
   assert.deepEqual(pages,[]);
 });
+test('registration submit automatically saves the corrected plate as training data',async()=>{
+  const calls=[],messages=[];
+  const {context,$}=setup(async(url,options)=>{
+    if(url.startsWith('/api/observations/'))return draft;
+    calls.push({url,payload:JSON.parse(options.body)});return {id:'new'};
+  },{learningPayload(requireConfirmation){
+    assert.equal(requireConfirmation,false);
+    return {observation_id:'a',candidate_index:0,fields:{},confirmed:true};
+  },loadVehicles:async()=>{},message:text=>messages.push(text)});
+  vm.runInContext(script.slice(script.indexOf("$('vehicle-form').onsubmit="),script.indexOf('async function renderAlerts')),context);
+  await context.importRegistration('a');
+  $('serial').value='1235';
+  await $('vehicle-form').onsubmit({preventDefault(){}});
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].payload.serial,'1235');
+  assert.equal(calls[0].payload.learning.observation_id,'a');
+  assert.match(messages.at(-1),/学習データを保存/);
+});
+test('manual vehicle registration without observation remains possible',async()=>{
+  const calls=[];
+  const {context,$}=setup(async(url,options)=>{calls.push(JSON.parse(options.body));return {id:'new'};},
+    {loadVehicles:async()=>{}});
+  vm.runInContext(script.slice(script.indexOf("$('vehicle-form').onsubmit="),script.indexOf('async function renderAlerts')),context);
+  for(const [field,value] of Object.entries({region:'品川',category:'330',kana:'さ',serial:'1234'}))$(field).value=value;
+  await $('vehicle-form').onsubmit({preventDefault(){}});
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].learning,undefined);
+});
