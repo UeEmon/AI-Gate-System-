@@ -165,6 +165,7 @@ async function importRegistration(observationId){
     $('registration-image').hidden=!draft.has_image;
     if(draft.has_image)$('registration-image').src='/api/observations/'+encodeURIComponent(draft.observation_id)+'/image';
     chooseRegistrationCandidate();$('registration-review').hidden=false;
+    showPage('registry');
     $('vehicle-form').scrollIntoView({behavior:'smooth'});$('region').focus({preventScroll:true});
     message('読み取り結果を取り込みました。内容を確認し「登録・更新」で保存してください。');
   }catch(error){if(requestId===registrationRequest)message(error.message);}

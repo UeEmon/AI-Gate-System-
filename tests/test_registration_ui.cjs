@@ -15,7 +15,7 @@ function setup(api,extras={}){
       reset(){for(const name of ['region','category','kana','serial','vehicle-label'])$(name).value='';$('watch').checked=false;}});
     return elements.get(id);
   };
-  const context=vm.createContext({$,api,message(){},date:x=>x,pct:x=>typeof x==='number'?Math.round(x*100)+'%':'—',
+  const context=vm.createContext({$,api,message(){},showPage(){},date:x=>x,pct:x=>typeof x==='number'?Math.round(x*100)+'%':'—',
     Option:function(text,value){this.text=text;this.value=value;},...extras});
   vm.runInContext(handlers,context);
   return {context,$};
@@ -72,4 +72,18 @@ test('late response cannot overwrite a newer selected observation or a cleared d
   const third=context.importRegistration('third');context.resetVehicle();
   pending['/api/observations/third/registration'](draft);await third;
   assert.equal($('registration-review').hidden,true);assert.equal($('serial').value,'');
+});
+test('history import opens the registration review after loading the selected observation',async()=>{
+  const pages=[];
+  const {context,$}=setup(async()=>draft,{showPage:page=>pages.push(page)});
+  await context.importRegistration('a');
+  assert.deepEqual(pages,['registry']);
+  assert.equal($('registration-review').hidden,false);
+  assert.equal($('serial').value,'1234');
+});
+test('failed import does not switch pages',async()=>{
+  const pages=[];
+  const {context}=setup(async()=>{throw Error('not found');},{showPage:page=>pages.push(page)});
+  await context.importRegistration('missing');
+  assert.deepEqual(pages,[]);
 });
