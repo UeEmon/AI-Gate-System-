@@ -1,4 +1,4 @@
-"""Browser interface for the isolated full-frame plate benchmark."""
+"""Browser interface for vehicle-first and full-frame plate benchmarks."""
 import hmac
 import json
 import os
@@ -76,6 +76,9 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
             if not valid or len(stream_url) > 2048 or any(ord(char) < 32 for char in stream_url):
                 abort(400, 'rtmp:// または rtmps:// のURLを指定してください。')
         backend = request.form.get('ocr', 'paddle')
+        mode = request.form.get('mode', 'vehicle-first')
+        if mode not in {'vehicle-first', 'plate-only'}:
+            abort(400, '検証モードが不正です。')
         model = request.form.get('model', '')
         device = request.form.get('device', 'cpu')
         if device not in {'cpu', 'auto', 'mps', 'cuda'}:
@@ -104,7 +107,7 @@ def create_app(data_root='/data/plate-web', model_root='/plate-models', password
             command = [sys.executable, str(Path(__file__).with_name('plate_only_benchmark.py')),
                        '--source', str(source), '--output', str(folder / 'results'),
                        '--data', str(folder), '--every', str(every), '--max-frames', str(maximum),
-                       '--warmup', str(warmup), '--save-images']
+                       '--warmup', str(warmup), '--mode', mode, '--save-images']
             if model:
                 command += ['--plate-model', str(models / model)]
             env = dict(os.environ, GATE_OCR_BACKEND=backend, GATE_PLATE_MODEL='',

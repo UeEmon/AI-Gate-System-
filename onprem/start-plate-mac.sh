@@ -7,7 +7,7 @@ if [[ "$(uname -s)" != Darwin ]]; then
 fi
 python3 -m venv .venv-plate-mac
 .venv-plate-mac/bin/python -m pip install -r requirements-mac-benchmark.txt
-mkdir -p benchmark-models benchmark-data benchmark-cache
+mkdir -p benchmark-models benchmark-data benchmark-cache benchmark-cache/vehicles
 if [[ -z "${GATE_ADMIN_PASSWORD:-}" ]]; then
   read -r -s -p 'Webログイン用パスワードを入力: ' GATE_ADMIN_PASSWORD
   echo
@@ -16,6 +16,7 @@ export GATE_BENCHMARK_OCR_CHOICES=easyocr
 export GATE_ADMIN_PASSWORD
 export GATE_BENCHMARK_DATA="$PWD/benchmark-data"
 export GATE_BENCHMARK_MODELS="$PWD/benchmark-models"
+export GATE_BENCHMARK_VEHICLE_MODEL_ROOT="$PWD/benchmark-cache/vehicles"
 if [[ -f onprem/.env ]]; then
   stream_key=''
   while IFS='=' read -r name value; do

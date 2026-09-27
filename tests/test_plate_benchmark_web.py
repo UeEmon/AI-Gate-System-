@@ -77,6 +77,7 @@ class PlateWebTests(unittest.TestCase):
 
             def launch(command, **kwargs):
                 self.assertNotIn('--model', command)
+                self.assertEqual(command[command.index('--mode') + 1], 'vehicle-first')
                 output = Path(command[command.index('--output')+1]) / 'result'
                 output.mkdir(parents=True)
                 summary = dict(frames=1, inference_fps=10, inference_p95_ms=100,
