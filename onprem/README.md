@@ -61,6 +61,8 @@ ComposeのUSBデバイス割当は含めていません。Docker版では端末W
 
 次に[PaddleOCR公式の学習用コード](https://github.com/PaddlePaddle/PaddleOCR)をリポジトリ直下の `PaddleOCR` ディレクトリに取得し、[PP-OCRv5_mobile_recの事前学習重み](https://paddle-model-ecology.bj.bcebos.com/paddlex/official_pretrained_model/PP-OCRv5_mobile_rec_pretrained.pdparams)を `gate-models` volume の `/models/PP-OCRv5_mobile_rec_pretrained.pdparams` に置きます。学習コンテナは `linux/amd64` で動かすため、Apple SiliconのDocker Desktopではエミュレーションにより学習・評価が遅くなる可能性があります。重みや依存ライブラリの取得・導入に失敗した場合はそこで停止してください。
 
+MacのDocker Desktopで「学習環境未準備」と表示された場合は、リポジトリのルートで `sh onprem/setup-paddle-training.sh` を実行してください。学習用コードと重みを取得し、既存の `gate-models` volume に重みを配置して、起動中の `trainer` から見えることまで確認します。`trainer` が未起動なら先に `cd onprem && docker compose up -d --build` を実行してください。学習用コードと重みがあっても、十分な手動確認済み画像がなければ画面は「データ不足」となります。
+
 ```sh
 # リポジトリのルートから実行
 git clone --depth 1 https://github.com/PaddlePaddle/PaddleOCR.git PaddleOCR

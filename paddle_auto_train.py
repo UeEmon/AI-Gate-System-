@@ -53,8 +53,14 @@ class PaddleTrainingManager:
             return self.status()
         repo = Path(os.getenv('GATE_PADDLE_TRAIN_REPO', '/training/PaddleOCR'))
         pretrained = Path(os.getenv('GATE_PADDLE_PRETRAINED', '/models/PP-OCRv5_mobile_rec_pretrained.pdparams'))
-        if not (repo / 'tools' / 'train.py').is_file() or not pretrained.is_file():
-            state = dict(state='unavailable', error='PaddleOCR学習用コード・事前学習重みがありません。')
+        missing = []
+        if not (repo / 'tools' / 'train.py').is_file():
+            missing.append(f'学習用コード: {repo / "tools" / "train.py"}')
+        if not pretrained.is_file() or pretrained.stat().st_size == 0:
+            missing.append(f'事前学習重み: {pretrained}')
+        if missing:
+            state = dict(state='unavailable', error='未配置: ' + ' / '.join(missing),
+                         missing=missing)
             with self.lock:
                 self._save(state)
             return state
