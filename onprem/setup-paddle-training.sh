@@ -8,8 +8,11 @@ cd "$repo_root"
 
 if [ ! -f PaddleOCR/tools/train.py ]; then
   if [ -e PaddleOCR ]; then
-    echo 'PaddleOCR ディレクトリがありますが tools/train.py がありません。配置を確認してください。' >&2
-    exit 1
+    if [ ! -d PaddleOCR ] || [ -n "$(ls -A PaddleOCR)" ]; then
+      echo 'PaddleOCR に既存ファイルがありますが tools/train.py がありません。内容を確認してください。上書きはしません。' >&2
+      exit 1
+    fi
+    echo 'Docker Composeで作成された空のPaddleOCRディレクトリに学習用コードを取得します。'
   fi
   git clone --depth 1 https://github.com/PaddlePaddle/PaddleOCR.git PaddleOCR
 fi
