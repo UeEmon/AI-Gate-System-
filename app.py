@@ -273,6 +273,12 @@ def recognize_plate_roi(roi, bbox, quad, rectification, reader, cv2, ocr_thresho
 
 def read_plate(crop, reader, cv2, ocr_threshold=OCR_RESULT_CONFIDENCE, plate_model=None,
                diagnostics=None):
+    if len(reader) == 1 and reader[0][0] == 'lipla-jp':
+        from lipla_pipeline import LiplaPlatePipeline
+        candidates, report = LiplaPlatePipeline(reader[0][1].model, parse_plate).run(crop)
+        if diagnostics is not None:
+            diagnostics.update(report)
+        return candidates
     from plate_pipeline import PlateRecognitionPipeline, PlateRectifier
     pipeline = PlateRecognitionPipeline(
         make_plate_detector(cv2, plate_model), PlateRectifier(cv2),
@@ -426,9 +432,10 @@ def initialize_models(model_path, plate_model_path, root, easyocr, yolo_class, o
     while True:
         try:
             model = yolo_class(model_path)
-            plate_model = yolo_class(plate_model_path) if plate_model_path else None
             from ocr_backends import make_readers
             readers = make_readers(root, easyocr, offline)
+            plate_model = yolo_class(plate_model_path) if plate_model_path and not (
+                len(readers) == 1 and readers[0][0] == 'lipla-jp') else None
             return model, plate_model, readers
         except Exception as error:
             if offline or time.monotonic() + 5 >= deadline:
@@ -506,7 +513,7 @@ def main():
                                    iou=.55, device='cpu', verbose=False)[0]
             detection_ms = (time.perf_counter() - detection_started) * 1000
             ocr_ms = storage_ms = decision_ms = notification_ms = 0.0
-            plate_detection_ms = rectification_ms = 0.0
+            plate_detection_ms = rectification_ms = plate_recognition_ms = 0.0
             for box in result.boxes:
                 label = result.names[int(box.cls.item())]
                 if label not in VEHICLES:
@@ -524,6 +531,7 @@ def main():
                 plates = read_plate(crop, reader, cv2, args.ocr_threshold, plate_model,
                                     diagnostics=plate_report)
                 plate_detection_ms += plate_report.get('plate_detection_ms', 0.0)
+                plate_recognition_ms += plate_report.get('plate_recognition_ms', 0.0)
                 rectification_ms += plate_report.get('rectification_ms', 0.0)
                 ocr_ms += plate_report.get('ocr_ms', 0.0)
                 decision_started = time.perf_counter()
@@ -593,6 +601,7 @@ def main():
                             performance=dict(frame_ms=round(frame_ms, 2),
                                 detection_ms=round(detection_ms, 2),
                                 plate_detection_ms=round(plate_detection_ms, 2),
+                                plate_recognition_ms=round(plate_recognition_ms, 2),
                                 rectification_ms=round(rectification_ms, 2), ocr_ms=round(ocr_ms, 2),
                                 decision_ms=round(decision_ms, 2), storage_ms=round(storage_ms, 2),
                                 notification_ms=round(notification_ms, 2),

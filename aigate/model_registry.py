@@ -45,6 +45,7 @@ SPECS = (
     ModelSpec("ultralytics-yolo11n", "YOLO11n", ModelRole.VEHICLE, "Ultralytics", "YOLO11", "AGPL-3.0 / Enterprise", "https://github.com/ultralytics/ultralytics", "ultralytics", "yolo11n.pt", realtime=True, bundled=True),
     ModelSpec("ultralytics-yolov8n", "YOLOv8n", ModelRole.VEHICLE, "Ultralytics", "YOLOv8", "AGPL-3.0 / Enterprise", "https://github.com/ultralytics/ultralytics", "ultralytics", "yolov8n.pt", realtime=True, bundled=True),
     ModelSpec("opencv-plate-contours", "OpenCV輪郭抽出", ModelRole.PLATE, "OpenCV", "Classical CV", "Apache-2.0", "https://github.com/opencv/opencv", "cv2", realtime=True, bundled=True, notes="学習済み重み不要のフォールバック"),
+    ModelSpec("lipla-native-plate", "Lipla-jp 内蔵プレート検出", ModelRole.PLATE, "ikeboo", "Lipla-jp", "MIT", "https://github.com/ikeboo/Lipla-jp", "lipla", japanese=True, realtime=True, bundled=True, notes="Lipla-jp OCR と一体で車両領域を認識"),
     ModelSpec("custom-yolo-plate", "専用YOLOプレートモデル", ModelRole.PLATE, "Local", "YOLO custom", "モデル提供元に従う", "local://models/plate", "ultralytics", artifact="GATE_PLATE_MODEL", realtime=True, bundled=True, notes="GATE_PLATE_MODELで指定"),
     ModelSpec("paddle-ppocr-v6", "PP-OCRv6", ModelRole.OCR, "PaddlePaddle", "PP-OCRv6", "Apache-2.0", "https://github.com/PaddlePaddle/PaddleOCR", "paddleocr", "PP-OCRv6_medium_rec", japanese=True, realtime=True, bundled=True),
     ModelSpec("lipla-jp", "Lipla-jp EdgeCrafter + PPOCRv6", ModelRole.OCR, "ikeboo", "Lipla-jp", "MIT", "https://github.com/ikeboo/Lipla-jp", "lipla", japanese=True, realtime=True, bundled=True, notes="日本ナンバープレート検出・認識一体型"),
@@ -97,6 +98,8 @@ class ModelRegistry:
         return result
 
     def validate_selection(self, settings: dict) -> None:
+        if (settings['plate_model'] == 'lipla-native-plate') != (settings['ocr_model'] == 'lipla-jp'):
+            raise ValueError('Lipla-jp 内蔵プレート検出と Lipla-jp OCR は一緒に選択してください。')
         mapping = {"vehicle_model": ModelRole.VEHICLE, "plate_model": ModelRole.PLATE, "ocr_model": ModelRole.OCR}
         for key, role in mapping.items():
             spec = self.get(settings[key])
@@ -133,7 +136,7 @@ class ModelRegistry:
         raise ValueError("現在のリアルタイム実行アダプターではこのOCRモデルを利用できません。")
 
     def plate_environment(self, model_id: str) -> dict[str, str]:
-        if model_id == "opencv-plate-contours":
+        if model_id in {"opencv-plate-contours", "lipla-native-plate"}:
             return {"GATE_PLATE_MODEL": ""}
         if model_id == "custom-yolo-plate":
             configured = os.getenv("GATE_PLATE_MODEL", "")

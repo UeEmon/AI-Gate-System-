@@ -50,36 +50,9 @@ def frame_coordinates(item, x, y):
 
 def recognize_lipla(image, recognizer):
     """Run Lipla's own four-corner detector and OCR once on the vehicle BGR image."""
-    import numpy as np
-    started = time.perf_counter()
-    results = recognizer(np.ascontiguousarray(image))
-    elapsed = (time.perf_counter() - started) * 1000
-    candidates, proposals = [], []
-    for result in results:
-        points = np.asarray(result.vertices, dtype=float).reshape(4, 2)
-        if not np.isfinite(points).all():
-            continue
-        x1, y1 = np.floor(points.min(axis=0)).astype(int)
-        x2, y2 = np.ceil(points.max(axis=0)).astype(int)
-        x1, y1 = max(0, x1), max(0, y1)
-        x2, y2 = min(image.shape[1], x2), min(image.shape[0], y2)
-        if x2 <= x1 or y2 <= y1:
-            continue
-        quad = points.tolist()
-        bbox = [int(x1), int(y1), int(x2), int(y2)]
-        fields = dict(region=str(result.area), category=str(result.class_number),
-                      kana=str(result.kana), serial=str(result.number))
-        confidence = min(float(getattr(result, key)) for key in
-                         ('area_score', 'class_number_score', 'kana_score', 'number_score'))
-        candidates.append(dict(bbox_in_vehicle=bbox, quad_in_vehicle=quad,
-                               text=f"{fields['region']} {fields['category']} {fields['kana']} {fields['serial']}",
-                               fields=fields, confidence=confidence, ocr_backend='lipla-native',
-                               detection_source='lipla-native', detection_score=float(result.score)))
-        proposals.append(dict(bbox_in_vehicle=bbox, quad_in_vehicle=quad,
-                              detection_source='lipla-native', text_found=True))
-    return candidates, dict(proposals=proposals, plate_detection_ms=None,
-                            rectification_ms=None, ocr_ms=None,
-                            plate_recognition_ms=elapsed)
+    from app import parse_plate
+    from lipla_pipeline import LiplaPlatePipeline
+    return LiplaPlatePipeline(recognizer, parse_plate).run(image)
 
 
 def analyze_frame(frame, readers, cv2, plate_model, vehicle_model, device,

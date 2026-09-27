@@ -30,7 +30,7 @@ class ArchitectureTests(unittest.TestCase):
         registry = ModelRegistry('/tmp/models-not-required')
         items = registry.list()
         self.assertTrue({role.value for role in ModelRole}.issubset({item['role'] for item in items}))
-        self.assertEqual(len(items), 12)
+        self.assertEqual(len(items), 13)
         self.assertTrue(all(item['license'] and item['source'] for item in items))
         self.assertTrue(any(item['id'] == 'paddle-ppocr-v6' and item['japanese'] for item in items))
         self.assertTrue(any(item['id'] == 'lipla-jp' and item['license'] == 'MIT' for item in items))
@@ -82,11 +82,22 @@ class ArchitectureTests(unittest.TestCase):
             with client.session_transaction() as session:
                 headers = {'X-CSRF-Token': session['csrf']}
             catalog = client.get('/api/models').get_json()
-            self.assertEqual(len(catalog['models']), 12)
+            self.assertEqual(len(catalog['models']), 13)
             performance = client.get('/api/system/performance').get_json()
             self.assertIn('recommendation', performance['startup'])
             response = client.put('/api/settings/models', json={'vehicle_model': 'missing'}, headers=headers)
             self.assertEqual(response.status_code, 400)
+
+    def test_legacy_defaults_migrate_once_without_erasing_model_choice(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'system-settings.json'
+            path.write_text(json.dumps({'plate_model': 'opencv-plate-contours',
+                                        'ocr_model': 'paddle-ppocr-v6'}), encoding='utf-8')
+            manager = SettingsManager(root)
+            self.assertEqual(manager.read()['ocr_model'], 'lipla-jp')
+            self.assertEqual(manager.read()['plate_model'], 'lipla-native-plate')
+            manager.update({'ocr_model': 'paddle-ppocr-v6', 'plate_model': 'opencv-plate-contours'})
+            self.assertEqual(SettingsManager(root).read()['ocr_model'], 'paddle-ppocr-v6')
 
 
 if __name__ == '__main__':

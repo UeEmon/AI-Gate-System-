@@ -239,6 +239,7 @@ class JobManager:
                 self.performance.record(job_id=item['id'], frame_ms=float(measured.get('frame_ms', 0)),
                     detection_ms=float(measured.get('detection_ms', 0)), ocr_ms=float(measured.get('ocr_ms', 0)),
                     plate_ms=float(measured.get('plate_detection_ms', 0)),
+                    plate_recognition_ms=float(measured.get('plate_recognition_ms', 0)),
                     rectification_ms=float(measured.get('rectification_ms', 0)),
                     decision_ms=float(measured.get('decision_ms', 0)), storage_ms=float(measured.get('storage_ms', 0)),
                     notification_ms=float(measured.get('notification_ms', 0)))

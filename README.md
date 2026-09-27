@@ -215,12 +215,13 @@ python app.py --source 0 --source-kind camera --every 1
 
 `details_json` の `plate_candidates` にOCR原文・信頼度・候補枠・解析結果を保存します。
 
-OCRでは候補枠の周囲に余白を加え、幅480pxを目安に最大4倍まで拡大し、上下段を分けて読みます。
-PaddleOCR PP-OCRv6-mediumを既定とし、複数の前処理結果の合意を優先します。信頼度を引き上げたり、
+既定のLipla-jpでは車両領域のBGR画像からライブラリ内蔵のプレート検出・補正・OCRを一度で実行します。
+別のOCRモデルを選択すると、候補枠の周囲に余白を加え、幅480pxを目安に最大4倍まで拡大し、上下段を分けて読みます。
+従来方式では複数の前処理結果の合意を優先します。信頼度を引き上げたり、
 推測で文字を置換したりはしません。`GATE_OCR_BACKEND=easyocr|paddle|lipla|compare|auto` で切替でき、
 `compare` は両方を実行、`auto` は `accuracy_benchmark.py` の固定評価結果を使用します。比較前はPaddleOCR、
 画面で追加学習済みEasyOCRを適用した直後はEasyOCRを選び、再比較後は成績の良い方へ切り替えます。
-モデル設定画面では「Lipla-jp EdgeCrafter + PPOCRv6」をOCRモデルとして選択できます。
+モデル設定画面では「Lipla-jp 内蔵プレート検出」と「Lipla-jp EdgeCrafter + PPOCRv6」が既定で選択されます。
 選択時は `GATE_OCR_BACKEND=lipla` が処理プロセスへ渡され、Lipla-jpの日本ナンバープレート認識結果を
 既存の4項目（地名・分類番号・かな・一連指定番号）へ変換します。ライブラリはMITライセンスですが、
 内包モデルのライセンス・重みの取得元・SHA-256は配布時に別途記録してください。
@@ -394,9 +395,11 @@ GATE_TEST_OCR_TRAINING=1 python -m unittest discover -s tests -p test_ocr_traini
 
 ### プレートの角度補正と登録車両の削除
 
-認識経路は `車両検出 → 元画像の車両領域 → プレート検出 → 四隅補正 → OCR → 判定・保存・通知` です。
+既定の認識経路は `車両検出 → 元画像の車両領域 → Lipla内蔵の検出・補正・OCR → 判定・保存・通知` です。
 車両の検出条件を満たさないフレームではプレート検出・OCRを実行しません。
-`plate_pipeline.py` の `PlateDetector`、`PlateRectifier`、`PlateRecognitionPipeline` が各段階を分離し、
+Lipla方式では `lipla_pipeline.py` が内蔵認識結果を既存の保存・判定形式へ変換します。
+`plate_recognition_ms` は内蔵の検出・補正・OCRの合計時間です。内部の個別工程時間は計測できません。
+他方式では `plate_pipeline.py` の `PlateDetector`、`PlateRectifier`、`PlateRecognitionPipeline` が各段階を分離し、
 OCR処理は `app.py` の `recognize_plate_roi` で補正済みのプレート画像だけを読みます。
 
 専用プレートモデルを選択した場合は入力640pxで検出し、候補がない場合だけ同じ元画像の車両領域を

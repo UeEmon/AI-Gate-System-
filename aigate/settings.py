@@ -10,8 +10,8 @@ import threading
 
 DEFAULTS = {
     "vehicle_model": "ultralytics-yolo26n",
-    "plate_model": "opencv-plate-contours",
-    "ocr_model": "paddle-ppocr-v6",
+    "plate_model": "lipla-native-plate",
+    "ocr_model": "lipla-jp",
     "profile": "auto",
     "imgsz": 960,
     "frame_stride": 1,
@@ -31,7 +31,25 @@ class SettingsManager:
                 raw = json.loads(self.path.read_text(encoding="utf-8"))
             except (FileNotFoundError, json.JSONDecodeError, OSError):
                 raw = {}
+            if raw and not raw.get("_lipla_default_migrated"):
+                if (raw.get("plate_model", "opencv-plate-contours") == "opencv-plate-contours"
+                        and raw.get("ocr_model", "paddle-ppocr-v6") == "paddle-ppocr-v6"):
+                    raw["plate_model"] = "lipla-native-plate"
+                    raw["ocr_model"] = "lipla-jp"
+                raw["_lipla_default_migrated"] = True
+                self._save(raw)
             return {**DEFAULTS, **{key: raw[key] for key in DEFAULTS if key in raw}}
+
+    def _save(self, content: dict) -> None:
+        descriptor, temporary = tempfile.mkstemp(prefix="settings-", suffix=".json", dir=self.root)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                json.dump(content, stream, ensure_ascii=False, indent=2)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self.path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
 
     def update(self, changes: dict) -> dict:
         unknown = set(changes) - set(DEFAULTS)
@@ -44,13 +62,5 @@ class SettingsManager:
         if current["profile"] not in {"auto", "speed", "balanced", "accuracy"}:
             raise ValueError("性能プロファイルが不正です。")
         with self.lock:
-            descriptor, temporary = tempfile.mkstemp(prefix="settings-", suffix=".json", dir=self.root)
-            try:
-                with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-                    json.dump(current, stream, ensure_ascii=False, indent=2)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                os.replace(temporary, self.path)
-            finally:
-                Path(temporary).unlink(missing_ok=True)
+            self._save({**current, "_lipla_default_migrated": True})
         return current
