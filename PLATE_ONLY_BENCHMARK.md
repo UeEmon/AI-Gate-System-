@@ -17,6 +17,8 @@ docker compose --env-file onprem/.env -p ai-gate-paddle \
 
 `http://localhost:8888`、ユーザー名 `admin` でログインします。画像・動画またはRTMP、専用プレート重み、PaddleOCRモデルを選んで検証します。モデル未配置時には画面から検証を開始できません。GoProのRTMP受信は先に `python3 onprem/setup_rtmp_receiver.py` を実行し、composeコマンドに `-f onprem/compose.gopro.yaml` を加えてください。
 
+8888が使用中なら `onprem/.env` に `GATE_BENCHMARK_PORT=8889` を追加して同じComposeコマンドで再作成します。このときブラウザは `http://localhost:8889` を開きます。コンテナ内のポートは8080のままです。
+
 PaddleOCR認識モデルは「PP-OCRv6 medium（追加学習前）」が既定です。追加学習済みモデルを試すには、PaddleOCRが読み込める**エクスポート済み推論モデルのディレクトリ**を `benchmark-paddle-models/<モデル名>/` に配置し、Web画面で選びます。`TextRecognition(model_name='PP-OCRv6_medium_rec', model_dir=...)` に渡します。既存システムにはPaddleOCR追加学習ジョブがないため、このブランチで新しい重みが自動生成されるわけではありません。専用プレート検出重みの学習入口は `vision_train.py --task plate` です。学習・評価に使うデータは別々に管理してください。
 
 `frames.jsonl` には各車両の検出枠、プレートの検出枠、OCR候補、工程別時間を記録します。`summary.json` は推論FPS・遅延と実効FPSを記録します。専用検出器が失敗した場合、プレート検出件数は0です。現時点の補正はOpenCVによる四隅探索であり、専用モデルによる四隅推定ではありません。正解ラベル未登録の検証の `accuracy` は null です。
