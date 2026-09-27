@@ -11,6 +11,7 @@ function setup(){
     registrationDraft:{observation_id:'source',has_image:true,plate_candidates:[{
       fields:{region:'品川',category:'330',kana:'さ',serial:'1234'}}]}});
   $('registration-candidate').value='0';
+  $('learning-with-registration').checked=true;
   vm.runInContext(source.slice(0,source.indexOf('for(const name of learningFields){\n  for(const part')),context);
   return {$,images,context};
 }
@@ -39,4 +40,16 @@ test('late image cannot attach to a new candidate or cleared draft',()=>{
   const {$,images,context}=setup();context.prepareLearning();context.resetLearning();
   images[0].onload();assert.equal($('learning-review').hidden,true);
   $('learning-confirm').checked=true;assert.throws(()=>context.learningPayload(),/確認/);
+});
+test('registration learning defaults on and preserves opt out until next registration',()=>{
+  const {$,context}=setup();
+  context.prepareLearning();
+  assert.equal($('learning-with-registration').checked,true);
+  $('learning-with-registration').checked=false;
+  context.prepareLearning();
+  assert.equal($('learning-with-registration').checked,false);
+  context.resetLearning(true);
+  assert.equal($('learning-with-registration').checked,true);
+  assert.match(fs.readFileSync(path.join(__dirname,'../templates/index.html'),'utf8'),
+    /id="learning-with-registration" type="checkbox" checked/);
 });

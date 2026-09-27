@@ -1,10 +1,11 @@
 'use strict';
 const learningFields=['region','category','kana','serial'];
 let learningImage=null, learningGeneration=0;
-function resetLearning(){
+function resetLearning(newRegistration=false){
   learningGeneration++;learningImage=null;
   $('learning-review').hidden=true;
-  $('learning-confirm').checked=false;$('learning-with-registration').checked=false;
+  $('learning-confirm').checked=false;
+  if(newRegistration)$('learning-with-registration').checked=true;
 }
 function fieldBox(name){return ['x1','y1','x2','y2'].map(part=>Number($('learning-'+name+'-'+part).value)/100);}
 function drawLearning(){
