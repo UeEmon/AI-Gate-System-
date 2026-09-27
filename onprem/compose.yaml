@@ -45,6 +45,10 @@ services:
       GATE_PADDLE_AUTO_TRAIN: '1'
       GATE_PADDLE_TRAIN_REPO: /training/PaddleOCR
       GATE_PADDLE_PRETRAINED: /models/PP-OCRv5_mobile_rec_pretrained.pdparams
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '2'
+      MALLOC_ARENA_MAX: '2'
     volumes:
       - gate-data:/data
       - gate-models:/models

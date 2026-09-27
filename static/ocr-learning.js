@@ -68,6 +68,7 @@ async function refreshLearning(){
     $('learning-status').textContent='保存済み '+data.count+'件 / 運用方式: Lipla-jp';
     const training=await api('/api/paddle-training');
     $('paddle-training-status').textContent='PaddleOCR追加学習: '+({idle:'待機',running:'学習中',completed:'完了（未適用）',failed:'失敗',interrupted:'中断',insufficient_data:'データ不足',unavailable:'学習環境未準備'}[training.state]||training.state)+(training.error?' / '+training.error:'');
+    $('paddle-retry').hidden=training.state!=='failed'||!!training.retry_queued;
     const stage={detector:'プレート検出器',recognizer:'PaddleOCR',validation:'評価',export:'推論形式への変換'}[training.stage]||training.stage;
     const counts=training.report||{};
     $('paddle-training-details').textContent=[stage?'工程: '+stage:'',counts.det_train!==undefined?'検出器 学習 '+counts.det_train+'件 / 評価 '+counts.det_val+'件':'',training.exit_code!==undefined?'終了コード: '+training.exit_code:''].filter(Boolean).join(' / ');
@@ -110,6 +111,7 @@ async function refreshLearning(){
   }finally{learningRefreshBusy=false;}
 }
 $('learning-refresh').onclick=()=>refreshLearning().catch(e=>message(e.message));
+$('paddle-retry').onclick=async()=>{try{await api('/api/paddle-training/retry',{method:'POST'});$('paddle-retry').hidden=true;message('再学習を予約しました。約30秒後に状態を確認してください。');}catch(e){message(e.message);}};
 $('paddle-compare').onclick=async()=>{try{await api('/api/paddle-training/compare',{method:'POST'});message('比較を予約しました。');await refreshLearning();}catch(e){message(e.message);}};
 refreshLearning().catch(e=>message(e.message));
 setInterval(()=>refreshLearning().catch(()=>{}),10000);

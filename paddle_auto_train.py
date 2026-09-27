@@ -79,8 +79,12 @@ class PaddleTrainingManager:
                 (r['id'], r['image_sha256'], r['top_text'], r['bottom_text'], r['fields_json'])
                 for r in rows], ensure_ascii=False).encode()).hexdigest()
             previous = self.status()
-            if previous.get('fingerprint') == fingerprint and previous.get('state') in ('completed', 'failed'):
+            retry_path = self.path.parent / 'retry-request.json'
+            requested = retry_path.is_file() and previous.get('state') == 'failed'
+            if previous.get('fingerprint') == fingerprint and previous.get('state') in ('completed', 'failed') and not requested:
                 return previous
+            if requested:
+                retry_path.unlink(missing_ok=True)
             directory = self.path.parent / ('auto-' + uuid.uuid4().hex)
             try:
                 report = export(self.root, directory)
@@ -111,7 +115,8 @@ class PaddleTrainingManager:
         code = process.wait()
         with self.lock:
             self._save({**state, 'state': 'completed' if code == 0 else 'failed',
-                        'exit_code': code})
+                        'exit_code': code,
+                        **({'error': '学習プロセスがSIGKILLで停止しました。メモリ不足などによる強制終了の可能性があります。'} if code == -9 else {})})
         if code == 0:
             try:
                 self.maybe_compare()

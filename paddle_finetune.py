@@ -13,7 +13,7 @@ import sys
 REC_CONFIG = 'configs/rec/PP-OCRv5/PP-OCRv5_mobile_rec.yml'
 
 
-def run(dataset, repository, pretrained, epochs=20, imgsz=960):
+def run(dataset, repository, pretrained, epochs=20, imgsz=640):
     dataset, repository, pretrained = (Path(p).resolve() for p in
                                        (dataset, repository, pretrained))
     if not (dataset / 'rec' / 'train.txt').is_file() or not (dataset / 'rec' / 'val.txt').is_file():
@@ -39,8 +39,8 @@ def run(dataset, repository, pretrained, epochs=20, imgsz=960):
                'Global.use_gpu=False',
                'Global.eval_batch_step=[0,10]',
                'Global.save_epoch_step=1',
-               'Train.loader.batch_size_per_card=4',
-               'Eval.loader.batch_size_per_card=4',
+               'Train.loader.batch_size_per_card=1',
+               'Eval.loader.batch_size_per_card=1',
                f'Train.dataset.data_dir={rec}',
                f'Train.dataset.label_file_list=[{rec / "train.txt"}]',
                f'Eval.dataset.data_dir={rec}',
@@ -73,7 +73,7 @@ if __name__ == '__main__':
     parser.add_argument('--paddle-repo', required=True)
     parser.add_argument('--pretrained', required=True)
     parser.add_argument('--epochs', type=int, default=20)
-    parser.add_argument('--imgsz', type=int, default=960)
+    parser.add_argument('--imgsz', type=int, default=640)
     args = parser.parse_args()
     print(json.dumps(run(args.dataset, args.paddle_repo, args.pretrained,
                          args.epochs, args.imgsz), ensure_ascii=False))

@@ -96,6 +96,8 @@ docker compose run --rm trainer \
 
 新しい手動修正データが保存されると、`trainer` は約30秒ごとに確認し、学習コード・重みと教師データが揃った時点で自動学習を開始します。Webの「確認済みOCRデータ」で工程・学習ログ・件数を確認できます。完了時には手動確認済み評価画像でLipla-jpと学習済みPaddleOCRを自動比較し、検出率（IoU 0.50）、ナンバー完全一致率、平均・95%遅延、FPSを同じ画面に表示します。「比較を再実行」から再測定もできます。`GET /api/paddle-training` でも結果を取得できます。評価画像がない場合や重み・実行環境が不足する場合は比較が失敗し、`/data/ocr-learning/paddle/auto-*/comparison.log` を確認してください。少数の評価例では精度を一般化できません。Apple Siliconのx86エミュレーションで測ったFPSはMacネイティブ実行の速度ではありません。学習失敗時は `/data/ocr-learning/paddle/auto-*/train.log` を確認してください。**学習済み重みは運用コンテナには読み込まれません。運用の検出・OCRは常にLipla-jpです。**
 
+終了コード `-9` は学習プロセスが強制終了されたことを示します。MacのDocker Desktopでメモリ不足の可能性があるため、YOLO学習の画像サイズ640・バッチ1・ワーカー0、PaddleOCRのバッチ1、CPUスレッド2に設定しています。これは原因の確定ではありません。Docker Desktopのメモリ割当と `docker stats` を確認してください。修正後はWeb画面の「同じデータで学習を再実行」を押せます。約30秒ごとの確認後に新しい学習ログが作成されます。`docker compose -f onprem/compose.yaml up -d --build trainer` で学習コンテナだけを更新できます。
+
 ## 社内SMTP通知
 
 ネイティブ版はシェルの環境変数、Docker版は `onprem/.env` を設定します。

@@ -13,7 +13,8 @@ def train(data, output, task, epochs, imgsz):
     model = YOLO(base)
     result = model.train(data=str(data), epochs=epochs, imgsz=imgsz,
                          project=str(Path(output).parent), name=Path(output).stem,
-                         device='cpu', exist_ok=True)
+                         device='cpu', exist_ok=True,
+                         batch=1, workers=0, cache=False, plots=False, amp=False)
     best = Path(result.save_dir) / 'weights' / 'best.pt'
     if not best.is_file():
         raise RuntimeError('学習済み重みが生成されませんでした。')

@@ -627,6 +627,8 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
             except (OSError, ValueError):
                 return dict(state='idle')
         training, comparison = read_state('auto-state.json'), read_state('comparison-state.json')
+        if training.get('state') == 'failed' and (directory / 'retry-request.json').is_file():
+            training['retry_queued'] = True
         log = training.get('log')
         if log:
             path = Path(log).resolve()
@@ -647,6 +649,21 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
                     stream.seek(max(0, path.stat().st_size - 2048))
                     comparison['error'] = stream.read().decode('utf-8', errors='replace').splitlines()[-1:][0] if path.stat().st_size else '比較処理が失敗しました。'
         return jsonify(**training, comparison=comparison)
+
+    @app.post('/api/paddle-training/retry')
+    def retry_paddle_training():
+        directory = manager.root / 'ocr-learning' / 'paddle'
+        try:
+            state = json.loads((directory / 'auto-state.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            state = {}
+        if state.get('state') != 'failed':
+            abort(409, description='失敗した学習だけを再実行できます。')
+        path = directory / 'retry-request.json'
+        temporary = path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(dict(requested_at=now())), encoding='utf-8')
+        os.replace(temporary, path)
+        return jsonify(state='queued'), 202
 
     @app.post('/api/paddle-training/compare')
     def request_paddle_comparison():
