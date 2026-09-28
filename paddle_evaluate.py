@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import statistics
 import time
+import unicodedata
 
 import events
 from paddle_plate_pipeline import PaddlePlatePipeline
@@ -62,6 +63,56 @@ def summarize(items):
                 throughput_fps=1000*n/sum(durations) if sum(durations) else 0)
 
 
+def detector_diagnostic(detector, vehicle, expected, image_path, imgsz=960):
+    """Keep every low-score box and draw it before production filtering."""
+    import cv2
+    result = detector.predict(vehicle, conf=.01, imgsz=imgsz, device='cpu', verbose=False)[0]
+    canvas = vehicle.copy()
+    cv2.rectangle(canvas, (int(expected[0]), int(expected[1])),
+                  (int(expected[2]), int(expected[3])), (0, 255, 0), 2)
+    height, width = vehicle.shape[:2]
+    boxes = []
+    for item in result.boxes:
+        x1, y1, x2, y2 = (int(v) for v in item.xyxy[0].tolist())
+        x1, y1, x2, y2 = max(0, x1), max(0, y1), min(width, x2), min(height, y2)
+        score = float(item.conf.item())
+        iou = overlap([x1, y1, x2, y2], expected)
+        reason = ('low_confidence' if score < .2 else
+                  'small_box' if x2-x1 < 48 or y2-y1 < 24 else
+                  'low_iou' if iou < .5 else 'matched')
+        boxes.append(dict(box=[x1, y1, x2, y2], confidence=round(score, 4),
+                          iou=round(iou, 4), reason=reason))
+        cv2.rectangle(canvas, (x1, y1), (x2, y2), (255, 0, 0), 2)
+        cv2.putText(canvas, f'{score:.2f} IoU {iou:.2f}', (x1, max(12, y1-4)),
+                    cv2.FONT_HERSHEY_SIMPLEX, .45, (255, 0, 0), 1)
+    if not cv2.imwrite(str(image_path), canvas):
+        raise OSError('診断画像を保存できません。')
+    return dict(image=image_path.name, boxes=boxes, max_iou=max((b['iou'] for b in boxes), default=0),
+                matched=any(b['reason'] == 'matched' for b in boxes), imgsz=imgsz)
+
+
+def ocr_diagnostic(reader, image_bytes, sample):
+    """Read human-confirmed crops without using the trained detector."""
+    import cv2
+    import numpy as np
+    import ocr_learning
+    image = cv2.imdecode(np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError('手動確認済みのプレート画像を読み込めません。')
+    result = []
+    crops = ocr_learning.training_crops(sample, image.shape[1], image.shape[0])
+    for truth, (x1, y1, x2, y2) in crops:
+        crop = image[y1:y2, x1:x2]
+        if not crop.size:
+            raise ValueError('OCRの切り出し範囲が空です。')
+        prediction, confidence = reader.read(crop)
+        prediction = unicodedata.normalize('NFKC', prediction).strip()
+        result.append(dict(truth=truth, prediction=prediction, confidence=confidence,
+                           exact=truth == prediction))
+    return dict(crops=result, exact=all(item['exact'] for item in result),
+                layout='four_fields' if sample.get('fields_json') else 'two_lines')
+
+
 def evaluate(root, dataset, plate_weights, recognition_dir, compare=False,
              paddle_pipeline=None, lipla_pipeline=None):
     import cv2
@@ -71,8 +122,9 @@ def evaluate(root, dataset, plate_weights, recognition_dir, compare=False,
     from paddle_training import plate_box, safe_vehicle_image
 
     manifest = json.loads((Path(dataset) / 'manifest.json').read_text())
+    partition = 'test' if any(item['partition'] == 'test' for item in manifest['samples']) else 'val'
     sample_ids = [item['sample'] for item in manifest['samples']
-                  if item['partition'] == 'val' and item['label_source'] == 'manual']
+                  if item['partition'] == partition and item['label_source'] == 'manual']
     if not sample_ids:
         raise ValueError('手動確認済みの評価画像がありません。')
     if paddle_pipeline is None:
@@ -84,10 +136,14 @@ def evaluate(root, dataset, plate_weights, recognition_dir, compare=False,
         lipla_pipeline = LiplaPlatePipeline(lipla.Recognizer(
             cache_dir=str(Path(os.getenv('GATE_MODEL_ROOT', '/models')) / 'lipla')), parse_plate)
     scores = {'paddle': [], 'lipla': []}
+    diagnostics = []
+    diagnostic_dir = Path(dataset) / 'diagnostics'
+    diagnostic_dir.mkdir(exist_ok=True)
     skipped = 0
     with events.connection(root) as db:
         for identifier in sample_ids:
-            row = db.execute('''SELECT s.*,o.details_json FROM ocr_samples s
+            row = db.execute('''SELECT s.*,f.fields_json,o.details_json FROM ocr_samples s
+                LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id
                 JOIN observations o ON o.id=s.observation_id WHERE s.id=?''', (identifier,)).fetchone()
             if row is None:
                 skipped += 1
@@ -119,11 +175,20 @@ def evaluate(root, dataset, plate_weights, recognition_dir, compare=False,
                     methods.reverse()
             for name, pipeline in methods:
                 scores[name].append(score_pipeline(pipeline, vehicle, expected, truth))
+            if compare:
+                detector = paddle_pipeline.detector
+                detection = detector_diagnostic(detector, vehicle, expected,
+                                                diagnostic_dir / (identifier + '.jpg'),
+                                                imgsz=paddle_pipeline.imgsz)
+                ocr = ocr_diagnostic(paddle_pipeline.reader, row['image'], dict(row))
+                diagnostics.append(dict(sample=identifier, detection=detection, ocr=ocr))
     if not scores['paddle']:
         raise ValueError('読み取り可能な評価用車両画像がありません。')
     if compare:
         report = dict(evaluated=len(scores['paddle']), skipped=skipped,
-                      ground_truth='manual_review', iou_threshold=.5,
+                      ground_truth='manual_review', evaluation_partition=partition,
+                      iou_threshold=.5, diagnostics=diagnostics,
+                      ocr_isolated_exact=sum(d['ocr']['exact'] for d in diagnostics)/len(diagnostics),
                       paddle=summarize(scores['paddle']), lipla=summarize(scores['lipla']),
                       paired=dict(both_correct=sum(a['recognized'] and b['recognized'] for a,b in zip(scores['paddle'],scores['lipla'])),
                                   paddle_only=sum(a['recognized'] and not b['recognized'] for a,b in zip(scores['paddle'],scores['lipla'])),

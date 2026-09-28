@@ -22,8 +22,9 @@ class PaddleTrainingTests(unittest.TestCase):
             keys = [(str(serial), partition(f'品川|300|あ|{serial}')) for serial in range(1, 90)]
             train = [int(s) for s, part in keys if part == 'train'][:5]
             val = [int(s) for s, part in keys if part == 'val'][:2]
-            self.assertEqual((len(train), len(val)), (5, 2))
-            for n in train + val:
+            test = [int(s) for s, part in keys if part == 'test'][:2]
+            self.assertEqual((len(train), len(val), len(test)), (5, 2, 2))
+            for n in train + val + test:
                 plate = Image.new('RGB', (120, 60), (n, 255-n, 140))
                 data = BytesIO()
                 plate.save(data, 'PNG')
@@ -44,7 +45,7 @@ class PaddleTrainingTests(unittest.TestCase):
                                 data.getvalue(), hashlib.sha256(data.getvalue()).hexdigest(), events.utc()))
             output = root / 'export'
             report = export(root, output)
-            self.assertEqual(report['reviewed'], 7)
+            self.assertEqual(report['reviewed'], 9)
             self.assertEqual(report['unreviewed_pseudo'], 0)
             labels = (output / 'rec' / 'val.txt').read_text()
             self.assertNotIn('9999', labels)
@@ -52,6 +53,7 @@ class PaddleTrainingTests(unittest.TestCase):
             for n in val:
                 self.assertTrue((output / 'det' / 'labels' / 'val' / f'{n:032x}.txt').is_file())
             self.assertEqual(len(list((output / 'det' / 'labels' / 'val').glob('*.txt'))), 2)
+            self.assertEqual(len(list((output / 'det' / 'labels' / 'test').glob('*.txt'))), 2)
 
 
 if __name__ == '__main__':

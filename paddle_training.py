@@ -15,7 +15,8 @@ import ocr_learning
 
 
 def partition(key):
-    return 'val' if ocr_learning.validation_group(key) else 'train'
+    return ('test' if ocr_learning.test_group(key) else
+            'val' if ocr_learning.validation_group(key) else 'train')
 
 
 def safe_vehicle_image(root, record):
@@ -50,8 +51,8 @@ def export(root, output, pseudo_confidence=.98):
         observations = {row['id']: json.loads(row['details_json']) for row in
                         db.execute('SELECT id, details_json FROM observations')}
     output.mkdir(parents=True)
-    rec_lines = {'train': [], 'val': []}
-    detector = {'train': {}, 'val': {}}
+    rec_lines = {'train': [], 'val': [], 'test': []}
+    detector = {'train': {}, 'val': {}, 'test': {}}
     manual_ids = {(r['observation_id'], r['candidate_index']) for r in reviewed}
     reviewed_keys = {r['plate_key'] for r in reviewed}
     val_keys = {r['plate_key'] for r in reviewed if partition(r['plate_key']) == 'val'}
@@ -109,8 +110,8 @@ def export(root, output, pseudo_confidence=.98):
             except (KeyError, ValueError, TypeError):
                 continue
             # A reviewed identity anywhere in the dataset overrides every
-            # unreviewed prediction of that identity. Never pseudo-label val.
-            if key in reviewed_keys or key in val_keys or partition(key) == 'val':
+            # Unreviewed predictions cannot enter validation or held-out test.
+            if key in reviewed_keys or key in val_keys or partition(key) != 'train':
                 continue
             source = safe_vehicle_image(root, record)
             if source is None:
@@ -165,6 +166,7 @@ def export(root, output, pseudo_confidence=.98):
     report = dict(reviewed=len(reviewed), unreviewed_pseudo=pseudo_count,
                   rec_train=len(rec_lines['train']), rec_val=len(rec_lines['val']),
                   det_train=len(detector['train']), det_val=len(detector['val']),
+                  det_test=len(detector['test']), rec_test=len(rec_lines['test']),
                   pseudo_confidence=pseudo_confidence)
     (output / 'manifest.json').write_text(json.dumps(dict(report=report, samples=audit),
                                                     ensure_ascii=False, indent=2))

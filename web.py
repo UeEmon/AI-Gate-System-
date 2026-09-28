@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import hmac
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import shutil
@@ -700,6 +701,25 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
         temporary.write_text(json.dumps(dict(dataset=str(dataset), requested_at=now())), encoding='utf-8')
         os.replace(temporary, request_path)
         return jsonify(state='queued'), 202
+
+    @app.get('/api/paddle-training/diagnostics/<sample_id>/image')
+    def paddle_diagnostic_image(sample_id):
+        if not re.fullmatch(r'[a-f0-9]{32}', sample_id):
+            abort(404)
+        directory = (manager.root / 'ocr-learning' / 'paddle').resolve()
+        try:
+            state = json.loads((directory / 'comparison-state.json').read_text(encoding='utf-8'))
+            dataset = Path(state['dataset']).resolve()
+            report = state['report']
+        except (OSError, KeyError, ValueError, TypeError):
+            abort(404)
+        if (state.get('state') != 'completed' or not dataset.is_relative_to(directory) or
+                sample_id not in {row['sample'] for row in report.get('diagnostics', [])}):
+            abort(404)
+        image = dataset / 'diagnostics' / (sample_id + '.jpg')
+        if not image.is_file():
+            abort(404)
+        return send_file(image, mimetype='image/jpeg')
 
     @app.delete('/api/ocr-learning/samples/<identifier>')
     def learning_delete(identifier):

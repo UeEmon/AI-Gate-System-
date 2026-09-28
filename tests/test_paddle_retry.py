@@ -24,7 +24,7 @@ class PaddleRetryTests(unittest.TestCase):
                        'GATE_PADDLE_PRETRAINED': str(pretrained)}
             def export_sample(_root, directory):
                 directory.mkdir(parents=True)
-                return dict(det_train=5, det_val=2)
+                return dict(det_train=5, det_val=2, det_test=2)
             with patch.dict('os.environ', options), patch('ocr_learning.dataset_snapshot', return_value=[sample]), \
                     patch('paddle_auto_train.export', side_effect=export_sample) as export, \
                     patch('paddle_auto_train.subprocess.Popen') as popen, \

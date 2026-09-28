@@ -3,7 +3,7 @@ import time
 
 
 class PaddlePlatePipeline:
-    def __init__(self, detector, reader, parse_plate, imgsz=960):
+    def __init__(self, detector, reader, parse_plate, imgsz=640):
         if detector is None:
             raise ValueError('専用プレート検出重みが必要です。')
         self.detector, self.reader, self.parse_plate = detector, reader, parse_plate

@@ -79,7 +79,7 @@ async function refreshLearning(){
     const target=$('paddle-comparison');target.replaceChildren();
     const report=comparison.report;
     if(report&&comparison.dataset===training.dataset){
-      const caption=document.createElement('p');caption.textContent='手動確認済み '+report.evaluated+'件（除外 '+report.skipped+'件） / IoU 0.50 / 車両画像からの処理時間';target.append(caption);
+      const caption=document.createElement('p');caption.textContent=(report.evaluation_partition==='test'?'学習・モデル選択に未使用のテスト画像':'検証用画像（学習中のモデル選択に使用）')+' '+report.evaluated+'件（除外 '+report.skipped+'件） / IoU 0.50 / 車両画像からの処理時間';target.append(caption);
       const table=document.createElement('table');
       const head=document.createElement('tr');
       for(const title of ['方式','検出率','ナンバー完全一致率','平均遅延 (ms)','95%遅延 (ms)','処理速度 (FPS)']){const cell=document.createElement('th');cell.textContent=title;head.append(cell);}table.append(head);
@@ -89,6 +89,17 @@ async function refreshLearning(){
         for(const value of [title,(metrics.plate_recall_at_iou_50*100).toFixed(1)+'%',(metrics.exact_plate_accuracy*100).toFixed(1)+'%',metrics.average_latency_ms.toFixed(1),metrics.p95_latency_ms.toFixed(1),metrics.throughput_fps.toFixed(1)]){const cell=document.createElement('td');cell.textContent=value;row.append(cell);}table.append(row);
       }target.append(table);
       const paired=document.createElement('p');paired.textContent='両方正解 '+report.paired.both_correct+'件 / PaddleOCRのみ正解 '+report.paired.paddle_only+'件 / Lipla-jpのみ正解 '+report.paired.lipla_only+'件';target.append(paired);
+      if(report.diagnostics?.length){
+        const isolated=document.createElement('p');isolated.textContent='正しいプレート画像でのPaddleOCR単体完全一致率: '+(report.ocr_isolated_exact*100).toFixed(1)+'%';target.append(isolated);
+        const guide=document.createElement('p');guide.className='hint';guide.textContent='緑枠: Lipla-jpの確認済み位置 / 青枠: 専用検出器の候補（信頼度0.01以上）。通常の判定は信頼度0.20以上、幅48px・高さ24px以上、IoU 0.50以上です。';target.append(guide);
+        for(const item of report.diagnostics){
+          const detail=document.createElement('details');const title=document.createElement('summary');
+          title.textContent='サンプル '+item.sample.slice(0,8)+' / 候補 '+item.detection.boxes.length+'件 / 最大IoU '+item.detection.max_iou.toFixed(2)+' / OCR単体 '+(item.ocr.exact?'一致':'不一致');detail.append(title);
+          const img=document.createElement('img');img.loading='lazy';img.style.maxWidth='100%';img.alt='正解枠と検出候補枠';img.src='/api/paddle-training/diagnostics/'+encodeURIComponent(item.sample)+'/image';detail.append(img);
+          const reasons=document.createElement('p');reasons.textContent=item.detection.boxes.map(b=>'確度 '+b.confidence.toFixed(2)+' / IoU '+b.iou.toFixed(2)+' / '+({low_confidence:'低信頼度',small_box:'小さい枠',low_iou:'位置ずれ',matched:'検出成功'}[b.reason]||b.reason)).join('、')||'候補なし';detail.append(reasons);
+          const ocr=document.createElement('p');ocr.textContent='正しい範囲からのOCR ('+(item.ocr.layout==='four_fields'?'4項目':'上下2行')+'): '+item.ocr.crops.map(c=>c.truth+' → '+(c.prediction||'空')).join(' / ');detail.append(ocr);target.append(detail);
+        }
+      }
     }
     $('learning-samples').replaceChildren();
     for(const sample of data.samples){

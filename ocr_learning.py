@@ -114,7 +114,11 @@ def save_sample(root, data, fields, db):
 
 
 def validation_group(key):
-    return int(hashlib.sha256(key.encode()).hexdigest()[:8], 16) % 5 == 0
+    return int(hashlib.sha256(key.encode()).hexdigest()[:8], 16) % 10 in (2, 3)
+
+
+def test_group(key):
+    return int(hashlib.sha256(key.encode()).hexdigest()[:8], 16) % 10 in (0, 1)
 
 
 def dataset_snapshot(root):
@@ -131,12 +135,14 @@ def dataset_snapshot(root):
                 raise ValueError('同一画像に異なる正解があります。学習データ一覧から誤ったデータを削除してください。')
             continue
         seen[digest] = signature
-        row['partition'] = 'validation' if validation_group(row['plate_key']) else 'train'
+        row['partition'] = ('test' if test_group(row['plate_key']) else
+                            'validation' if validation_group(row['plate_key']) else 'train')
         samples.append(row)
     train = {r['plate_key'] for r in samples if r['partition'] == 'train'}
     valid = {r['plate_key'] for r in samples if r['partition'] == 'validation'}
-    if len(train) < 5 or len(valid) < 2:
-        raise ValueError(f'異なるナンバーが不足しています（学習用 {len(train)}/5、評価用 {len(valid)}/2）。ナンバーごとに固定で約8:2に振り分けます。')
+    test = {r['plate_key'] for r in samples if r['partition'] == 'test'}
+    if len(train) < 5 or len(valid) < 2 or len(test) < 2:
+        raise ValueError(f'異なるナンバーが不足しています（学習用 {len(train)}/5、検証用 {len(valid)}/2、未使用テスト用 {len(test)}/2）。ナンバーごとに固定で約6:2:2に振り分けます。')
     return samples
 
 
