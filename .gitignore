@@ -20,3 +20,5 @@ benchmark-input/
 benchmark-output/
 benchmark-models/
 onprem/mediamtx.gopro.yml
+onprem/mediamtx.production.yml
+onprem/rtmp-certs/

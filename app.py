@@ -543,7 +543,7 @@ def main():
     run_id = args.run_id or uuid.uuid4().hex
     db = open_database(out / 'gate.db')
     is_live = args.source_kind in ('camera', 'browser') or (args.source_kind == 'auto' and
-              (args.source.isdecimal() or args.source.lower().startswith(('rtsp://', 'rtsps://'))))
+              (args.source.isdecimal() or args.source.lower().startswith(('rtsp://', 'rtsps://', 'rtmp://', 'rtmps://'))))
     stream = (browser_frames(args.source, cv2, args.every) if args.source_kind == 'browser' else
               live_frames(args.source, cv2, args.every) if is_live else frames(args.source, cv2, args.every))
     recorder = None

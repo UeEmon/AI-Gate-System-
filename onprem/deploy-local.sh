@@ -21,6 +21,7 @@ if [[ ! -f "$SCRIPT_DIR/.env" ]]; then
   echo "onprem/.env がありません。env.exampleをコピーして管理パスワードを設定してください。" >&2
   exit 1
 fi
+python3 "$SCRIPT_DIR/setup_stream_receiver.py"
 
 # Capture the two images this deployment is about to replace. Docker refuses
 # removal if another container still uses one of them.
@@ -53,7 +54,7 @@ if [[ "$RESET_DATA" -eq 1 ]]; then
 fi
 
 # down -v はモデル用volumeも消すため使用しない。
-docker compose --env-file "$SCRIPT_DIR/.env" -f "$COMPOSE_FILE" up -d --remove-orphans gate trainer
+docker compose --env-file "$SCRIPT_DIR/.env" -f "$COMPOSE_FILE" up -d --remove-orphans gate trainer rtmp-ingest
 docker compose --env-file "$SCRIPT_DIR/.env" -f "$COMPOSE_FILE" ps
 
 # Only clean up after both services started successfully. Do not touch volumes,

@@ -45,14 +45,21 @@ LANでは社内HTTPSリバースプロキシを使用し、サーバー証明書
 cd onprem
 cp env.example .env
 # .envの管理パスワードを必ず変更する
+python3 setup_stream_receiver.py
 docker compose up -d --build
-docker compose logs --tail=100 gate trainer
+docker compose logs --tail=100 gate trainer rtmp-ingest
 ```
 
-`gate` と `trainer` が同時に起動します。運用の `gate` はLipla-jpだけを使います。`trainer` は学習コード・事前学習重みが揃うまで待機状態を表示し、運用側の起動には影響しません。既定はlocalhost:8080に公開します。名前付きvolume `gate-data` / `gate-models` にデータ・モデルを保持します。
+`gate`、`trainer`、`rtmp-ingest` が同時に起動します。`./onprem/deploy-local.sh` を使う場合、受信設定の生成は自動です。運用の `gate` はLipla-jpだけを使います。`trainer` は学習コード・事前学習重みが揃うまで待機状態を表示し、運用側の起動には影響しません。既定はlocalhost:8080に公開します。名前付きvolume `gate-data` / `gate-models` にデータ・モデルを保持します。
 同じComposeプロジェクト名で再起動してください。`down -v` は保存領域を削除するため使用しないでください。
-ComposeのUSBデバイス割当は含めていません。Docker版では端末WebカメラまたはRTSPを利用します。
+ComposeのUSBデバイス割当は含めていません。Docker版では端末Webカメラ、RTSP、RTMP/RTMPS受信を利用します。
 この環境ではDockerビルドとWindows実機検証は未実施です。
+
+### GoPro等からRTMP/RTMPSでライブ監視
+
+MacのDocker Desktopで `python3 onprem/setup_stream_receiver.py`（リポジトリルートから）を実行すると、`onprem/.env` に秘密の配信キーが作られ、配信URLが表示されます。MacのLAN IPを `<MacのLAN IP>` に置き換えてGoProや配信アプリに設定してください。RTMPは1935、RTMPSは1936/TCPを使用します。Web画面の「カメラ」で入力欄を `ingest` にして認識開始すると、受信コンテナからDocker内部のRTMP接続で取り込みます。映像を配信してから開始してください。外部のRTMP/RTMPS URLを直接入力することもできます。配信キーとTLS秘密鍵はGit管理対象外です。
+
+RTMPSの初期証明書は自己署名です。送信機器が自己署名証明書を拒否する場合は、LAN名に合った信頼済みの `onprem/rtmp-certs/server.crt` と `server.key` を対で配置し、受信コンテナを再作成してください。RTMPは暗号化されないため信頼できるLANでのみ開放してください。1935/1936が他のコンテナと競合する場合は `onprem/.env` の `GATE_RTMP_PORT` / `GATE_RTMPS_PORT` を変更します。キーを変更したら設定生成を再実行し、受信コンテナを再起動してください。
 
 ## 日本プレート専用検出器とPaddleOCRの追加学習（任意）
 

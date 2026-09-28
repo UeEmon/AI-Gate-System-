@@ -1,6 +1,8 @@
 services:
   gate:
     build: ..
+    depends_on:
+      - rtmp-ingest
     image: ai-gate-system:onprem
     restart: unless-stopped
     init: true
@@ -13,6 +15,7 @@ services:
       GATE_OCR_BACKEND: lipla
       GATE_MODEL_INIT_TIMEOUT: ${GATE_MODEL_INIT_TIMEOUT:-900}
       GATE_MODEL_ROOT: /models
+      GATE_RTMP_LOCAL_URL: rtmp://rtmp-ingest:1935/gate-${GATE_RTMP_STREAM_KEY:?Run python3 onprem/setup_stream_receiver.py first}
       GATE_EMAIL_BACKEND: smtp
       GATE_EMAIL_FROM: ${GATE_EMAIL_FROM:-}
       GATE_EMAIL_TO: ${GATE_EMAIL_TO:-}
@@ -53,6 +56,20 @@ services:
       - gate-data:/data
       - gate-models:/models
       - ../PaddleOCR:/training/PaddleOCR:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  rtmp-ingest:
+    image: bluenviron/mediamtx:1.21.1
+    restart: unless-stopped
+    ports:
+      - "${GATE_RTMP_BIND_ADDRESS:-0.0.0.0}:${GATE_RTMP_PORT:-1935}:1935"
+      - "${GATE_RTMPS_BIND_ADDRESS:-0.0.0.0}:${GATE_RTMPS_PORT:-1936}:1936"
+    volumes:
+      - ./mediamtx.production.yml:/mediamtx.yml:ro
+      - ./rtmp-certs:/rtmp-certs:ro
     logging:
       driver: json-file
       options:

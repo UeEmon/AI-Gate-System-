@@ -424,16 +424,21 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
             label = upload.filename.replace('\\', '/').split('/')[-1][:200]
         elif kind == 'camera':
             source = request.form.get('source', '').strip()
+            ingest = source == 'ingest'
+            if ingest:
+                source = os.getenv('GATE_RTMP_LOCAL_URL', '')
+                if not source:
+                    abort(400, description='RTMP受信サーバーが設定されていません。')
             try:
                 parsed = urlsplit(source)
             except ValueError:
                 abort(400, description='カメラURLが不正です。')
             if source.isdecimal() and len(source) <= 2:
                 label = 'USBカメラ ' + source
-            elif parsed.scheme in ('rtsp', 'rtsps') and parsed.hostname and not any(c.isspace() for c in source):
-                label = 'ネットワークカメラ'  # Never return credentials or URL to the browser/history.
+            elif parsed.scheme in ('rtsp', 'rtsps', 'rtmp', 'rtmps') and parsed.hostname and not any(c.isspace() for c in source):
+                label = '内蔵RTMP受信' if ingest else 'ネットワークカメラ'  # Never expose stream key.
             else:
-                abort(400, description='カメラ番号（0〜99）またはRTSP URLを指定してください。')
+                abort(400, description='カメラ番号（0〜99）またはRTSP/RTMP/RTMPS URLを指定してください。')
         else:
             source = None
             label = '操作端末のWebカメラ'
