@@ -5,9 +5,11 @@ import signal
 import threading
 
 from paddle_auto_train import PaddleTrainingManager
+import ocr_learning
 
 
 def run(root, interval=30):
+    ocr_learning.initialize(root)
     manager = PaddleTrainingManager(root)
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())

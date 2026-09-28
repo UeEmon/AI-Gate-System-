@@ -65,7 +65,18 @@ async function refreshLearning(){
   learningRefreshBusy=true;
   try{
     const data=await api('/api/ocr-learning');
-    $('learning-status').textContent='保存済み '+data.count+'件 / 運用方式: Lipla-jp';
+    const autoCounts=data.automatic_counts||{};
+    $('learning-status').textContent='手動確認済み '+data.count+'件 / 自動学習候補 '+(autoCounts.pseudo||0)+'件 / 確認待ち '+(autoCounts.pending||0)+'件 / 運用方式: Lipla-jp';
+    $('learning-auto-candidates').replaceChildren();
+    for(const item of data.automatic||[]){
+      const row=document.createElement('div');row.className='job';
+      const label=document.createElement('span');label.textContent=item.plate_key+' · OCR '+Math.round(item.confidence*100)+'% · '+(item.status==='pseudo'?'学習用候補':'確認待ち');
+      const review=document.createElement('button');review.textContent='確認・修正';
+      review.onclick=async()=>{try{await importRegistration(item.observation_id);if(registrationDraft?.observation_id===item.observation_id){$('registration-candidate').value=String(item.candidate_index);chooseRegistrationCandidate();}}catch(error){message(error.message);}};
+      const exclude=document.createElement('button');exclude.textContent='学習から除外';
+      exclude.onclick=async()=>{try{await api('/api/ocr-learning/auto/'+encodeURIComponent(item.observation_id)+'/'+item.candidate_index,{method:'DELETE'});await refreshLearning();}catch(error){message(error.message);}};
+      row.append(label,review,exclude);$('learning-auto-candidates').append(row);
+    }
     const training=await api('/api/paddle-training');
     $('paddle-training-status').textContent='PaddleOCR追加学習: '+({idle:'待機',running:'学習中',completed:'完了（未適用）',failed:'失敗',interrupted:'中断',insufficient_data:'データ不足',unavailable:'学習環境未準備'}[training.state]||training.state)+(training.error?' / '+training.error:'');
     $('paddle-retry').hidden=training.state!=='failed'||!!training.retry_queued;

@@ -75,9 +75,11 @@ class PaddleTrainingManager:
                 state = dict(state='insufficient_data', error=str(error))
                 self._save(state)
                 return state
-            fingerprint = hashlib.sha256(('partition-v2-test-holdout:' + json.dumps([
+            fingerprint = hashlib.sha256(('partition-v3-auto-candidates:' + json.dumps({
+                'reviewed': [
                 (r['id'], r['image_sha256'], r['top_text'], r['bottom_text'], r['fields_json'])
-                for r in rows], ensure_ascii=False)).encode()).hexdigest()
+                for r in rows], 'auto': ocr_learning.auto_signature(self.root)},
+                ensure_ascii=False)).encode()).hexdigest()
             previous = self.status()
             retry_path = self.path.parent / 'retry-request.json'
             requested = retry_path.is_file() and previous.get('state') == 'failed'

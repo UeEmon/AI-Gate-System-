@@ -50,6 +50,8 @@ def export(root, output, pseudo_confidence=.98):
     with events.connection(root) as db:
         observations = {row['id']: json.loads(row['details_json']) for row in
                         db.execute('SELECT id, details_json FROM observations')}
+        auto_status = {(row['observation_id'], row['candidate_index']): row['status'] for row in
+                       db.execute('SELECT observation_id,candidate_index,status FROM ocr_auto_candidates')}
     output.mkdir(parents=True)
     rec_lines = {'train': [], 'val': [], 'test': []}
     detector = {'train': {}, 'val': {}, 'test': {}}
@@ -100,6 +102,8 @@ def export(root, output, pseudo_confidence=.98):
     for record in observations.values():
         for index, candidate in enumerate(record.get('plate_candidates', [])):
             if (record['id'], index) in manual_ids:
+                continue
+            if auto_status.get((record['id'], index), 'pseudo') != 'pseudo':
                 continue
             if candidate.get('ocr_backend') not in ('lipla-native', 'lipla-jp'):
                 continue

@@ -27,12 +27,58 @@ def initialize(root):
           UNIQUE(observation_id,candidate_index));
         CREATE TABLE IF NOT EXISTS ocr_sample_fields (
           sample_id TEXT PRIMARY KEY, fields_json TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS ocr_auto_candidates (
+          observation_id TEXT NOT NULL, candidate_index INTEGER NOT NULL,
+          plate_key TEXT NOT NULL, confidence REAL NOT NULL,
+          status TEXT NOT NULL, created_at TEXT NOT NULL,
+          PRIMARY KEY(observation_id,candidate_index));
         CREATE TABLE IF NOT EXISTS ocr_training_runs (
           id TEXT PRIMARY KEY, status TEXT NOT NULL, created_at TEXT NOT NULL,
           report_json TEXT, error TEXT);
         CREATE UNIQUE INDEX IF NOT EXISTS ocr_one_run ON ocr_training_runs(status)
           WHERE status='running';
         ''')
+
+
+def queue_observation(root, record, db, minimum=.98):
+    """Keep Lipla results as provisional data; never call them reviewed truth."""
+    if not record.get('image_path') or not Path(record['image_path']).is_file():
+        return 0
+    accepted = 0
+    for index, candidate in enumerate(record.get('plate_candidates', [])):
+        if db.execute('SELECT 1 FROM ocr_samples WHERE observation_id=? AND candidate_index=?',
+                      (record['id'], index)).fetchone():
+            db.execute('DELETE FROM ocr_auto_candidates WHERE observation_id=? AND candidate_index=?',
+                       (record['id'], index))
+            continue
+        if candidate.get('ocr_backend') not in ('lipla-native', 'lipla-jp') or not candidate.get('fields'):
+            continue
+        try:
+            key = events.plate_key(candidate['fields'])
+            confidence = float(candidate.get('confidence') or 0)
+        except (ValueError, TypeError, KeyError):
+            continue
+        if not math.isfinite(confidence) or not 0 <= confidence <= 1:
+            continue
+        status = 'pseudo' if confidence >= minimum else 'pending'
+        db.execute('''INSERT INTO ocr_auto_candidates VALUES (?,?,?,?,?,?)
+            ON CONFLICT(observation_id,candidate_index) DO UPDATE SET
+            plate_key=excluded.plate_key,confidence=excluded.confidence,status=excluded.status
+            WHERE NOT EXISTS (SELECT 1 FROM ocr_samples s WHERE
+              s.observation_id=excluded.observation_id AND s.candidate_index=excluded.candidate_index)
+              AND ocr_auto_candidates.status!='excluded' ''',
+                   (record['id'], index, key, confidence, status, events.utc()))
+        accepted += 1
+    return accepted
+
+
+def auto_signature(root):
+    try:
+        with events.connection(root) as db:
+            return [tuple(row) for row in db.execute('''SELECT observation_id,candidate_index,plate_key,confidence
+                FROM ocr_auto_candidates WHERE status='pseudo' ORDER BY observation_id,candidate_index''')]
+    except sqlite3.OperationalError:
+        return []
 
 
 def sample_image(root, observation_id, candidate_index, db):
@@ -105,6 +151,8 @@ def save_sample(root, data, fields, db):
          float(split), sqlite3.Binary(image), hashlib.sha256(image).hexdigest(), events.utc()))
     identifier = db.execute('SELECT id FROM ocr_samples WHERE observation_id=? AND candidate_index=?',
                             (observation_id, index)).fetchone()[0]
+    db.execute('DELETE FROM ocr_auto_candidates WHERE observation_id=? AND candidate_index=?',
+               (observation_id, index))
     if field_data:
         db.execute('INSERT INTO ocr_sample_fields VALUES (?,?) ON CONFLICT(sample_id) DO UPDATE SET fields_json=excluded.fields_json',
                    (identifier, json.dumps(field_data, ensure_ascii=False)))

@@ -54,6 +54,24 @@ class PaddleTrainingTests(unittest.TestCase):
                 self.assertTrue((output / 'det' / 'labels' / 'val' / f'{n:032x}.txt').is_file())
             self.assertEqual(len(list((output / 'det' / 'labels' / 'val').glob('*.txt'))), 2)
             self.assertEqual(len(list((output / 'det' / 'labels' / 'test').glob('*.txt'))), 2)
+            pseudo_serial = next(n for n in range(90, 200) if partition(f'品川|300|あ|{n}') == 'train')
+            observation_id = f'{pseudo_serial:032x}'
+            image_path = root / 'images' / f'{observation_id}.jpg'
+            Image.new('RGB', (120, 60), 'white').save(image_path)
+            pseudo_record = dict(id=observation_id, image_path=str(image_path),
+                                 plate_candidates=[dict(ocr_backend='lipla-native', confidence=.99,
+                                                        bbox_in_vehicle=[0, 0, 120, 60],
+                                                        fields=dict(region='品川', category='300',
+                                                                    kana='あ', serial=str(pseudo_serial)))])
+            with events.connection(root) as db:
+                db.execute('INSERT INTO observations VALUES (?,?)',
+                           (observation_id, json.dumps(pseudo_record, ensure_ascii=False)))
+                ocr_learning.queue_observation(root, pseudo_record, db)
+            self.assertEqual(export(root, root / 'with-pseudo')['unreviewed_pseudo'], 1)
+            with events.connection(root) as db:
+                db.execute("UPDATE ocr_auto_candidates SET status='excluded' WHERE observation_id=?",
+                           (observation_id,))
+            self.assertEqual(export(root, root / 'excluded-pseudo')['unreviewed_pseudo'], 0)
 
 
 if __name__ == '__main__':

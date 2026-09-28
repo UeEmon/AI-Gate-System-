@@ -7,7 +7,8 @@ import shutil
 import sqlite3
 
 
-TABLES = ("alerts", "vehicles", "observations", "jobs", "ocr_samples", "ocr_training_runs")
+TABLES = ("alerts", "vehicles", "observations", "jobs", "ocr_samples", "ocr_sample_fields",
+          "ocr_auto_candidates", "ocr_training_runs")
 DATA_DIRECTORIES = ("events", "images", "jobs", "ocr-learning", "training")
 
 

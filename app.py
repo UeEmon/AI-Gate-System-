@@ -542,6 +542,8 @@ def main():
             fixed_vehicle_model, None, out, None, YOLO, offline)
     run_id = args.run_id or uuid.uuid4().hex
     db = open_database(out / 'gate.db')
+    import ocr_learning
+    ocr_learning.initialize(out)
     is_live = args.source_kind in ('camera', 'browser') or (args.source_kind == 'auto' and
               (args.source.isdecimal() or args.source.lower().startswith(('rtsp://', 'rtsps://', 'rtmp://', 'rtmps://'))))
     stream = (browser_frames(args.source, cv2, args.every) if args.source_kind == 'browser' else
@@ -647,6 +649,8 @@ def main():
                                     record['confidence'], record['image_path'],
                                     json.dumps(record, ensure_ascii=False), record['id']))
                     observations += int(record['result_eligible']) - int(previous['result_eligible'])
+                with db:
+                    ocr_learning.queue_observation(out, record, db)
                 storage_ms += (time.perf_counter() - storage_started) * 1000
                 if previous is not None:
                     print(json.dumps(record, ensure_ascii=False), flush=True)

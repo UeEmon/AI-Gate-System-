@@ -279,6 +279,7 @@ class JobManager:
                            'recognition': db.execute('SELECT count(*) FROM observations').fetchone()[0]
                            if 'recognition' in scopes else 0}
                 if 'recognition' in scopes:
+                    db.execute('DELETE FROM ocr_auto_candidates')
                     db.execute('DELETE FROM observations')
                 if 'processing' in scopes:
                     db.execute('DELETE FROM jobs')
@@ -615,9 +616,27 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
         with events.connection(manager.root) as db:
             samples = [dict(r) for r in db.execute("SELECT s.id,s.observation_id,s.candidate_index,s.plate_key,s.top_text,s.bottom_text,s.original_text,s.created_at,f.fields_json,CASE WHEN o.id IS NULL THEN 0 ELSE 1 END AS has_observation FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id LEFT JOIN observations o ON o.id=s.observation_id ORDER BY s.created_at DESC LIMIT 200")]
             count = db.execute('SELECT count(*) FROM ocr_samples').fetchone()[0]
+            auto = [dict(r) for r in db.execute('''SELECT c.observation_id,c.candidate_index,c.plate_key,c.confidence,c.status,c.created_at
+                FROM ocr_auto_candidates c WHERE c.status!='excluded' AND NOT EXISTS
+                (SELECT 1 FROM ocr_samples s WHERE s.observation_id=c.observation_id
+                 AND s.candidate_index=c.candidate_index)
+                ORDER BY c.created_at DESC LIMIT 200''')]
+            auto_counts = {r['status']: r['total'] for r in db.execute('''SELECT status,count(*) total
+                FROM ocr_auto_candidates GROUP BY status''')}
         for sample in samples:
             sample['fields'] = json.loads(sample.pop('fields_json') or 'null')
-        return jsonify(samples=samples, count=count)
+        return jsonify(samples=samples, count=count, automatic=auto,
+                       automatic_counts=auto_counts)
+
+    @app.delete('/api/ocr-learning/auto/<observation_id>/<int:candidate_index>')
+    def exclude_auto_learning(observation_id, candidate_index):
+        with events.connection(manager.root) as db:
+            cursor = db.execute('''UPDATE ocr_auto_candidates SET status='excluded'
+                WHERE observation_id=? AND candidate_index=? AND status!='excluded' ''',
+                                (observation_id, candidate_index))
+            if cursor.rowcount == 0:
+                abort(404, description='自動候補が見つかりません。')
+        return jsonify(status='excluded')
 
     @app.get('/api/ocr-learning/preview/<observation_id>/<int:candidate_index>')
     def learning_preview(observation_id, candidate_index):
