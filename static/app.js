@@ -6,6 +6,7 @@ function showPage(page){
   for(const element of document.querySelectorAll('[data-page]'))element.hidden=element.dataset.page!==page;
   for(const button of document.querySelectorAll('[data-page-button]'))button.classList.toggle('active',button.dataset.pageButton===page);
   if(page==='system')loadSystem().catch(error=>message(error.message));
+  if(page==='streams')loadStreams().catch(error=>message(error.message));
   if(globalThis.history?.replaceState)history.replaceState(null,'','#'+page);
 }
 for(const button of document.querySelectorAll('[data-page-button]'))button.onclick=()=>showPage(button.dataset.pageButton);
@@ -20,6 +21,37 @@ async function api(url, options={}) {
 function cell(text, className='') {const td=document.createElement('td');td.textContent=text;td.className=className;return td;}
 function date(value){return new Date(value).toLocaleString('ja-JP');}
 function pct(value){return Number.isFinite(value)?Math.round(value*100)+'%':'—';}
+let streamConfig=null;
+function renderStreamUrls(){
+  if(!streamConfig?.available)return;
+  const host=$('stream-host').value.trim();
+  const valid=/^[a-zA-Z0-9.:-]+$/.test(host)&&!host.includes('/')&&host.length<=255;
+  const address=valid?(host.includes(':')&&!host.startsWith('[')?'['+host+']':host):'<MacのLAN IP>';
+  $('stream-rtmp-url').textContent='rtmp://'+address+':'+streamConfig.rtmp_port+'/'+streamConfig.path;
+  $('stream-rtmps-url').textContent=streamConfig.rtmps_enabled?'rtmps://'+address+':'+streamConfig.rtmps_port+'/'+streamConfig.path:'無効';
+}
+$('stream-host').addEventListener('input',renderStreamUrls);
+async function loadStreams(){
+  const data=await api('/api/stream-receiver');streamConfig=data.settings;
+  $('stream-settings').hidden=!streamConfig.available;
+  if(!streamConfig.available){$('stream-state').textContent='未設定';$('stream-publisher').textContent='受信サーバー未設定';return;}
+  $('stream-allow-publish').checked=streamConfig.publish_enabled;
+  $('stream-allow-rtmps').checked=streamConfig.rtmps_enabled;
+  $('stream-state').textContent=data.online?'接続中':'受信サーバーに接続できません';
+  $('stream-publisher').textContent=data.publisher?'配信中 · '+data.publisher.protocol.toUpperCase():'配信なし';
+  $('stream-details').textContent='読取接続 '+data.readers+'件 · 受信 '+(data.publisher?.bytes_received??0)+' bytes · 映像 '+(data.tracks||[]).join(', ');
+  renderStreamUrls();
+}
+$('stream-refresh').onclick=()=>loadStreams().catch(error=>message(error.message));
+$('stream-settings').onsubmit=async event=>{
+  event.preventDefault();
+  try{await api('/api/stream-receiver',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({publish_enabled:$('stream-allow-publish').checked,rtmps_enabled:$('stream-allow-rtmps').checked})});await loadStreams();message('受信設定を保存しました。');}
+  catch(error){message(error.message);}
+};
+setInterval(()=>{
+  if(!document.querySelector('[data-page="streams"]').hidden)
+    loadStreams().catch(error=>message(error.message));
+},5000);
 function setControls(){
   const kind=document.querySelector('input[name="kind"]:checked')?.value;
   const full=kind==='file'?state.activeIds.length>0:state.activeIds.length>=state.maxConcurrent;

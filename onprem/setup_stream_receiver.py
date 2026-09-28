@@ -33,16 +33,21 @@ def setup(directory: Path):
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     private_key.chmod(0o600)
     path = f'gate-{key}'
+    config_file = directory / 'stream-config' / 'mediamtx.yml'
+    old_config = config_file.read_text(encoding='utf-8') if config_file.is_file() else ''
+    rtmps_enabled = 'rtmpEncryption: no\n' not in old_config
+    publish_enabled = '  - action: publish\n' in old_config if old_config else True
     config = ("rtsp: false\nhls: false\nwebrtc: false\nsrt: false\n"
-              "api: false\nmetrics: false\nrtmp: true\n"
-              "rtmpEncryption: optional\nrtmpAddress: :1935\nrtmpsAddress: :1936\n"
+              "api: true\napiAddress: :9997\nmetrics: false\nrtmp: true\n"
+              f"rtmpEncryption: {'optional' if rtmps_enabled else 'no'}\nrtmpAddress: :1935\nrtmpsAddress: :1936\n"
               "rtmpServerKey: /rtmp-certs/server.key\n"
               "rtmpServerCert: /rtmp-certs/server.crt\n"
               "authInternalUsers:\n- user: any\n  permissions:\n"
-              f"  - action: publish\n    path: {path}\n"
-              f"  - action: read\n    path: {path}\n"
-              f"paths:\n  {path}:\n    source: publisher\n")
-    config_file = directory / 'mediamtx.production.yml'
+              + (f"  - action: publish\n    path: {path}\n" if publish_enabled else "")
+              + f"  - action: read\n    path: {path}\n"
+              + f"- user: gate-admin\n  pass: {key}\n  permissions:\n  - action: api\n"
+              + f"paths:\n  {path}:\n    source: publisher\n")
+    config_file.parent.mkdir(mode=0o700, exist_ok=True)
     config_file.write_text(config, encoding='utf-8')
     config_file.chmod(0o600)
     return path

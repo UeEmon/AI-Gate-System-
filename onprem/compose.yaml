@@ -16,6 +16,11 @@ services:
       GATE_MODEL_INIT_TIMEOUT: ${GATE_MODEL_INIT_TIMEOUT:-900}
       GATE_MODEL_ROOT: /models
       GATE_RTMP_LOCAL_URL: rtmp://rtmp-ingest:1935/gate-${GATE_RTMP_STREAM_KEY:?Run python3 onprem/setup_stream_receiver.py first}
+      GATE_RTMP_STREAM_KEY: ${GATE_RTMP_STREAM_KEY:?Run python3 onprem/setup_stream_receiver.py first}
+      GATE_RTMP_CONFIG: /stream-config/mediamtx.yml
+      GATE_RTMP_API_URL: http://rtmp-ingest:9997
+      GATE_RTMP_PORT: ${GATE_RTMP_PORT:-1935}
+      GATE_RTMPS_PORT: ${GATE_RTMPS_PORT:-1936}
       GATE_EMAIL_BACKEND: smtp
       GATE_EMAIL_FROM: ${GATE_EMAIL_FROM:-}
       GATE_EMAIL_TO: ${GATE_EMAIL_TO:-}
@@ -30,6 +35,7 @@ services:
     volumes:
       - gate-data:/data
       - gate-models:/models
+      - stream-config:/stream-config
     logging:
       driver: json-file
       options:
@@ -61,14 +67,27 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+  stream-init:
+    image: python:3.11-slim-bookworm
+    restart: "no"
+    environment:
+      GATE_RTMP_STREAM_KEY: ${GATE_RTMP_STREAM_KEY:?Run python3 onprem/setup_stream_receiver.py first}
+    volumes:
+      - ./stream-config:/bootstrap:ro
+      - stream-config:/stream-config
+    command: ["python", "-c", "import os,pathlib,shutil; p=pathlib.Path('/stream-config/mediamtx.yml'); src=pathlib.Path('/bootstrap/mediamtx.yml'); key=os.environ['GATE_RTMP_STREAM_KEY']; existing=p.read_text() if p.exists() else ''; shutil.copyfile(src,p) if ('    path: gate-'+key+'\\n') not in existing else None; os.chown('/stream-config',10001,10001); os.chown(p,10001,10001); p.chmod(0o600)"]
   rtmp-ingest:
     image: bluenviron/mediamtx:1.21.1
+    depends_on:
+      stream-init:
+        condition: service_completed_successfully
+    command: /stream-config/mediamtx.yml
     restart: unless-stopped
     ports:
       - "${GATE_RTMP_BIND_ADDRESS:-0.0.0.0}:${GATE_RTMP_PORT:-1935}:1935"
       - "${GATE_RTMPS_BIND_ADDRESS:-0.0.0.0}:${GATE_RTMPS_PORT:-1936}:1936"
     volumes:
-      - ./mediamtx.production.yml:/mediamtx.yml:ro
+      - stream-config:/stream-config:ro
       - ./rtmp-certs:/rtmp-certs:ro
     logging:
       driver: json-file
@@ -78,3 +97,4 @@ services:
 volumes:
   gate-data:
   gate-models:
+  stream-config:

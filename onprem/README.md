@@ -59,6 +59,8 @@ ComposeのUSBデバイス割当は含めていません。Docker版では端末W
 
 MacのDocker Desktopで `python3 onprem/setup_stream_receiver.py`（リポジトリルートから）を実行すると、`onprem/.env` に秘密の配信キーが作られ、配信URLが表示されます。MacのLAN IPを `<MacのLAN IP>` に置き換えてGoProや配信アプリに設定してください。RTMPは1935、RTMPSは1936/TCPを使用します。Web画面の「カメラ」で入力欄を `ingest` にして認識開始すると、受信コンテナからDocker内部のRTMP接続で取り込みます。映像を配信してから開始してください。外部のRTMP/RTMPS URLを直接入力することもできます。配信キーとTLS秘密鍵はGit管理対象外です。
 
+Web画面の「配信サーバー」タブにMacのLANアドレスを入力すると配信先URLと現在の配信方式、読取接続数、受信量を確認できます（表示中は5秒間隔で更新）。「新規配信を許可する」「RTMPSを有効にする」は画面から変更できます。初期設定は `onprem/stream-config/mediamtx.yml` から専用 `stream-config` Dockerボリュームへコピーされ、画面での変更はボリューム内に保存されます。MediaMTXが設定を再読み込みします。既存の配信は即座には切断されない場合があります。`setup_stream_receiver.py` を再実行してもこの2項目は保持されます。管理APIはDocker内部だけで利用し、ホスト側に公開しません。
+
 RTMPSの初期証明書は自己署名です。送信機器が自己署名証明書を拒否する場合は、LAN名に合った信頼済みの `onprem/rtmp-certs/server.crt` と `server.key` を対で配置し、受信コンテナを再作成してください。RTMPは暗号化されないため信頼できるLANでのみ開放してください。1935/1936が他のコンテナと競合する場合は `onprem/.env` の `GATE_RTMP_PORT` / `GATE_RTMPS_PORT` を変更します。キーを変更したら設定生成を再実行し、受信コンテナを再起動してください。
 
 ## 日本プレート専用検出器とPaddleOCRの追加学習（任意）

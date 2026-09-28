@@ -29,6 +29,7 @@ from aigate.performance import PerformanceManager
 from aigate.settings import SettingsManager
 from aigate.web_api import create_system_blueprint
 from aigate.services import ApplicationServices
+from aigate.stream_receiver import StreamReceiver
 
 ROOT = Path(__file__).resolve().parent
 EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp', '.tif', '.tiff', '.mp4', '.avi', '.mov', '.mkv', '.m4v', '.webm'}
@@ -326,6 +327,7 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
     app.extensions['performance'] = performance
     app.extensions['services'] = ApplicationServices.build(manager.root, performance)
     app.register_blueprint(create_system_blueprint(settings, performance))
+    receiver = StreamReceiver()
     password = password if password is not None else os.environ.get('GATE_ADMIN_PASSWORD')
 
     @app.before_request
@@ -377,6 +379,19 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
         return jsonify(jobs=manager.list_jobs(), active_ids=active_ids,
                        active_id=active_ids[0] if active_ids else None,
                        max_concurrent=manager.max_cameras)
+
+    @app.get('/api/stream-receiver')
+    def stream_receiver_status():
+        return jsonify(receiver.status())
+
+    @app.put('/api/stream-receiver')
+    def stream_receiver_update():
+        payload = request.get_json(silent=True) or {}
+        try:
+            return jsonify(settings=receiver.update(payload.get('publish_enabled'),
+                                                     payload.get('rtmps_enabled')))
+        except ValueError as exc:
+            abort(400, description=str(exc))
 
     @app.get('/api/history/summary')
     def history_summary():
