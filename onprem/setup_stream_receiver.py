@@ -24,13 +24,26 @@ def setup(directory: Path):
     cert_dir = directory / 'rtmp-certs'
     cert_dir.mkdir(mode=0o700, exist_ok=True)
     private_key, certificate = cert_dir / 'server.key', cert_dir / 'server.crt'
-    if not private_key.is_file() or not certificate.is_file():
-        if private_key.exists() or certificate.exists():
-            raise ValueError('RTMPS証明書と秘密鍵は必ず対で配置してください。')
-        subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-noenc',
-                        '-keyout', str(private_key), '-out', str(certificate),
-                        '-days', '365', '-subj', '/CN=localhost'], check=True,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if certificate.exists() and not private_key.is_file():
+        raise ValueError('RTMPSの証明書がありますが秘密鍵がありません。両方を配置してください。')
+    if not certificate.exists() and private_key.is_file() and private_key.stat().st_size == 0:
+        private_key.unlink()
+    if not certificate.is_file():
+        # macOS ships LibreSSL/OpenSSL versions that do not accept -noenc.
+        # -nodes is supported by both and still writes an unencrypted key.
+        creating_key = not private_key.is_file()
+        command = ['openssl', 'req', '-x509']
+        command += (['-newkey', 'rsa:2048', '-nodes', '-keyout', str(private_key)]
+                    if creating_key else ['-key', str(private_key)])
+        command += ['-out', str(certificate), '-days', '365', '-subj', '/CN=localhost']
+        try:
+            subprocess.run(command, check=True, capture_output=True, text=True)
+        except (subprocess.CalledProcessError, FileNotFoundError) as error:
+            certificate.unlink(missing_ok=True)
+            if creating_key:
+                private_key.unlink(missing_ok=True)
+            detail = (error.stderr or str(error)).strip() if isinstance(error, subprocess.CalledProcessError) else str(error)
+            raise RuntimeError('RTMPS証明書を生成できません: ' + detail[-600:]) from error
     private_key.chmod(0o600)
     path = f'gate-{key}'
     config_file = directory / 'stream-config' / 'mediamtx.yml'

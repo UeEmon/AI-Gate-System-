@@ -2,12 +2,36 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+import subprocess
 
 from aigate.stream_receiver import StreamReceiver
 from onprem.setup_stream_receiver import setup
 
 
 class StreamReceiverTests(unittest.TestCase):
+    def test_mac_compatible_certificate_and_partial_key_recovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / '.env').write_text('GATE_ADMIN_PASSWORD=test\n')
+            setup(directory)
+            certificate = directory / 'rtmp-certs/server.crt'
+            certificate.unlink()
+            setup(directory)
+            self.assertTrue(certificate.is_file())
+
+    def test_failed_generation_removes_partial_files_and_shows_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / '.env').write_text('GATE_ADMIN_PASSWORD=test\n')
+            def fail(command, **kwargs):
+                (directory / 'rtmp-certs/server.key').write_text('partial')
+                raise subprocess.CalledProcessError(1, command, stderr='unsupported option')
+            with patch('onprem.setup_stream_receiver.subprocess.run', side_effect=fail) as run:
+                with self.assertRaisesRegex(RuntimeError, 'unsupported option'):
+                    setup(directory)
+            self.assertIn('-nodes', run.call_args.args[0])
+            self.assertFalse((directory / 'rtmp-certs/server.key').exists())
+
     def test_provision_toggle_and_reprovision_preserves_settings(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
