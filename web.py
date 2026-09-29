@@ -639,7 +639,7 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
         with events.connection(manager.root) as db:
             samples = [dict(r) for r in db.execute("SELECT s.id,s.observation_id,s.candidate_index,s.plate_key,s.top_text,s.bottom_text,s.original_text,s.created_at,s.source,f.fields_json,CASE WHEN o.id IS NULL AND a.observation_id IS NULL THEN 0 ELSE 1 END AS has_observation FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id LEFT JOIN observations o ON o.id=s.observation_id LEFT JOIN ocr_auto_archive a ON a.observation_id=s.observation_id ORDER BY s.created_at DESC LIMIT 200")]
             counts = {r['source']: r['total'] for r in db.execute('SELECT source,count(*) AS total FROM ocr_samples GROUP BY source')}
-            auto = [dict(r) for r in db.execute('''SELECT c.observation_id,c.candidate_index,c.plate_key,c.confidence,c.status,c.created_at
+            auto = [dict(r) for r in db.execute('''SELECT c.observation_id,c.candidate_index,c.plate_key,c.confidence,c.status,c.created_at,c.last_error
                 FROM ocr_auto_candidates c WHERE c.status!='excluded' AND NOT EXISTS
                 (SELECT 1 FROM ocr_samples s WHERE s.observation_id=c.observation_id
                  AND s.candidate_index=c.candidate_index)

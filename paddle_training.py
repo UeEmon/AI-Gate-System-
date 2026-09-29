@@ -86,7 +86,7 @@ def export(root, output, pseudo_confidence=.80):
             return
 
     for row in reviewed:
-        split = partition(row['plate_key'])
+        split = 'val' if row['partition'] == 'validation' else row['partition']
         if row['source'] == 'automatic' and row['plate_key'] in reviewed_keys:
             continue
         if split == 'train':
@@ -124,7 +124,7 @@ def export(root, output, pseudo_confidence=.80):
                 continue
             # A reviewed identity anywhere in the dataset overrides every
             # Unreviewed predictions cannot enter validation or held-out test.
-            if key in reviewed_keys or key in val_keys or partition(key) != 'train':
+            if key in reviewed_keys or key in val_keys:
                 continue
             source = safe_vehicle_image(root, record)
             if source is None:

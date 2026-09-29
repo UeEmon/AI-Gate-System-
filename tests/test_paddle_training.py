@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -45,10 +46,26 @@ class PaddleTrainingTests(unittest.TestCase):
                                    (identifier, identifier, 0, f'品川|300|あ|{n}',
                                     '', '品川300', f'あ{n}', .45, data.getvalue(),
                                     hashlib.sha256(data.getvalue()).hexdigest(), events.utc()))
+            for split in ('val', 'test'):
+                n = next(n for n, group in keys if group == split and n not in val + test)
+                identifier = f'{n+1000:032x}'
+                image = Image.new('RGB', (120, 60), 'white')
+                path = root / 'images' / f'{identifier}.jpg'
+                image.save(path)
+                record = dict(id=identifier, image_path=str(path), plate_candidates=[dict(
+                    ocr_backend='lipla-native', confidence=.85, bbox_in_vehicle=[0, 0, 120, 60],
+                    fields=dict(region='品川', category='300', kana='あ', serial=str(n)))])
+                with events.connection(root) as db:
+                    db.execute('INSERT INTO observations VALUES (?,?)',
+                               (identifier, json.dumps(record, ensure_ascii=False)))
+                    data = BytesIO()
+                    image.save(data, 'PNG')
+                    with patch.object(ocr_learning, 'sample_image', return_value=(data.getvalue(), '')):
+                        ocr_learning.queue_observation(root, record, db)
             report = export(root, root / 'export')
-            self.assertEqual(report['train_unique_plates'], 5)
-            self.assertEqual(report['unreviewed_pseudo'], 5)
-            self.assertEqual((report['det_train'], report['det_val'], report['det_test']), (5, 2, 2))
+            self.assertEqual(report['train_unique_plates'], 7)
+            self.assertEqual(report['unreviewed_pseudo'], 7)
+            self.assertEqual((report['det_train'], report['det_val'], report['det_test']), (7, 2, 2))
             self.assertEqual(len(list((root / 'export' / 'rec' / 'val').glob('pseudo-*'))), 0)
 
     def test_corrected_label_overrides_lipla_and_validation_is_reviewed(self):

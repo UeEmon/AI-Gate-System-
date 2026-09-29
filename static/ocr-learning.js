@@ -79,7 +79,7 @@ async function refreshLearning(){
     $('learning-auto-candidates').replaceChildren();
     for(const item of data.automatic||[]){
       const row=document.createElement('div');row.className='job';
-      const label=document.createElement('span');label.textContent=item.plate_key+' · OCR '+Math.round(item.confidence*100)+'% · '+(item.status==='pseudo'?'学習用候補':'確認待ち');
+      const label=document.createElement('span');label.textContent=item.plate_key+' · OCR '+Math.round(item.confidence*100)+'% · '+(item.last_error?'自動保存できません: '+item.last_error:item.status==='pseudo'?'学習用候補':'確認待ち');
       const review=document.createElement('button');review.textContent='確認・修正';
       review.onclick=async()=>{try{await importLearningObservation(item.observation_id,item.candidate_index);}catch(error){message(error.message);}};
       const exclude=document.createElement('button');exclude.textContent='学習から除外';

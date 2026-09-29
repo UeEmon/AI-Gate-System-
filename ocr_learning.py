@@ -43,6 +43,9 @@ def initialize(root):
         columns = {row[1] for row in db.execute('PRAGMA table_info(ocr_samples)')}
         if 'source' not in columns:
             db.execute("ALTER TABLE ocr_samples ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
+        auto_columns = {row[1] for row in db.execute('PRAGMA table_info(ocr_auto_candidates)')}
+        if 'last_error' not in auto_columns:
+            db.execute('ALTER TABLE ocr_auto_candidates ADD COLUMN last_error TEXT')
         db.execute('CREATE INDEX IF NOT EXISTS ocr_samples_retention ON ocr_samples(source,created_at DESC,id DESC)')
         # Apply the current threshold to candidates recorded before the change.
         db.execute("UPDATE ocr_auto_candidates SET status='pseudo' WHERE status='pending' AND confidence>=0.80")
@@ -53,6 +56,13 @@ def initialize(root):
                 (SELECT 1 FROM ocr_samples s WHERE s.observation_id=o.id AND s.candidate_index=c.candidate_index)''').fetchall()
             for row in records:
                 queue_observation(root, json.loads(row[0]), db)
+        archived = db.execute('''SELECT a.details_json FROM ocr_auto_archive a
+            JOIN ocr_auto_candidates c ON c.observation_id=a.observation_id
+            WHERE c.status='pseudo' AND NOT EXISTS
+            (SELECT 1 FROM ocr_samples s WHERE s.observation_id=a.observation_id
+             AND s.candidate_index=c.candidate_index)''').fetchall()
+        for row in archived:
+            queue_observation(root, json.loads(row[0]), db)
         limit_automatic_samples(db, root)
 
 
@@ -77,7 +87,7 @@ def queue_observation(root, record, db, minimum=.80):
         if not math.isfinite(confidence) or not 0 <= confidence <= 1:
             continue
         status = 'pseudo' if confidence >= minimum else 'pending'
-        db.execute('''INSERT INTO ocr_auto_candidates VALUES (?,?,?,?,?,?)
+        db.execute('''INSERT INTO ocr_auto_candidates (observation_id,candidate_index,plate_key,confidence,status,created_at) VALUES (?,?,?,?,?,?)
             ON CONFLICT(observation_id,candidate_index) DO UPDATE SET
             plate_key=excluded.plate_key,confidence=excluded.confidence,status=excluded.status
             WHERE NOT EXISTS (SELECT 1 FROM ocr_samples s WHERE
@@ -89,7 +99,7 @@ def queue_observation(root, record, db, minimum=.80):
                                (record['id'], index)).fetchone()
         if persisted and persisted[0] == 'excluded':
             continue
-        if status == 'pseudo' and not validation_group(key) and not test_group(key):
+        if status == 'pseudo':
             try:
                 image, original = sample_image(root, record['id'], index, db)
                 parts = candidate['fields']
@@ -101,9 +111,12 @@ def queue_observation(root, record, db, minimum=.80):
                     (uuid.uuid4().hex, record['id'], index, key, original,
                      parts['region']+parts['category'], parts['kana']+parts['serial'], .45,
                      sqlite3.Binary(image), hashlib.sha256(image).hexdigest(), events.utc(), 'automatic'))
-            except (ValueError, KeyError, OSError, ImportError):
-                # A missing or malformed crop remains a visible candidate, not training truth.
-                pass
+                db.execute('''UPDATE ocr_auto_candidates SET last_error=NULL
+                    WHERE observation_id=? AND candidate_index=?''', (record['id'], index))
+            except (ValueError, KeyError, OSError, ImportError) as error:
+                db.execute('''UPDATE ocr_auto_candidates SET last_error=?
+                    WHERE observation_id=? AND candidate_index=?''',
+                    (str(error)[:200], record['id'], index))
         accepted += 1
     limit_automatic_samples(db, root)
     return accepted
@@ -171,9 +184,15 @@ def sample_image(root, observation_id, candidate_index, db):
     plate = image[y1:y2, x1:x2]
     if candidates[candidate_index].get('quad_in_vehicle') is not None:
         from plate_geometry import warp_plate
-        plate = warp_plate(image, candidates[candidate_index]['quad_in_vehicle'], cv2)
-    if plate.shape[0] < 24 or plate.shape[1] < 48:
+        try:
+            plate = warp_plate(image, candidates[candidate_index]['quad_in_vehicle'], cv2)
+        except ValueError:
+            pass  # Retain the detected rectangle when perspective correction fails.
+    if plate.shape[0] < 16 or plate.shape[1] < 32:
         raise ValueError('学習画像が小さすぎます。近づいて再撮影してください。')
+    if plate.shape[0] < 24 or plate.shape[1] < 48:
+        plate = cv2.resize(plate, (max(48, plate.shape[1]), max(24, plate.shape[0])),
+                           interpolation=cv2.INTER_CUBIC)
     ok, encoded = cv2.imencode('.png', plate)
     if not ok:
         raise ValueError('画像の保存に失敗しました。')
@@ -247,7 +266,8 @@ def dataset_snapshot(root, minimum_train=5):
                 raise ValueError('同一画像に異なる正解があります。学習データ一覧から誤ったデータを削除してください。')
             continue
         seen[digest] = (signature, row['source'])
-        row['partition'] = ('test' if test_group(row['plate_key']) else
+        row['partition'] = ('train' if row['source'] == 'automatic' else
+                            'test' if test_group(row['plate_key']) else
                             'validation' if validation_group(row['plate_key']) else 'train')
         samples.append(row)
     train = {r['plate_key'] for r in samples if r['partition'] == 'train'}

@@ -19,8 +19,7 @@ class AutoQueueTests(unittest.TestCase):
             with open_database(root / 'gate.db') as db:
                 ocr_learning.initialize(root)
                 serial = next(str(n) for n in range(1, 100) if
-                              not ocr_learning.validation_group(f'品川|330|さ|{n}') and
-                              not ocr_learning.test_group(f'品川|330|さ|{n}'))
+                              ocr_learning.validation_group(f'品川|330|さ|{n}'))
                 record = dict(id='observation', image_path=str(image), plate_candidates=[
                     dict(ocr_backend='lipla-native', confidence=.80,
                          fields=dict(region='品川', category='330', kana='さ', serial=serial))])
@@ -30,6 +29,8 @@ class AutoQueueTests(unittest.TestCase):
                 rows = db.execute('SELECT source,image FROM ocr_samples').fetchall()
                 self.assertEqual(len(rows), 1)
                 self.assertEqual((rows[0][0], rows[0][1]), ('automatic', b'plate-png'))
+                sample = db.execute('SELECT plate_key,source FROM ocr_samples').fetchone()
+                self.assertTrue(ocr_learning.validation_group(sample[0]))
                 db.execute("UPDATE ocr_samples SET source='manual',bottom_text='さ4321' WHERE observation_id='observation'")
                 ocr_learning.queue_observation(root, record, db)
                 self.assertEqual(db.execute('SELECT source,bottom_text FROM ocr_samples').fetchone(),
