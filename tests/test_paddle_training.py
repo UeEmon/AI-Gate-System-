@@ -14,6 +14,42 @@ from paddle_training import export, partition
 
 
 class PaddleTrainingTests(unittest.TestCase):
+    def test_auto_candidates_fill_training_threshold_without_entering_evaluation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'images').mkdir()
+            ocr_learning.initialize(root)
+            keys = [(n, partition(f'品川|300|あ|{n}')) for n in range(1, 100)]
+            train = [n for n, split in keys if split == 'train'][:5]
+            val = [n for n, split in keys if split == 'val'][:2]
+            test = [n for n, split in keys if split == 'test'][:2]
+            with events.connection(root) as db:
+                db.execute('CREATE TABLE observations (id TEXT PRIMARY KEY, details_json TEXT)')
+                for n in train + val + test:
+                    identifier = f'{n:032x}'
+                    image = Image.new('RGB', (120, 60), (n, 255-n, 140))
+                    path = root / 'images' / f'{identifier}.jpg'
+                    image.save(path)
+                    record = dict(id=identifier, image_path=str(path), plate_candidates=[dict(
+                        ocr_backend='lipla-native', confidence=.99, bbox_in_vehicle=[0, 0, 120, 60],
+                        fields=dict(region='品川', category='300', kana='あ', serial=str(n)))])
+                    db.execute('INSERT INTO observations VALUES (?,?)', (identifier,
+                               json.dumps(record, ensure_ascii=False)))
+                    if n in train:
+                        ocr_learning.queue_observation(root, record, db)
+                    else:
+                        data = BytesIO()
+                        image.save(data, 'PNG')
+                        db.execute('INSERT INTO ocr_samples VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                                   (identifier, identifier, 0, f'品川|300|あ|{n}',
+                                    '', '品川300', f'あ{n}', .45, data.getvalue(),
+                                    hashlib.sha256(data.getvalue()).hexdigest(), events.utc()))
+            report = export(root, root / 'export')
+            self.assertEqual(report['train_unique_plates'], 5)
+            self.assertEqual(report['unreviewed_pseudo'], 5)
+            self.assertEqual((report['det_train'], report['det_val'], report['det_test']), (5, 2, 2))
+            self.assertEqual(len(list((root / 'export' / 'rec' / 'val').glob('pseudo-*'))), 0)
+
     def test_corrected_label_overrides_lipla_and_validation_is_reviewed(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

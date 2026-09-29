@@ -43,7 +43,8 @@ def run(dataset, repository, pretrained, epochs=20, imgsz=640):
     if not pretrained.is_file():
         raise ValueError('PP-OCRv5_mobile_recの学習用事前学習重みを配置してください。')
     summary = json.loads((dataset / 'manifest.json').read_text())['report']
-    if summary['det_train'] < 5 or summary['det_val'] < 2 or summary.get('det_test', 0) < 2:
+    if (summary.get('train_unique_plates', summary['det_train']) < 5 or
+            summary['det_train'] < 5 or summary['det_val'] < 2 or summary.get('det_test', 0) < 2):
         raise ValueError('専用検出器には学習用5件・検証用2件・未使用テスト用2件以上が必要です。')
     if not 1 <= epochs <= 200:
         raise ValueError('エポック数は1〜200です。')

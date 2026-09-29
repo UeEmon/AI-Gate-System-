@@ -169,7 +169,7 @@ def test_group(key):
     return int(hashlib.sha256(key.encode()).hexdigest()[:8], 16) % 10 in (0, 1)
 
 
-def dataset_snapshot(root):
+def dataset_snapshot(root, minimum_train=5):
     with events.connection(root) as db:
         rows = [dict(r) for r in db.execute('SELECT s.*,f.fields_json FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id ORDER BY s.id')]
     # Identical images with incompatible labels must never become supervision.
@@ -189,8 +189,8 @@ def dataset_snapshot(root):
     train = {r['plate_key'] for r in samples if r['partition'] == 'train'}
     valid = {r['plate_key'] for r in samples if r['partition'] == 'validation'}
     test = {r['plate_key'] for r in samples if r['partition'] == 'test'}
-    if len(train) < 5 or len(valid) < 2 or len(test) < 2:
-        raise ValueError(f'異なるナンバーが不足しています（学習用 {len(train)}/5、検証用 {len(valid)}/2、未使用テスト用 {len(test)}/2）。ナンバーごとに固定で約6:2:2に振り分けます。')
+    if len(train) < minimum_train or len(valid) < 2 or len(test) < 2:
+        raise ValueError(f'異なるナンバーが不足しています（手動確認済み学習用 {len(train)}/{minimum_train}、検証用 {len(valid)}/2、未使用テスト用 {len(test)}/2）。ナンバーごとに固定で約6:2:2に振り分けます。')
     return samples
 
 

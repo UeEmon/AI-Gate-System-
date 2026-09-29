@@ -46,7 +46,7 @@ def export(root, output, pseudo_confidence=.98):
     root, output = Path(root), Path(output)
     if output.exists():
         raise FileExistsError('既存の学習データは上書きしません。別の出力先を指定してください。')
-    reviewed = ocr_learning.dataset_snapshot(root)
+    reviewed = ocr_learning.dataset_snapshot(root, minimum_train=0)
     with events.connection(root) as db:
         observations = {row['id']: json.loads(row['details_json']) for row in
                         db.execute('SELECT id, details_json FROM observations')}
@@ -99,6 +99,7 @@ def export(root, output, pseudo_confidence=.98):
             add_detector(record, record['plate_candidates'][row['candidate_index']], split, 'manual')
 
     pseudo_count = 0
+    train_keys = {r['plate_key'] for r in reviewed if partition(r['plate_key']) == 'train'}
     for record in observations.values():
         for index, candidate in enumerate(record.get('plate_candidates', [])):
             if (record['id'], index) in manual_ids:
@@ -144,11 +145,12 @@ def export(root, output, pseudo_confidence=.98):
                         rec_lines['train'].append(f'train/{name}\t{label}')
                     add_detector(record, candidate, 'train', 'lipla-pseudo')
                     pseudo_count += 1
+                    train_keys.add(key)
             except (OSError, ValueError, TypeError):
                 continue
 
     if not rec_lines['val'] or not rec_lines['train']:
-        raise ValueError('手動確認済みの学習用・評価用データが両方必要です。')
+        raise ValueError('学習用画像と手動確認済みの検証用画像が必要です。')
     for split, lines in rec_lines.items():
         (output / 'rec' / f'{split}.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
     for split, rows in detector.items():
@@ -168,6 +170,7 @@ def export(root, output, pseudo_confidence=.98):
         f'path: {json.dumps(str((output / "det").resolve()))}\n'
         'train: images/train\nval: images/val\nnames:\n  0: plate\n')
     report = dict(reviewed=len(reviewed), unreviewed_pseudo=pseudo_count,
+                  train_unique_plates=len(train_keys),
                   rec_train=len(rec_lines['train']), rec_val=len(rec_lines['val']),
                   det_train=len(detector['train']), det_val=len(detector['val']),
                   det_test=len(detector['test']), rec_test=len(rec_lines['test']),

@@ -70,7 +70,7 @@ class PaddleTrainingManager:
             if self.comparison_status().get('state') == 'running':
                 return self.status()
             try:
-                rows = ocr_learning.dataset_snapshot(self.root)
+                rows = ocr_learning.dataset_snapshot(self.root, minimum_train=0)
             except ValueError as error:
                 state = dict(state='insufficient_data', error=str(error))
                 self._save(state)
@@ -95,8 +95,10 @@ class PaddleTrainingManager:
                 state = dict(state='failed', fingerprint=fingerprint, error=str(error))
                 self._save(state)
                 return state
-            if report['det_train'] < 5 or report['det_val'] < 2 or report['det_test'] < 2:
-                state = dict(state='insufficient_data', error='検出器に必要な学習・検証・未使用テスト画像が不足しています。', report=report)
+            if (report.get('train_unique_plates', report['det_train']) < 5 or report['det_train'] < 5 or
+                    report['det_val'] < 2 or report['det_test'] < 2):
+                shutil.rmtree(directory, ignore_errors=True)
+                state = dict(state='insufficient_data', error='学習用に異なる番号5件の画像、手動確認済みの検証・未使用テスト用に各2件の車両画像が必要です。', report=report)
                 self._save(state)
                 return state
             log = (directory / 'train.log').open('wb')
