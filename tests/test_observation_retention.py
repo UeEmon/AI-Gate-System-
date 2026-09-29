@@ -23,7 +23,7 @@ class ObservationRetentionTests(unittest.TestCase):
                         confidence=.9, image_path=str(path)))
                 db.execute('INSERT INTO ocr_auto_candidates VALUES (?,?,?,?,?,?)',
                            ('0', 0, '品川|300|あ|1', .99, 'pseudo', 'now'))
-                db.execute('INSERT INTO ocr_samples VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                db.execute('INSERT INTO ocr_samples (id,observation_id,candidate_index,plate_key,original_text,top_text,bottom_text,split,image,image_sha256,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
                            ('manual', '0', 1, '品川|300|あ|1', '', '品川300', 'あ1',
                             .45, b'crop', 'hash', 'now'))
                 db.commit()

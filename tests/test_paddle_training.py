@@ -41,7 +41,7 @@ class PaddleTrainingTests(unittest.TestCase):
                     else:
                         data = BytesIO()
                         image.save(data, 'PNG')
-                        db.execute('INSERT INTO ocr_samples VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                        db.execute('INSERT INTO ocr_samples (id,observation_id,candidate_index,plate_key,original_text,top_text,bottom_text,split,image,image_sha256,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
                                    (identifier, identifier, 0, f'品川|300|あ|{n}',
                                     '', '品川300', f'あ{n}', .45, data.getvalue(),
                                     hashlib.sha256(data.getvalue()).hexdigest(), events.utc()))
@@ -76,7 +76,7 @@ class PaddleTrainingTests(unittest.TestCase):
                     db.execute('CREATE TABLE IF NOT EXISTS observations (id TEXT PRIMARY KEY, details_json TEXT)')
                     db.execute('INSERT INTO observations VALUES (?,?)', (identifier,
                                json.dumps(record, ensure_ascii=False)))
-                    db.execute('''INSERT INTO ocr_samples VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
+                    db.execute('''INSERT INTO ocr_samples (id,observation_id,candidate_index,plate_key,original_text,top_text,bottom_text,split,image,image_sha256,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
                                (identifier, identifier, 0, f'品川|300|あ|{n}',
                                 '品川300あ9999', '品川300', f'あ{n}', .45,
                                 data.getvalue(), hashlib.sha256(data.getvalue()).hexdigest(), events.utc()))

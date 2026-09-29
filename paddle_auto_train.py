@@ -77,7 +77,7 @@ class PaddleTrainingManager:
                 return state
             fingerprint = hashlib.sha256(('partition-v3-auto-candidates:' + json.dumps({
                 'reviewed': [
-                (r['id'], r['image_sha256'], r['top_text'], r['bottom_text'], r['fields_json'])
+                (r['id'], r['image_sha256'], r['top_text'], r['bottom_text'], r['fields_json'], r['source'])
                 for r in rows], 'auto': ocr_learning.auto_signature(self.root)},
                 ensure_ascii=False)).encode()).hexdigest()
             previous = self.status()

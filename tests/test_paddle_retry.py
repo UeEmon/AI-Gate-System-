@@ -18,7 +18,7 @@ class PaddleRetryTests(unittest.TestCase):
             pretrained = root / 'weights.pdparams'
             pretrained.write_bytes(b'weights')
             sample = dict(id='1', image_sha256='image', top_text='品川330',
-                          bottom_text='さ1234', fields_json='{}')
+                          bottom_text='さ1234', fields_json='{}', source='manual')
             options = {'GATE_PADDLE_AUTO_TRAIN': '1',
                        'GATE_PADDLE_TRAIN_REPO': str(repo),
                        'GATE_PADDLE_PRETRAINED': str(pretrained)}

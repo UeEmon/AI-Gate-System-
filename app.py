@@ -79,7 +79,8 @@ def delete_observations(db, root, rows, archive=False):
         for identifier, value in rows:
             candidates = db.execute('''SELECT 1 FROM ocr_auto_candidates c WHERE c.observation_id=?
                 AND c.status='pseudo' AND NOT EXISTS (SELECT 1 FROM ocr_samples s WHERE
-                s.observation_id=c.observation_id AND s.candidate_index=c.candidate_index) LIMIT 1''',
+                s.observation_id=c.observation_id AND s.candidate_index=c.candidate_index
+                AND s.source='manual') LIMIT 1''',
                                     (identifier,)).fetchone()
             if not candidates or not value:
                 continue

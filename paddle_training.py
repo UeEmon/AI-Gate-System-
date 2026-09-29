@@ -58,9 +58,11 @@ def export(root, output, pseudo_confidence=.80):
     rec_lines = {'train': [], 'val': [], 'test': []}
     detector = {'train': {}, 'val': {}, 'test': {}}
     manual_ids = {(r['observation_id'], r['candidate_index']) for r in reviewed}
-    reviewed_keys = {r['plate_key'] for r in reviewed}
-    val_keys = {r['plate_key'] for r in reviewed if partition(r['plate_key']) == 'val'}
+    reviewed_keys = {r['plate_key'] for r in reviewed if r['source'] == 'manual'}
+    val_keys = {r['plate_key'] for r in reviewed if r['source'] == 'manual' and partition(r['plate_key']) == 'val'}
     audit = []
+    pseudo_count = 0
+    train_keys = set()
 
     def add_detector(record, candidate, split, source):
         image_path = safe_vehicle_image(root, record)
@@ -85,6 +87,12 @@ def export(root, output, pseudo_confidence=.80):
 
     for row in reviewed:
         split = partition(row['plate_key'])
+        if row['source'] == 'automatic' and row['plate_key'] in reviewed_keys:
+            continue
+        if split == 'train':
+            train_keys.add(row['plate_key'])
+        if row['source'] == 'automatic':
+            pseudo_count += 1
         with Image.open(BytesIO(row['image'])) as im:
             image = im.convert('RGB')
         for index, (label, box) in enumerate(ocr_learning.training_crops(row, *image.size)):
@@ -94,14 +102,12 @@ def export(root, output, pseudo_confidence=.80):
             path.parent.mkdir(parents=True, exist_ok=True)
             image.crop(box).save(path)
             rec_lines[split].append(f'{split}/{path.name}\t{label}')
-        audit.append(dict(sample=row['id'], partition=split, label_source='manual',
+        audit.append(dict(sample=row['id'], partition=split, label_source=row['source'],
                           original=row['original_text'], corrected=row['top_text']+row['bottom_text']))
         record = observations.get(row['observation_id'])
         if record and row['candidate_index'] < len(record.get('plate_candidates', [])):
-            add_detector(record, record['plate_candidates'][row['candidate_index']], split, 'manual')
+            add_detector(record, record['plate_candidates'][row['candidate_index']], split, row['source'])
 
-    pseudo_count = 0
-    train_keys = {r['plate_key'] for r in reviewed if partition(r['plate_key']) == 'train'}
     for record in observations.values():
         for index, candidate in enumerate(record.get('plate_candidates', [])):
             if (record['id'], index) in manual_ids:
@@ -171,7 +177,7 @@ def export(root, output, pseudo_confidence=.80):
     (output / 'det' / 'dataset.yaml').write_text(
         f'path: {json.dumps(str((output / "det").resolve()))}\n'
         'train: images/train\nval: images/val\nnames:\n  0: plate\n')
-    report = dict(reviewed=len(reviewed), unreviewed_pseudo=pseudo_count,
+    report = dict(reviewed=sum(r['source'] == 'manual' for r in reviewed), unreviewed_pseudo=pseudo_count,
                   train_unique_plates=len(train_keys),
                   rec_train=len(rec_lines['train']), rec_val=len(rec_lines['val']),
                   det_train=len(detector['train']), det_val=len(detector['val']),

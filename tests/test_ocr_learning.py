@@ -150,7 +150,7 @@ class LearningTests(unittest.TestCase):
             for i in range(1, 61):
                 key = '品川|330|さ|' + str(i)
                 image = bytes([i])
-                db.execute('INSERT INTO ocr_samples VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                db.execute('INSERT INTO ocr_samples (id,observation_id,candidate_index,plate_key,original_text,top_text,bottom_text,split,image,image_sha256,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
                            (str(i), str(i), 0, key, '', '品川330', 'さ'+str(i), .45,
                             image, hashlib.sha256(image).hexdigest(), events.utc()))
         samples = learning.dataset_snapshot(self.root)

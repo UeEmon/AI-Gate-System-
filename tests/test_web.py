@@ -146,7 +146,7 @@ class WebTests(unittest.TestCase):
         alert=events.evaluate(self.manager.root,record,0)
         sample_image=b'sample'
         with events.connection(self.manager.root) as db:
-            db.execute('INSERT INTO ocr_samples VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+            db.execute('INSERT INTO ocr_samples (id,observation_id,candidate_index,plate_key,original_text,top_text,bottom_text,split,image,image_sha256,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
                 ('sample','history-source',0,'品川|300|あ|1234','品川300あ1234','品川300','あ1234',.45,
                  sample_image,hashlib.sha256(sample_image).hexdigest(),events.utc()))
         summary=self.client.get('/api/history/summary').json

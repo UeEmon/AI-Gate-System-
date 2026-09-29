@@ -648,8 +648,8 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
     @app.get('/api/ocr-learning')
     def learning_status():
         with events.connection(manager.root) as db:
-            samples = [dict(r) for r in db.execute("SELECT s.id,s.observation_id,s.candidate_index,s.plate_key,s.top_text,s.bottom_text,s.original_text,s.created_at,f.fields_json,CASE WHEN o.id IS NULL THEN 0 ELSE 1 END AS has_observation FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id LEFT JOIN observations o ON o.id=s.observation_id ORDER BY s.created_at DESC LIMIT 200")]
-            count = db.execute('SELECT count(*) FROM ocr_samples').fetchone()[0]
+            samples = [dict(r) for r in db.execute("SELECT s.id,s.observation_id,s.candidate_index,s.plate_key,s.top_text,s.bottom_text,s.original_text,s.created_at,s.source,f.fields_json,CASE WHEN o.id IS NULL AND a.observation_id IS NULL THEN 0 ELSE 1 END AS has_observation FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id LEFT JOIN observations o ON o.id=s.observation_id LEFT JOIN ocr_auto_archive a ON a.observation_id=s.observation_id ORDER BY s.created_at DESC LIMIT 200")]
+            counts = {r['source']: r['total'] for r in db.execute('SELECT source,count(*) AS total FROM ocr_samples GROUP BY source')}
             auto = [dict(r) for r in db.execute('''SELECT c.observation_id,c.candidate_index,c.plate_key,c.confidence,c.status,c.created_at
                 FROM ocr_auto_candidates c WHERE c.status!='excluded' AND NOT EXISTS
                 (SELECT 1 FROM ocr_samples s WHERE s.observation_id=c.observation_id
@@ -659,22 +659,8 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
                 FROM ocr_auto_candidates GROUP BY status''')}
         for sample in samples:
             sample['fields'] = json.loads(sample.pop('fields_json') or 'null')
-            sample['source'] = 'manual'
-        confirmed_auto = [item for item in auto if item['status'] == 'pseudo'
-                          and not ocr_learning.validation_group(item['plate_key'])
-                          and not ocr_learning.test_group(item['plate_key'])]
-        for item in confirmed_auto:
-            parts = item['plate_key'].split('|')
-            if len(parts) != 4:
-                continue
-            samples.append(dict(observation_id=item['observation_id'],
-                                candidate_index=item['candidate_index'],
-                                plate_key=item['plate_key'], top_text=parts[0]+parts[1],
-                                bottom_text=parts[2]+parts[3], original_text='',
-                                fields=None, has_observation=True, source='automatic',
-                                confidence=item['confidence']))
-        return jsonify(samples=samples, count=count, automatic=[item for item in auto if item not in confirmed_auto],
-                       automatic_confirmed=len(confirmed_auto),
+        return jsonify(samples=samples, count=counts.get('manual', 0), automatic=auto,
+                       automatic_confirmed=counts.get('automatic', 0),
                        automatic_counts=auto_counts)
 
     @app.delete('/api/ocr-learning/auto/<observation_id>/<int:candidate_index>')
@@ -685,6 +671,8 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
                                 (observation_id, candidate_index))
             if cursor.rowcount == 0:
                 abort(404, description='自動候補が見つかりません。')
+            db.execute("DELETE FROM ocr_samples WHERE observation_id=? AND candidate_index=? AND source='automatic'",
+                       (observation_id, candidate_index))
             remaining = db.execute("SELECT 1 FROM ocr_auto_candidates WHERE observation_id=? AND status='pseudo' LIMIT 1",
                                    (observation_id,)).fetchone()
             if not remaining:

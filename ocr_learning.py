@@ -40,17 +40,27 @@ def initialize(root):
         CREATE UNIQUE INDEX IF NOT EXISTS ocr_one_run ON ocr_training_runs(status)
           WHERE status='running';
         ''')
+        columns = {row[1] for row in db.execute('PRAGMA table_info(ocr_samples)')}
+        if 'source' not in columns:
+            db.execute("ALTER TABLE ocr_samples ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
         # Apply the current threshold to candidates recorded before the change.
         db.execute("UPDATE ocr_auto_candidates SET status='pseudo' WHERE status='pending' AND confidence>=0.80")
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='observations'").fetchone():
+            records = db.execute('''SELECT DISTINCT o.details_json FROM observations o
+                JOIN ocr_auto_candidates c ON c.observation_id=o.id
+                WHERE c.status='pseudo' AND NOT EXISTS
+                (SELECT 1 FROM ocr_samples s WHERE s.observation_id=o.id AND s.candidate_index=c.candidate_index)''').fetchall()
+            for row in records:
+                queue_observation(root, json.loads(row[0]), db)
 
 
 def queue_observation(root, record, db, minimum=.80):
-    """Keep Lipla results as provisional data; never call them reviewed truth."""
+    """Record eligible Lipla labels as automatic training samples, never evaluation truth."""
     if not record.get('image_path') or not Path(record['image_path']).is_file():
         return 0
     accepted = 0
     for index, candidate in enumerate(record.get('plate_candidates', [])):
-        if db.execute('SELECT 1 FROM ocr_samples WHERE observation_id=? AND candidate_index=?',
+        if db.execute("SELECT 1 FROM ocr_samples WHERE observation_id=? AND candidate_index=? AND source='manual'",
                       (record['id'], index)).fetchone():
             db.execute('DELETE FROM ocr_auto_candidates WHERE observation_id=? AND candidate_index=?',
                        (record['id'], index))
@@ -69,9 +79,25 @@ def queue_observation(root, record, db, minimum=.80):
             ON CONFLICT(observation_id,candidate_index) DO UPDATE SET
             plate_key=excluded.plate_key,confidence=excluded.confidence,status=excluded.status
             WHERE NOT EXISTS (SELECT 1 FROM ocr_samples s WHERE
-              s.observation_id=excluded.observation_id AND s.candidate_index=excluded.candidate_index)
+              s.observation_id=excluded.observation_id AND s.candidate_index=excluded.candidate_index
+              AND s.source='manual')
               AND ocr_auto_candidates.status!='excluded' ''',
                    (record['id'], index, key, confidence, status, events.utc()))
+        if status == 'pseudo' and not validation_group(key) and not test_group(key):
+            try:
+                image, original = sample_image(root, record['id'], index, db)
+                parts = candidate['fields']
+                db.execute('''INSERT INTO ocr_samples
+                    (id,observation_id,candidate_index,plate_key,original_text,top_text,bottom_text,
+                     split,image,image_sha256,created_at,source)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(observation_id,candidate_index) DO NOTHING''',
+                    (uuid.uuid4().hex, record['id'], index, key, original,
+                     parts['region']+parts['category'], parts['kana']+parts['serial'], .45,
+                     sqlite3.Binary(image), hashlib.sha256(image).hexdigest(), events.utc(), 'automatic'))
+            except (ValueError, KeyError, OSError, ImportError):
+                # A missing or malformed crop remains a visible candidate, not training truth.
+                pass
         accepted += 1
     return accepted
 
@@ -149,11 +175,13 @@ def save_sample(root, data, fields, db):
         raise ValueError('元画像を指定してください。')
     image, original = sample_image(root, observation_id, index, db)
     identifier = uuid.uuid4().hex
-    db.execute('''INSERT INTO ocr_samples VALUES (?,?,?,?,?,?,?,?,?,?,?)
+    db.execute('''INSERT INTO ocr_samples
+        (id,observation_id,candidate_index,plate_key,original_text,top_text,bottom_text,
+         split,image,image_sha256,created_at,source) VALUES (?,?,?,?,?,?,?,?,?,?,?, 'manual')
         ON CONFLICT(observation_id,candidate_index) DO UPDATE SET
         plate_key=excluded.plate_key,top_text=excluded.top_text,bottom_text=excluded.bottom_text,
         split=excluded.split,image=excluded.image,image_sha256=excluded.image_sha256,
-        created_at=excluded.created_at''',
+        created_at=excluded.created_at,source='manual' ''',
         (identifier, observation_id, index, events.plate_key(fields), original, top, bottom,
          float(split), sqlite3.Binary(image), hashlib.sha256(image).hexdigest(), events.utc()))
     identifier = db.execute('SELECT id FROM ocr_samples WHERE observation_id=? AND candidate_index=?',
@@ -178,7 +206,7 @@ def test_group(key):
 
 def dataset_snapshot(root, minimum_train=5):
     with events.connection(root) as db:
-        rows = [dict(r) for r in db.execute('SELECT s.*,f.fields_json FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id ORDER BY s.id')]
+        rows = [dict(r) for r in db.execute("SELECT s.*,f.fields_json FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id ORDER BY CASE WHEN s.source='manual' THEN 0 ELSE 1 END,s.id")]
     # Identical images with incompatible labels must never become supervision.
     seen = {}
     samples = []
@@ -186,16 +214,16 @@ def dataset_snapshot(root, minimum_train=5):
         signature = (row['top_text'], row['bottom_text'], row['split'], row['fields_json'])
         digest = row['image_sha256']
         if digest in seen:
-            if seen[digest] != signature:
+            if seen[digest][0] != signature and row['source'] == 'manual':
                 raise ValueError('同一画像に異なる正解があります。学習データ一覧から誤ったデータを削除してください。')
             continue
-        seen[digest] = signature
+        seen[digest] = (signature, row['source'])
         row['partition'] = ('test' if test_group(row['plate_key']) else
                             'validation' if validation_group(row['plate_key']) else 'train')
         samples.append(row)
     train = {r['plate_key'] for r in samples if r['partition'] == 'train'}
-    valid = {r['plate_key'] for r in samples if r['partition'] == 'validation'}
-    test = {r['plate_key'] for r in samples if r['partition'] == 'test'}
+    valid = {r['plate_key'] for r in samples if r['partition'] == 'validation' and r['source'] == 'manual'}
+    test = {r['plate_key'] for r in samples if r['partition'] == 'test' and r['source'] == 'manual'}
     if len(train) < minimum_train or len(valid) < 2 or len(test) < 2:
         raise ValueError(f'異なるナンバーが不足しています（手動確認済み学習用 {len(train)}/{minimum_train}、検証用 {len(valid)}/2、未使用テスト用 {len(test)}/2）。ナンバーごとに固定で約6:2:2に振り分けます。')
     return samples

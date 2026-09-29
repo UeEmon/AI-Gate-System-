@@ -2,6 +2,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import events
 import ocr_learning
@@ -9,6 +10,31 @@ from app import open_database
 
 
 class AutoQueueTests(unittest.TestCase):
+    def test_high_confidence_creates_real_auto_sample_and_manual_can_replace_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'images').mkdir()
+            image = root / 'images' / 'vehicle.jpg'
+            image.write_bytes(b'photo')
+            with open_database(root / 'gate.db') as db:
+                ocr_learning.initialize(root)
+                serial = next(str(n) for n in range(1, 100) if
+                              not ocr_learning.validation_group(f'品川|330|さ|{n}') and
+                              not ocr_learning.test_group(f'品川|330|さ|{n}'))
+                record = dict(id='observation', image_path=str(image), plate_candidates=[
+                    dict(ocr_backend='lipla-native', confidence=.80,
+                         fields=dict(region='品川', category='330', kana='さ', serial=serial))])
+                with patch.object(ocr_learning, 'sample_image', return_value=(b'plate-png', '品川330さ1234')):
+                    ocr_learning.queue_observation(root, record, db)
+                    ocr_learning.queue_observation(root, record, db)
+                rows = db.execute('SELECT source,image FROM ocr_samples').fetchall()
+                self.assertEqual(len(rows), 1)
+                self.assertEqual((rows[0][0], rows[0][1]), ('automatic', b'plate-png'))
+                db.execute("UPDATE ocr_samples SET source='manual',bottom_text='さ4321' WHERE observation_id='observation'")
+                ocr_learning.queue_observation(root, record, db)
+                self.assertEqual(db.execute('SELECT source,bottom_text FROM ocr_samples').fetchone(),
+                                 ('manual', 'さ4321'))
+
     def test_high_and_low_confidence_and_review_override(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -37,7 +63,7 @@ class AutoQueueTests(unittest.TestCase):
                 ocr_learning.queue_observation(root, record, db)
                 self.assertEqual(db.execute('SELECT status FROM ocr_auto_candidates '
                                             'WHERE candidate_index=0').fetchone()[0], 'excluded')
-                db.execute('INSERT INTO ocr_samples VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                db.execute('INSERT INTO ocr_samples (id,observation_id,candidate_index,plate_key,original_text,top_text,bottom_text,split,image,image_sha256,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
                            ('manual', 'observation', 1, '横浜|500|あ|9999', '', '横浜500',
                             'あ9999', .45, b'image', 'digest', events.utc()))
                 ocr_learning.queue_observation(root, record, db)
