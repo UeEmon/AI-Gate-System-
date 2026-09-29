@@ -16,6 +16,34 @@ from paddle_training import export, partition
 
 
 class PaddleTrainingTests(unittest.TestCase):
+    def test_explicit_validation_moves_a_whole_plate_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ocr_learning.initialize(root)
+            keys = [(n, partition(f'品川|300|あ|{n}')) for n in range(1, 100)]
+            train = next(n for n, group in keys if group == 'train')
+            val = [n for n, group in keys if group == 'val'][:2]
+            test = [n for n, group in keys if group == 'test'][:2]
+            with events.connection(root) as db:
+                for n in [train] + val + test:
+                    key = f'品川|300|あ|{n}'
+                    source = 'automatic' if n == train else 'manual'
+                    identifier = f'{n:032x}'
+                    db.execute('''INSERT INTO ocr_samples
+                        (id,observation_id,candidate_index,plate_key,original_text,top_text,bottom_text,
+                         split,image,image_sha256,created_at,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''',
+                        (identifier, identifier, 0, key, '', '品川300', f'あ{n}', .45,
+                         b'crop'+bytes([n]), identifier, events.utc(), source))
+                    if source == 'automatic':
+                        db.execute('''INSERT INTO ocr_auto_candidates
+                            (observation_id,candidate_index,plate_key,confidence,status,created_at)
+                            VALUES (?,?,?,?,?,?)''', (identifier, 0, key, .99, 'pseudo', events.utc()))
+                db.execute('INSERT INTO ocr_plate_partitions VALUES (?,?)',
+                           (f'品川|300|あ|{train}', 'validation'))
+            rows = ocr_learning.dataset_snapshot(root, minimum_train=0)
+            self.assertEqual(next(r['partition'] for r in rows if r['plate_key'].endswith(f'|{train}')),
+                             'validation')
+
     def test_98_percent_auto_labels_supply_validation_and_test_without_review(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

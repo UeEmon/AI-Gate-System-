@@ -637,7 +637,17 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
     @app.get('/api/ocr-learning')
     def learning_status():
         with events.connection(manager.root) as db:
-            samples = [dict(r) for r in db.execute("SELECT s.id,s.observation_id,s.candidate_index,s.plate_key,s.top_text,s.bottom_text,s.original_text,s.created_at,s.source,f.fields_json,CASE WHEN o.id IS NULL AND a.observation_id IS NULL THEN 0 ELSE 1 END AS has_observation FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id LEFT JOIN observations o ON o.id=s.observation_id LEFT JOIN ocr_auto_archive a ON a.observation_id=s.observation_id ORDER BY s.created_at DESC LIMIT 200")]
+            samples = [dict(r) for r in db.execute("""SELECT s.id,s.observation_id,s.candidate_index,s.plate_key,s.top_text,s.bottom_text,s.original_text,s.created_at,s.source,f.fields_json,
+                COALESCE(c.confidence,
+                    json_extract(o.details_json,'$.plate_candidates['||s.candidate_index||'].confidence'),
+                    json_extract(a.details_json,'$.plate_candidates['||s.candidate_index||'].confidence')) AS ocr_confidence,
+                CASE WHEN o.id IS NULL AND a.observation_id IS NULL THEN 0 ELSE 1 END AS has_observation
+                FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id
+                LEFT JOIN observations o ON o.id=s.observation_id
+                LEFT JOIN ocr_auto_archive a ON a.observation_id=s.observation_id
+                LEFT JOIN ocr_auto_candidates c ON c.observation_id=s.observation_id AND c.candidate_index=s.candidate_index
+                ORDER BY s.created_at DESC LIMIT 200""")]
+            overrides = {r[0] for r in db.execute('SELECT plate_key FROM ocr_plate_partitions')}
             counts = {r['source']: r['total'] for r in db.execute('SELECT source,count(*) AS total FROM ocr_samples GROUP BY source')}
             auto = [dict(r) for r in db.execute('''SELECT c.observation_id,c.candidate_index,c.plate_key,c.confidence,c.status,c.created_at,c.last_error
                 FROM ocr_auto_candidates c WHERE c.status!='excluded' AND NOT EXISTS
@@ -648,9 +658,41 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
                 FROM ocr_auto_candidates GROUP BY status''')}
         for sample in samples:
             sample['fields'] = json.loads(sample.pop('fields_json') or 'null')
+            eligible = sample['source'] == 'manual' or (sample['ocr_confidence'] or 0) >= .98
+            key = sample['plate_key']
+            sample['validation_override'] = key in overrides
+            sample['partition'] = ('validation' if eligible and (key in overrides or ocr_learning.validation_group(key)) else
+                                   'test' if eligible and ocr_learning.test_group(key) else 'train')
         return jsonify(samples=samples, count=counts.get('manual', 0), automatic=auto,
                        automatic_confirmed=counts.get('automatic', 0),
                        automatic_counts=auto_counts)
+
+    @app.post('/api/ocr-learning/samples/<identifier>/validation')
+    def designate_validation(identifier):
+        with events.connection(manager.root) as db:
+            row = db.execute('''SELECT s.plate_key,s.source,COALESCE(c.confidence,
+                json_extract(o.details_json,'$.plate_candidates['||s.candidate_index||'].confidence'),
+                json_extract(a.details_json,'$.plate_candidates['||s.candidate_index||'].confidence')) AS confidence
+                FROM ocr_samples s LEFT JOIN ocr_auto_candidates c ON c.observation_id=s.observation_id
+                  AND c.candidate_index=s.candidate_index
+                LEFT JOIN observations o ON o.id=s.observation_id
+                LEFT JOIN ocr_auto_archive a ON a.observation_id=s.observation_id
+                WHERE s.id=?''', (identifier,)).fetchone()
+            if row is None:
+                abort(404, description='学習データが見つかりません。')
+            if row['confidence'] is None or row['confidence'] < .98:
+                abort(400, description='Lipla-jpのOCR信頼度98%以上のデータだけを検証用に指定できます。')
+            db.execute('INSERT OR IGNORE INTO ocr_plate_partitions VALUES (?,?)', (row['plate_key'], 'validation'))
+        return jsonify(plate_key=row['plate_key'], partition='validation')
+
+    @app.delete('/api/ocr-learning/samples/<identifier>/validation')
+    def reset_validation(identifier):
+        with events.connection(manager.root) as db:
+            row = db.execute('SELECT plate_key FROM ocr_samples WHERE id=?', (identifier,)).fetchone()
+            if row is None:
+                abort(404, description='学習データが見つかりません。')
+            db.execute('DELETE FROM ocr_plate_partitions WHERE plate_key=?', (row['plate_key'],))
+        return jsonify(plate_key=row['plate_key'], partition='automatic')
 
     @app.delete('/api/ocr-learning/auto/<observation_id>/<int:candidate_index>')
     def exclude_auto_learning(observation_id, candidate_index):

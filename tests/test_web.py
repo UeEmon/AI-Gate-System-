@@ -19,6 +19,31 @@ class Process:
     def kill(self): self.done.set()
 
 class WebTests(unittest.TestCase):
+    def test_ocr_confidence_and_validation_designation(self):
+        with self.manager.connect() as db:
+            for identifier, confidence in [('strong', .99), ('weak', .90)]:
+                db.execute('''INSERT INTO ocr_samples
+                    (id,observation_id,candidate_index,plate_key,original_text,top_text,bottom_text,
+                     split,image,image_sha256,created_at,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''',
+                    (identifier, identifier, 0, f'品川|300|あ|{identifier}', '', '品川300',
+                     'あ1234', .45, b'image', identifier, '2026-09-29', 'automatic'))
+                db.execute('''INSERT INTO ocr_auto_candidates
+                    (observation_id,candidate_index,plate_key,confidence,status,created_at)
+                    VALUES (?,?,?,?,?,?)''',
+                    (identifier, 0, f'品川|300|あ|{identifier}', confidence, 'pseudo', '2026-09-29'))
+        samples = self.client.get('/api/ocr-learning').json['samples']
+        self.assertEqual({s['id']: s['ocr_confidence'] for s in samples},
+                         {'strong': .99, 'weak': .90})
+        self.assertEqual(self.client.post('/api/ocr-learning/samples/weak/validation',
+                                          headers=self.headers).status_code, 400)
+        self.assertEqual(self.client.post('/api/ocr-learning/samples/strong/validation',
+                                          headers=self.headers).status_code, 200)
+        strong = next(s for s in self.client.get('/api/ocr-learning').json['samples']
+                      if s['id'] == 'strong')
+        self.assertEqual(strong['partition'], 'validation')
+        self.assertEqual(self.client.delete('/api/ocr-learning/samples/strong/validation',
+                                            headers=self.headers).status_code, 200)
+
     def test_vehicle_registration_is_independent_of_ocr_training(self):
         vehicle = dict(region='品川', category='300', kana='あ', serial='1234',
                        vehicle_type='car', label='試験車両', watch=True)

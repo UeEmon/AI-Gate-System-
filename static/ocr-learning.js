@@ -124,7 +124,10 @@ async function refreshLearning(){
     $('learning-samples').replaceChildren();
     for(const sample of data.samples){
       const row=document.createElement('div');const label=document.createElement('span');
-      label.textContent=sample.top_text+' / '+sample.bottom_text+(sample.source==='automatic'?' （自動確認済み・Lipla推定値） ':' （手動確認済み・元のOCR: '+sample.original_text+'） ');
+      label.textContent=sample.top_text+' / '+sample.bottom_text+
+        ' · Lipla-jp OCR '+(sample.ocr_confidence==null?'不明':(sample.ocr_confidence*100).toFixed(1)+'%')+
+        ' · '+({train:'学習用',validation:'検証用',test:'テスト用'}[sample.partition]||'学習用')+
+        (sample.source==='automatic'?' （自動登録・Lipla推定値） ':' （手動修正済み・元のOCR: '+sample.original_text+'） ');
       const button=document.createElement('button');button.textContent='学習対象から削除';
       button.onclick=async()=>{try{await api(sample.source==='automatic'?'/api/ocr-learning/auto/'+encodeURIComponent(sample.observation_id)+'/'+sample.candidate_index:'/api/ocr-learning/samples/'+sample.id,{method:'DELETE'});await refreshLearning();}catch(error){message(error.message);}};
       const edit=document.createElement('button');edit.textContent='正解・画像範囲を編集';
@@ -136,7 +139,18 @@ async function refreshLearning(){
           const values=sample.plate_key.split('|');learningFields.forEach((name,i)=>$('learning-text-'+name).value=sample.fields?.[name]?.text??values[i]);
         }catch(error){message(error.message);}
       };
-      row.append(label,edit,button);$('learning-samples').append(row);
+      row.append(label,edit);
+      if(sample.ocr_confidence>=.98){
+        const validation=document.createElement('button');
+        validation.textContent=sample.validation_override?'検証用指定を解除':'検証用に登録';
+        validation.onclick=async()=>{try{
+          await api('/api/ocr-learning/samples/'+encodeURIComponent(sample.id)+'/validation',
+            {method:sample.validation_override?'DELETE':'POST'});
+          await refreshLearning();
+        }catch(error){message(error.message);}};
+        row.append(validation);
+      }
+      row.append(button);$('learning-samples').append(row);
     }
   }finally{learningRefreshBusy=false;}
 }

@@ -34,6 +34,8 @@ def initialize(root):
           PRIMARY KEY(observation_id,candidate_index));
         CREATE TABLE IF NOT EXISTS ocr_auto_archive (
           observation_id TEXT PRIMARY KEY, details_json TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS ocr_plate_partitions (
+          plate_key TEXT PRIMARY KEY, partition TEXT NOT NULL CHECK(partition='validation'));
         CREATE TABLE IF NOT EXISTS ocr_training_runs (
           id TEXT PRIMARY KEY, status TEXT NOT NULL, created_at TEXT NOT NULL,
           report_json TEXT, error TEXT);
@@ -254,6 +256,7 @@ def test_group(key):
 
 def dataset_snapshot(root, minimum_train=5):
     with events.connection(root) as db:
+        overrides = {r[0] for r in db.execute('SELECT plate_key FROM ocr_plate_partitions')}
         rows = [dict(r) for r in db.execute("""SELECT s.*,f.fields_json,c.confidence AS lipla_confidence
             FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id
             LEFT JOIN ocr_auto_candidates c ON c.observation_id=s.observation_id
@@ -271,7 +274,8 @@ def dataset_snapshot(root, minimum_train=5):
             continue
         seen[digest] = (signature, row['source'])
         eval_eligible = row['source'] == 'manual' or (row['lipla_confidence'] or 0) >= .98
-        row['partition'] = ('test' if eval_eligible and test_group(row['plate_key']) else
+        row['partition'] = ('validation' if eval_eligible and row['plate_key'] in overrides else
+                            'test' if eval_eligible and test_group(row['plate_key']) else
                             'validation' if eval_eligible and validation_group(row['plate_key'])
                             else 'train')
         samples.append(row)
