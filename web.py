@@ -273,20 +273,17 @@ class JobManager:
             with self.connect() as db:
                 job_ids = ([row[0] for row in db.execute('SELECT id FROM jobs')]
                            if 'processing' in scopes else [])
-                image_paths = ([row[0] for row in db.execute(
-                    'SELECT DISTINCT image_path FROM observations WHERE image_path IS NOT NULL')]
-                    if 'recognition' in scopes else [])
+                observations_to_delete = (db.execute('SELECT id,image_path FROM observations').fetchall()
+                                          if 'recognition' in scopes else [])
                 deleted = {'processing': len(job_ids),
                            'recognition': db.execute('SELECT count(*) FROM observations').fetchone()[0]
                            if 'recognition' in scopes else 0}
                 if 'recognition' in scopes:
-                    db.execute('DELETE FROM ocr_auto_candidates')
-                    db.execute('DELETE FROM observations')
+                    delete_observations(db, self.root, observations_to_delete)
                 if 'processing' in scopes:
                     db.execute('DELETE FROM jobs')
             errors = []
             jobs_root = (self.root / 'jobs').resolve()
-            images_root = (self.root / 'images').resolve()
             for job_id in job_ids:
                 try:
                     folder = self.folder(job_id).resolve()
@@ -296,14 +293,6 @@ class JobManager:
                         shutil.rmtree(folder)
                 except (OSError, ValueError) as exc:
                     errors.append(f'処理 {job_id}: {type(exc).__name__}')
-            for value in image_paths:
-                try:
-                    path = Path(value).resolve()
-                    if not path.is_relative_to(images_root):
-                        raise ValueError('認識画像が管理範囲外です。')
-                    path.unlink(missing_ok=True)
-                except (OSError, ValueError) as exc:
-                    errors.append(f'認識画像: {type(exc).__name__}')
             return dict(deleted=deleted, file_errors=errors)
 
 

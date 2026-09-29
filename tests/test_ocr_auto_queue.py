@@ -63,6 +63,7 @@ class AutoQueueTests(unittest.TestCase):
                 ocr_learning.queue_observation(root, record, db)
                 self.assertEqual(db.execute('SELECT status FROM ocr_auto_candidates '
                                             'WHERE candidate_index=0').fetchone()[0], 'excluded')
+                self.assertIsNone(db.execute('SELECT 1 FROM ocr_samples WHERE candidate_index=0').fetchone())
                 db.execute('INSERT INTO ocr_samples (id,observation_id,candidate_index,plate_key,original_text,top_text,bottom_text,split,image,image_sha256,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
                            ('manual', 'observation', 1, '横浜|500|あ|9999', '', '横浜500',
                             'あ9999', .45, b'image', 'digest', events.utc()))

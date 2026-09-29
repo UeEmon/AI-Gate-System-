@@ -64,11 +64,11 @@ def prune_observations(db, root, limit=100):
         (SELECT id FROM observations ORDER BY processed_at DESC,id DESC LIMIT ?)''', (limit,)).fetchall()
     if not rows:
         return 0
-    return delete_observations(db, root, rows, archive=True)
+    return delete_observations(db, root, rows)
 
 
-def delete_observations(db, root, rows, archive=False):
-    """Remove selected history, transient candidate labels and owned image files."""
+def delete_observations(db, root, rows, archive=True):
+    """Remove history, retaining source images only for active automatic supervision."""
     rows = list(rows)
     if not rows:
         return 0
@@ -77,11 +77,13 @@ def delete_observations(db, root, rows, archive=False):
     if archive:
         from shutil import copy2
         for identifier, value in rows:
-            candidates = db.execute('''SELECT 1 FROM ocr_auto_candidates c WHERE c.observation_id=?
-                AND c.status='pseudo' AND NOT EXISTS (SELECT 1 FROM ocr_samples s WHERE
-                s.observation_id=c.observation_id AND s.candidate_index=c.candidate_index
-                AND s.source='manual') LIMIT 1''',
+            candidates = db.execute("SELECT 1 FROM ocr_samples WHERE observation_id=? AND source='automatic' LIMIT 1",
                                     (identifier,)).fetchone()
+            if not candidates:
+                candidates = db.execute('''SELECT 1 FROM ocr_auto_candidates c WHERE c.observation_id=?
+                    AND c.status='pseudo' AND NOT EXISTS (SELECT 1 FROM ocr_samples s WHERE
+                    s.observation_id=c.observation_id AND s.candidate_index=c.candidate_index
+                    AND s.source='manual') LIMIT 1''', (identifier,)).fetchone()
             if not candidates or not value:
                 continue
             source = Path(value).resolve()
@@ -90,7 +92,9 @@ def delete_observations(db, root, rows, archive=False):
                 continue
             target = images / 'learning' / (identifier + source.suffix)
             target.parent.mkdir(parents=True, exist_ok=True)
-            copy2(source, target)
+            temporary = target.with_name(target.name + '.tmp')
+            copy2(source, temporary)
+            os.replace(temporary, target)
             record = json.loads(db.execute('SELECT details_json FROM observations WHERE id=?',
                                            (identifier,)).fetchone()[0])
             record['image_path'] = str(target)
@@ -101,8 +105,8 @@ def delete_observations(db, root, rows, archive=False):
     with db:
         db.executemany('DELETE FROM ocr_auto_candidates WHERE observation_id=?',
                        [(identifier,) for identifier, in identifiers if identifier not in archived])
-        if not archive:
-            db.executemany('DELETE FROM ocr_auto_archive WHERE observation_id=?', identifiers)
+        db.executemany('DELETE FROM ocr_auto_archive WHERE observation_id=?',
+                       [(identifier,) for identifier, in identifiers if identifier not in archived])
         db.executemany('DELETE FROM observations WHERE id=?', identifiers)
     images = (Path(root) / 'images').resolve()
     for _, value in rows:

@@ -43,6 +43,7 @@ def initialize(root):
         columns = {row[1] for row in db.execute('PRAGMA table_info(ocr_samples)')}
         if 'source' not in columns:
             db.execute("ALTER TABLE ocr_samples ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
+        db.execute('CREATE INDEX IF NOT EXISTS ocr_samples_retention ON ocr_samples(source,created_at DESC,id DESC)')
         # Apply the current threshold to candidates recorded before the change.
         db.execute("UPDATE ocr_auto_candidates SET status='pseudo' WHERE status='pending' AND confidence>=0.80")
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='observations'").fetchone():
@@ -52,6 +53,7 @@ def initialize(root):
                 (SELECT 1 FROM ocr_samples s WHERE s.observation_id=o.id AND s.candidate_index=c.candidate_index)''').fetchall()
             for row in records:
                 queue_observation(root, json.loads(row[0]), db)
+        limit_automatic_samples(db, root)
 
 
 def queue_observation(root, record, db, minimum=.80):
@@ -83,6 +85,10 @@ def queue_observation(root, record, db, minimum=.80):
               AND s.source='manual')
               AND ocr_auto_candidates.status!='excluded' ''',
                    (record['id'], index, key, confidence, status, events.utc()))
+        persisted = db.execute('SELECT status FROM ocr_auto_candidates WHERE observation_id=? AND candidate_index=?',
+                               (record['id'], index)).fetchone()
+        if persisted and persisted[0] == 'excluded':
+            continue
         if status == 'pseudo' and not validation_group(key) and not test_group(key):
             try:
                 image, original = sample_image(root, record['id'], index, db)
@@ -99,7 +105,30 @@ def queue_observation(root, record, db, minimum=.80):
                 # A missing or malformed crop remains a visible candidate, not training truth.
                 pass
         accepted += 1
+    limit_automatic_samples(db, root)
     return accepted
+
+
+def limit_automatic_samples(db, root, limit=500):
+    """Keep manual truth indefinitely; bound unreviewed crops and archived vehicle frames."""
+    old = db.execute('''SELECT id,observation_id,candidate_index FROM ocr_samples
+        WHERE source='automatic' ORDER BY created_at DESC,id DESC LIMIT -1 OFFSET ?''',
+                     (limit,)).fetchall()
+    for identifier, observation_id, index in old:
+        db.execute('DELETE FROM ocr_samples WHERE id=? AND source=\'automatic\'', (identifier,))
+        db.execute("UPDATE ocr_auto_candidates SET status='excluded' WHERE observation_id=? AND candidate_index=?",
+                   (observation_id, index))
+        remaining = db.execute("SELECT 1 FROM ocr_auto_candidates WHERE observation_id=? AND status='pseudo' LIMIT 1",
+                               (observation_id,)).fetchone()
+        if not remaining:
+            archived = db.execute('SELECT details_json FROM ocr_auto_archive WHERE observation_id=?',
+                                  (observation_id,)).fetchone()
+            if archived:
+                db.execute('DELETE FROM ocr_auto_archive WHERE observation_id=?', (observation_id,))
+                path = Path(json.loads(archived[0])['image_path']).resolve()
+                if path.is_relative_to((Path(root) / 'images' / 'learning').resolve()):
+                    path.unlink(missing_ok=True)
+    return len(old)
 
 
 def auto_signature(root):
