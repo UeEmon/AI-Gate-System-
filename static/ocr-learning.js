@@ -66,7 +66,7 @@ async function refreshLearning(){
   try{
     const data=await api('/api/ocr-learning');
     const autoCounts=data.automatic_counts||{};
-    $('learning-status').textContent='手動確認済み '+data.count+'件 / 自動学習候補 '+(autoCounts.pseudo||0)+'件 / 確認待ち '+(autoCounts.pending||0)+'件 / 運用方式: Lipla-jp';
+    $('learning-status').textContent='手動確認済み '+data.count+'件 / 自動確認済み（学習用） '+(data.automatic_confirmed||0)+'件 / 確認待ち '+(autoCounts.pending||0)+'件 / 運用方式: Lipla-jp';
     $('learning-auto-candidates').replaceChildren();
     for(const item of data.automatic||[]){
       const row=document.createElement('div');row.className='job';
@@ -115,9 +115,9 @@ async function refreshLearning(){
     $('learning-samples').replaceChildren();
     for(const sample of data.samples){
       const row=document.createElement('div');const label=document.createElement('span');
-      label.textContent=sample.top_text+' / '+sample.bottom_text+' （元のOCR: '+sample.original_text+'） ';
+      label.textContent=sample.top_text+' / '+sample.bottom_text+(sample.source==='automatic'?' （自動確認済み・Lipla推定値） ':' （手動確認済み・元のOCR: '+sample.original_text+'） ');
       const button=document.createElement('button');button.textContent='学習対象から削除';
-      button.onclick=async()=>{try{await api('/api/ocr-learning/samples/'+sample.id,{method:'DELETE'});await refreshLearning();}catch(error){message(error.message);}};
+      button.onclick=async()=>{try{await api(sample.source==='automatic'?'/api/ocr-learning/auto/'+encodeURIComponent(sample.observation_id)+'/'+sample.candidate_index:'/api/ocr-learning/samples/'+sample.id,{method:'DELETE'});await refreshLearning();}catch(error){message(error.message);}};
       const edit=document.createElement('button');edit.textContent='正解・画像範囲を編集';
       edit.disabled=!sample.has_observation;
       if(!sample.has_observation)edit.title='元の認識履歴は削除されています。学習データ自体は保持されています。';

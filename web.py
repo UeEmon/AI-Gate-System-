@@ -625,7 +625,22 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
                 FROM ocr_auto_candidates GROUP BY status''')}
         for sample in samples:
             sample['fields'] = json.loads(sample.pop('fields_json') or 'null')
-        return jsonify(samples=samples, count=count, automatic=auto,
+            sample['source'] = 'manual'
+        confirmed_auto = [item for item in auto if item['status'] == 'pseudo'
+                          and not ocr_learning.validation_group(item['plate_key'])
+                          and not ocr_learning.test_group(item['plate_key'])]
+        for item in confirmed_auto:
+            parts = item['plate_key'].split('|')
+            if len(parts) != 4:
+                continue
+            samples.append(dict(observation_id=item['observation_id'],
+                                candidate_index=item['candidate_index'],
+                                plate_key=item['plate_key'], top_text=parts[0]+parts[1],
+                                bottom_text=parts[2]+parts[3], original_text='',
+                                fields=None, has_observation=1, source='automatic',
+                                confidence=item['confidence']))
+        return jsonify(samples=samples, count=count, automatic=[item for item in auto if item not in confirmed_auto],
+                       automatic_confirmed=len(confirmed_auto),
                        automatic_counts=auto_counts)
 
     @app.delete('/api/ocr-learning/auto/<observation_id>/<int:candidate_index>')
