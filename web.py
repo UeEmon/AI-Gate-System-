@@ -20,7 +20,7 @@ import uuid
 
 from flask import Flask, abort, jsonify, render_template, request, send_file, session
 from werkzeug.exceptions import HTTPException
-from app import open_database
+from app import open_database, delete_observations, prune_observations
 import events
 import registry_csv
 import ocr_learning
@@ -79,6 +79,7 @@ class JobManager:
                 db.execute('ALTER TABLE jobs ADD COLUMN ocr_confidence REAL NOT NULL DEFAULT 0.9')
             db.execute("UPDATE jobs SET status='interrupted', ended_at=?, error=? WHERE status IN ('starting','running','stopping')",
                        (now(), 'サーバー再起動により処理状態をリセットしました。'))
+            prune_observations(db, self.root)
 
     @property
     def active_ids(self):
@@ -530,6 +531,32 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
             item['has_image'] = bool(item.pop('image_path', None))
             result.append(item)
         return jsonify(items=result, total=total, page=page, page_size=30)
+
+    @app.delete('/api/observations/<observation_id>')
+    def delete_observation(observation_id):
+        with manager.lock:
+            if manager.processes:
+                abort(409, description='認識処理を停止してから削除してください。')
+            with manager.connect() as db:
+                rows = db.execute('SELECT id,image_path FROM observations WHERE id=?',
+                                  (observation_id,)).fetchall()
+                if not rows:
+                    abort(404, description='認識履歴が見つかりません。')
+                delete_observations(db, manager.root, rows)
+        return jsonify(deleted=1)
+
+    @app.delete('/api/observations')
+    def delete_all_observations():
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict) or data.get('confirmation') != 'DELETE RECOGNITION':
+            abort(400, description='削除確認が一致しません。')
+        with manager.lock:
+            if manager.processes:
+                abort(409, description='認識処理を停止してから削除してください。')
+            with manager.connect() as db:
+                rows = db.execute('SELECT id,image_path FROM observations').fetchall()
+                count = delete_observations(db, manager.root, rows)
+        return jsonify(deleted=count)
 
     @app.get('/api/registration-feed')
     def registration_feed():

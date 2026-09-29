@@ -58,6 +58,38 @@ def save_observation(db, record):
             record['image_path'], json.dumps(record, ensure_ascii=False)))
 
 
+def prune_observations(db, root, limit=100):
+    """Retain the newest observations and their images; reviewed crops stay independent."""
+    rows = db.execute('''SELECT id,image_path FROM observations WHERE id NOT IN
+        (SELECT id FROM observations ORDER BY processed_at DESC,id DESC LIMIT ?)''', (limit,)).fetchall()
+    if not rows:
+        return 0
+    return delete_observations(db, root, rows)
+
+
+def delete_observations(db, root, rows):
+    """Remove selected history, transient candidate labels and owned image files."""
+    rows = list(rows)
+    if not rows:
+        return 0
+    identifiers = [(row[0],) for row in rows]
+    with db:
+        db.executemany('DELETE FROM ocr_auto_candidates WHERE observation_id=?',
+                       identifiers)
+        db.executemany('DELETE FROM observations WHERE id=?', identifiers)
+    images = (Path(root) / 'images').resolve()
+    for _, value in rows:
+        if value:
+            path = Path(value).resolve()
+            if path.is_relative_to(images) and not db.execute(
+                    'SELECT 1 FROM observations WHERE image_path=? LIMIT 1', (value,)).fetchone():
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+    return len(rows)
+
+
 class ConsecutivePlateBest:
     """Keep the best OCR observation for a plate in adjacent processed frames."""
     def __init__(self):
@@ -651,6 +683,7 @@ def main():
                     observations += int(record['result_eligible']) - int(previous['result_eligible'])
                 with db:
                     ocr_learning.queue_observation(out, record, db)
+                prune_observations(db, out)
                 storage_ms += (time.perf_counter() - storage_started) * 1000
                 if previous is not None:
                     print(json.dumps(record, ensure_ascii=False), flush=True)

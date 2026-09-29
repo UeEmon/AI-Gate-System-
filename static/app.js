@@ -111,7 +111,8 @@ async function renderObservations(){
     const td=cell(plate?.text||'読取候補なし','plate');const note=document.createElement('span');note.className='sub';note.textContent=plate?'要確認 · フレーム '+item.frame_index:'車両検出のみ';td.append(note);tr.append(td);
     tr.append(cell(pct(item.confidence)+' / '+pct(plate?.confidence)));
     const image=cell('');if(item.has_image){const a=document.createElement('a');a.textContent='画像を確認';a.href='/api/observations/'+encodeURIComponent(item.id)+'/image';a.target='_blank';a.rel='noopener';image.append(a);}
-    const register=document.createElement('button');register.type='button';register.className='registration-import';register.textContent='登録に取り込む';register.onclick=()=>importRegistration(item.id);image.append(register);tr.append(image);$('results').append(tr);
+    const register=document.createElement('button');register.type='button';register.className='registration-import';register.textContent='登録に取り込む';register.onclick=()=>importRegistration(item.id);image.append(register);
+    const remove=document.createElement('button');remove.type='button';remove.textContent='削除';remove.onclick=async()=>{if(!confirm('この認識履歴と車両画像を削除しますか？'))return;try{await api('/api/observations/'+encodeURIComponent(item.id),{method:'DELETE'});await refresh();}catch(error){message(error.message);}};image.append(remove);tr.append(image);$('results').append(tr);
   }
   const pages=Math.max(1,Math.ceil(data.total/data.page_size));$('page-label').textContent=state.page+' / '+pages;$('prev').disabled=state.page<=1;$('next').disabled=state.page>=pages;
 }
@@ -160,6 +161,10 @@ async function deleteSelectedHistory(){
   finally{state.busy=false;await refresh();setControls();}
 }
 $('delete-history').onclick=deleteSelectedHistory;
+$('delete-all-observations').onclick=async()=>{
+  if(!confirm('認識履歴をすべて削除しますか？ 保存済みの車両画像も削除します。'))return;
+  try{const result=await api('/api/observations',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmation:'DELETE RECOGNITION'})});state.page=1;message('認識履歴 '+result.deleted+'件を削除しました。');await refresh();}catch(error){message(error.message);}
+};
 refresh();setInterval(refresh,1500);
 
 const vehicleNames={car:'乗用車',kei:'軽自動車',motorcycle:'二輪車',bus:'バス',truck:'トラック'};
