@@ -16,6 +16,43 @@ from paddle_training import export, partition
 
 
 class PaddleTrainingTests(unittest.TestCase):
+    def test_designated_evaluation_is_balanced_and_stable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ocr_learning.initialize(root)
+            with events.connection(root) as db:
+                keys = [f'品川|300|あ|{n}' for n in range(1, 5)]
+                assignments = [ocr_learning.assign_evaluation_partition(db, key) for key in keys]
+                self.assertEqual(assignments, ['validation', 'test', 'validation', 'test'])
+                self.assertEqual(ocr_learning.assign_evaluation_partition(db, keys[0]), 'validation')
+                for n, key in enumerate(keys):
+                    identifier = f'{n+1:032x}'
+                    db.execute('''INSERT INTO ocr_samples
+                        (id,observation_id,candidate_index,plate_key,original_text,top_text,bottom_text,
+                         split,image,image_sha256,created_at,source,ocr_confidence)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                        (identifier, identifier, 0, key, '', '品川300', f'あ{n+1}', .45,
+                         b'crop'+bytes([n]), identifier, events.utc(), 'automatic', .99))
+            self.assertEqual([r['partition'] for r in ocr_learning.dataset_snapshot(root, minimum_train=0)],
+                             ['validation', 'test', 'validation', 'test'])
+            ocr_learning.initialize(root)
+            with events.connection(root) as db:
+                self.assertEqual([db.execute('SELECT partition FROM ocr_plate_partitions WHERE plate_key=?',
+                                             (key,)).fetchone()[0] for key in keys], assignments)
+
+    def test_old_validation_designations_are_migrated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with events.connection(root) as db:
+                db.execute('''CREATE TABLE ocr_plate_partitions (plate_key TEXT PRIMARY KEY,
+                    partition TEXT NOT NULL CHECK(partition='validation'))''')
+                db.executemany('INSERT INTO ocr_plate_partitions VALUES (?,?)',
+                               [(f'品川|300|あ|{n}', 'validation') for n in range(1, 5)])
+            ocr_learning.initialize(root)
+            with events.connection(root) as db:
+                self.assertEqual([r[0] for r in db.execute('SELECT partition FROM ocr_plate_partitions ORDER BY plate_key')],
+                                 ['validation', 'test', 'validation', 'test'])
+
     def test_explicit_validation_moves_a_whole_plate_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

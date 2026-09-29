@@ -647,7 +647,7 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
                 LEFT JOIN ocr_auto_archive a ON a.observation_id=s.observation_id
                 LEFT JOIN ocr_auto_candidates c ON c.observation_id=s.observation_id AND c.candidate_index=s.candidate_index
                 ORDER BY s.created_at DESC LIMIT 200""")]
-            overrides = {r[0] for r in db.execute('SELECT plate_key FROM ocr_plate_partitions')}
+            overrides = {r[0]: r[1] for r in db.execute('SELECT plate_key,partition FROM ocr_plate_partitions')}
             counts = {r['source']: r['total'] for r in db.execute('SELECT source,count(*) AS total FROM ocr_samples GROUP BY source')}
             auto = [dict(r) for r in db.execute('''SELECT c.observation_id,c.candidate_index,c.plate_key,c.confidence,c.status,c.created_at,c.last_error
                 FROM ocr_auto_candidates c WHERE c.status!='excluded' AND NOT EXISTS
@@ -661,7 +661,8 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
             eligible = sample['source'] == 'manual' or (sample['ocr_confidence'] or 0) >= .98
             key = sample['plate_key']
             sample['validation_override'] = key in overrides
-            sample['partition'] = ('validation' if eligible and (key in overrides or ocr_learning.validation_group(key)) else
+            sample['partition'] = (overrides[key] if eligible and key in overrides else
+                                   'validation' if eligible and ocr_learning.validation_group(key) else
                                    'test' if eligible and ocr_learning.test_group(key) else 'train')
         return jsonify(samples=samples, count=counts.get('manual', 0), automatic=auto,
                        automatic_confirmed=counts.get('automatic', 0),
@@ -681,9 +682,9 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
             if row is None:
                 abort(404, description='学習データが見つかりません。')
             if row['confidence'] is None or row['confidence'] < .98:
-                abort(400, description='Lipla-jpのOCR信頼度98%以上のデータだけを検証用に指定できます。')
-            db.execute('INSERT OR IGNORE INTO ocr_plate_partitions VALUES (?,?)', (row['plate_key'], 'validation'))
-        return jsonify(plate_key=row['plate_key'], partition='validation')
+                abort(400, description='Lipla-jpのOCR信頼度98%以上のデータだけを検証・テスト用に指定できます。')
+            destination = ocr_learning.assign_evaluation_partition(db, row['plate_key'])
+        return jsonify(plate_key=row['plate_key'], partition=destination)
 
     @app.delete('/api/ocr-learning/samples/<identifier>/validation')
     def reset_validation(identifier):

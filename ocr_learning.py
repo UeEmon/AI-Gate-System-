@@ -25,6 +25,18 @@ def discard_sample(db, row):
                (observation_id, index))
 
 
+def assign_evaluation_partition(db, plate_key):
+    """Persist a balanced assignment; repeat calls never move a plate."""
+    existing = db.execute('SELECT partition FROM ocr_plate_partitions WHERE plate_key=?',
+                          (plate_key,)).fetchone()
+    if existing:
+        return existing[0]
+    counts = {r[0]: r[1] for r in db.execute('SELECT partition,count(*) FROM ocr_plate_partitions GROUP BY partition')}
+    destination = 'validation' if counts.get('validation', 0) <= counts.get('test', 0) else 'test'
+    db.execute('INSERT INTO ocr_plate_partitions VALUES (?,?)', (plate_key, destination))
+    return destination
+
+
 def initialize(root):
     with events.connection(root) as db:
         db.executescript('''
@@ -44,7 +56,7 @@ def initialize(root):
         CREATE TABLE IF NOT EXISTS ocr_auto_archive (
           observation_id TEXT PRIMARY KEY, details_json TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS ocr_plate_partitions (
-          plate_key TEXT PRIMARY KEY, partition TEXT NOT NULL CHECK(partition='validation'));
+          plate_key TEXT PRIMARY KEY, partition TEXT NOT NULL CHECK(partition IN ('validation','test')));
         CREATE TABLE IF NOT EXISTS ocr_training_runs (
           id TEXT PRIMARY KEY, status TEXT NOT NULL, created_at TEXT NOT NULL,
           report_json TEXT, error TEXT);
@@ -59,6 +71,15 @@ def initialize(root):
         auto_columns = {row[1] for row in db.execute('PRAGMA table_info(ocr_auto_candidates)')}
         if 'last_error' not in auto_columns:
             db.execute('ALTER TABLE ocr_auto_candidates ADD COLUMN last_error TEXT')
+        definition = db.execute("SELECT sql FROM sqlite_master WHERE name='ocr_plate_partitions'").fetchone()[0]
+        if "partition='validation'" in definition:
+            old_keys = sorted(r[0] for r in db.execute('SELECT plate_key FROM ocr_plate_partitions'))
+            db.execute('ALTER TABLE ocr_plate_partitions RENAME TO ocr_plate_partitions_old')
+            db.execute('''CREATE TABLE ocr_plate_partitions (plate_key TEXT PRIMARY KEY,
+                partition TEXT NOT NULL CHECK(partition IN ('validation','test')))''')
+            db.executemany('INSERT INTO ocr_plate_partitions VALUES (?,?)',
+                           [(key, 'validation' if i % 2 == 0 else 'test') for i, key in enumerate(old_keys)])
+            db.execute('DROP TABLE ocr_plate_partitions_old')
         db.execute('''UPDATE ocr_samples SET ocr_confidence=(SELECT c.confidence
             FROM ocr_auto_candidates c WHERE c.observation_id=ocr_samples.observation_id
             AND c.candidate_index=ocr_samples.candidate_index) WHERE ocr_confidence IS NULL''')
@@ -323,7 +344,7 @@ def test_group(key):
 
 def dataset_snapshot(root, minimum_train=5):
     with events.connection(root) as db:
-        overrides = {r[0] for r in db.execute('SELECT plate_key FROM ocr_plate_partitions')}
+        overrides = {r[0]: r[1] for r in db.execute('SELECT plate_key,partition FROM ocr_plate_partitions')}
         rows = [dict(r) for r in db.execute("""SELECT s.*,f.fields_json,COALESCE(s.ocr_confidence,c.confidence) AS lipla_confidence
             FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id
             LEFT JOIN ocr_auto_candidates c ON c.observation_id=s.observation_id
@@ -341,7 +362,7 @@ def dataset_snapshot(root, minimum_train=5):
             continue
         seen[digest] = (signature, row['source'])
         eval_eligible = row['source'] == 'manual' or (row['lipla_confidence'] or 0) >= .98
-        row['partition'] = ('validation' if eval_eligible and row['plate_key'] in overrides else
+        row['partition'] = (overrides[row['plate_key']] if eval_eligible and row['plate_key'] in overrides else
                             'test' if eval_eligible and test_group(row['plate_key']) else
                             'validation' if eval_eligible and validation_group(row['plate_key'])
                             else 'train')

@@ -142,7 +142,7 @@ async function refreshLearning(){
       row.append(label,edit);
       if(sample.ocr_confidence>=.98){
         const validation=document.createElement('button');
-        validation.textContent=sample.validation_override?'検証用指定を解除':'検証用に登録';
+        validation.textContent=sample.validation_override?'検証・テスト用指定を解除':'検証・テスト用に登録';
         validation.onclick=async()=>{try{
           await api('/api/ocr-learning/samples/'+encodeURIComponent(sample.id)+'/validation',
             {method:sample.validation_override?'DELETE':'POST'});
