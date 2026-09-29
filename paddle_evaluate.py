@@ -124,9 +124,9 @@ def evaluate(root, dataset, plate_weights, recognition_dir, compare=False,
     manifest = json.loads((Path(dataset) / 'manifest.json').read_text())
     partition = 'test' if any(item['partition'] == 'test' for item in manifest['samples']) else 'val'
     sample_ids = [item['sample'] for item in manifest['samples']
-                  if item['partition'] == partition and item['label_source'] == 'manual']
+                  if item['partition'] == partition and item['label_source'] in ('manual', 'automatic')]
     if not sample_ids:
-        raise ValueError('手動確認済みの評価画像がありません。')
+        raise ValueError('評価画像がありません。')
     if paddle_pipeline is None:
         paddle_pipeline = PaddlePlatePipeline(YOLO(str(plate_weights)),
                                               PaddleLineReader(str(recognition_dir)), parse_plate)
@@ -142,10 +142,12 @@ def evaluate(root, dataset, plate_weights, recognition_dir, compare=False,
     skipped = 0
     with events.connection(root) as db:
         for identifier in sample_ids:
-            row = db.execute('''SELECT s.*,f.fields_json,o.details_json FROM ocr_samples s
+            row = db.execute('''SELECT s.*,f.fields_json,COALESCE(o.details_json,a.details_json) AS details_json FROM ocr_samples s
                 LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id
-                JOIN observations o ON o.id=s.observation_id WHERE s.id=?''', (identifier,)).fetchone()
-            if row is None:
+                LEFT JOIN observations o ON o.id=s.observation_id
+                LEFT JOIN ocr_auto_archive a ON a.observation_id=s.observation_id
+                WHERE s.id=?''', (identifier,)).fetchone()
+            if row is None or row['details_json'] is None:
                 skipped += 1
                 continue
             record = json.loads(row['details_json'])
@@ -185,8 +187,12 @@ def evaluate(root, dataset, plate_weights, recognition_dir, compare=False,
     if not scores['paddle']:
         raise ValueError('読み取り可能な評価用車両画像がありません。')
     if compare:
+        sources = {item['label_source'] for item in manifest['samples']
+                   if item['sample'] in sample_ids}
         report = dict(evaluated=len(scores['paddle']), skipped=skipped,
-                      ground_truth='manual_review', evaluation_partition=partition,
+                      ground_truth=('mixed_manual_and_lipla_pseudo' if len(sources) > 1 else
+                                    'lipla_pseudo' if 'automatic' in sources else 'manual_review'),
+                      evaluation_partition=partition,
                       iou_threshold=.5, diagnostics=diagnostics,
                       ocr_isolated_exact=sum(d['ocr']['exact'] for d in diagnostics)/len(diagnostics),
                       paddle=summarize(scores['paddle']), lipla=summarize(scores['lipla']),

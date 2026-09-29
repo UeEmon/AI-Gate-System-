@@ -16,6 +16,38 @@ from paddle_training import export, partition
 
 
 class PaddleTrainingTests(unittest.TestCase):
+    def test_98_percent_auto_labels_supply_validation_and_test_without_review(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'images').mkdir()
+            ocr_learning.initialize(root)
+            keys = [(n, partition(f'品川|300|あ|{n}')) for n in range(1, 100)]
+            numbers = ([n for n, group in keys if group == 'train'][:5] +
+                       [n for n, group in keys if group == 'val'][:2] +
+                       [n for n, group in keys if group == 'test'][:2])
+            with events.connection(root) as db:
+                db.execute('CREATE TABLE observations (id TEXT PRIMARY KEY, details_json TEXT)')
+                for n in numbers:
+                    identifier = f'{n:032x}'
+                    photo = Image.new('RGB', (120, 60), (n, 100, 100))
+                    path = root / 'images' / f'{identifier}.jpg'
+                    photo.save(path)
+                    image = BytesIO()
+                    photo.save(image, 'PNG')
+                    record = dict(id=identifier, image_path=str(path), plate_candidates=[dict(
+                        ocr_backend='lipla-native', confidence=.99, bbox_in_vehicle=[0, 0, 120, 60],
+                        fields=dict(region='品川', category='300', kana='あ', serial=str(n)))])
+                    db.execute('INSERT INTO observations VALUES (?,?)', (identifier,
+                               json.dumps(record, ensure_ascii=False)))
+                    with patch.object(ocr_learning, 'sample_image', return_value=(image.getvalue(), '')):
+                        ocr_learning.queue_observation(root, record, db)
+            self.assertEqual({r['source'] for r in ocr_learning.dataset_snapshot(root, minimum_train=0)},
+                             {'automatic'})
+            report = export(root, root / 'export')
+            self.assertEqual((report['train_unique_plates'], report['auto_eval_val'], report['auto_eval_test']),
+                             (5, 2, 2))
+            self.assertEqual((report['det_train'], report['det_val'], report['det_test']), (5, 2, 2))
+
     def test_auto_candidates_fill_training_threshold_without_entering_evaluation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

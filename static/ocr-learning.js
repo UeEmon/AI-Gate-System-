@@ -99,7 +99,7 @@ async function refreshLearning(){
     const target=$('paddle-comparison');target.replaceChildren();
     const report=comparison.report;
     if(report&&comparison.dataset===training.dataset){
-      const caption=document.createElement('p');caption.textContent=(report.evaluation_partition==='test'?'学習・モデル選択に未使用のテスト画像':'検証用画像（学習中のモデル選択に使用）')+' '+report.evaluated+'件（除外 '+report.skipped+'件） / IoU 0.50 / 車両画像からの処理時間';target.append(caption);
+      const caption=document.createElement('p');caption.textContent=(report.evaluation_partition==='test'?'学習・モデル選択に未使用のテスト画像':'検証用画像（学習中のモデル選択に使用）')+' '+report.evaluated+'件（除外 '+report.skipped+'件） / '+(report.ground_truth==='manual_review'?'手動確認済みの正解':'Lipla-jp高確度の仮ラベルを含む比較。Lipla-jp自身の正解率を独立に検証した結果ではありません')+' / IoU 0.50 / 車両画像からの処理時間';target.append(caption);
       const table=document.createElement('table');
       const head=document.createElement('tr');
       for(const title of ['方式','検出率','ナンバー完全一致率','平均遅延 (ms)','95%遅延 (ms)','処理速度 (FPS)']){const cell=document.createElement('th');cell.textContent=title;head.append(cell);}table.append(head);

@@ -92,11 +92,11 @@
 <p id="paddle-training-details" class="hint"></p>
 <details><summary>学習ログ（最新12行）</summary><pre id="paddle-training-log"></pre></details>
 <h3>Lipla-jp / 学習済みPaddleOCR 比較</h3>
-<p class="hint">同一の手動確認済み評価画像で比較します。両方式とも車両画像からプレート検出・OCRまで測定します。運用モデルはLipla-jpです。</p>
+<p class="hint">OCR信頼度98%以上のLipla-jp自動ラベルまたは手動修正済み評価画像で比較します。自動ラベルのみではLipla-jp自身の正解率を検証できません。両方式とも車両画像からプレート検出・OCRまで測定します。運用モデルはLipla-jpです。</p>
 <button id="paddle-compare" type="button" disabled>比較を再実行</button>
 <p id="paddle-compare-status" role="status"></p>
 <div id="paddle-comparison"></div>
-<details><summary>自動登録された学習候補（最新200件）</summary><p class="hint">高確度のLipla-jp候補は学習用だけに利用します。未確認候補は人が確認するまで教師データに使用しません。誤認識は「確認・修正」から正しい番号と画像範囲を保存してください。</p><div id="learning-auto-candidates"></div></details>
+<details><summary>自動登録された学習候補（最新200件）</summary><p class="hint">OCR信頼度80%以上の候補は学習用に、98%以上の候補は番号単位の固定分割に従い検証・テストにも利用します。未確認候補は人が確認するまで教師データに使用しません。誤認識は「確認・修正」から正しい番号と画像範囲を保存してください。</p><div id="learning-auto-candidates"></div></details>
 <details><summary>確認済みデータ（最新200件）</summary><div id="learning-samples"></div></details>
 </section>
 <div class="workspace" data-page="monitor">

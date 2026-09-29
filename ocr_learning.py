@@ -254,7 +254,11 @@ def test_group(key):
 
 def dataset_snapshot(root, minimum_train=5):
     with events.connection(root) as db:
-        rows = [dict(r) for r in db.execute("SELECT s.*,f.fields_json FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id ORDER BY CASE WHEN s.source='manual' THEN 0 ELSE 1 END,s.id")]
+        rows = [dict(r) for r in db.execute("""SELECT s.*,f.fields_json,c.confidence AS lipla_confidence
+            FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id
+            LEFT JOIN ocr_auto_candidates c ON c.observation_id=s.observation_id
+              AND c.candidate_index=s.candidate_index
+            ORDER BY CASE WHEN s.source='manual' THEN 0 ELSE 1 END,s.id""")]
     # Identical images with incompatible labels must never become supervision.
     seen = {}
     samples = []
@@ -266,15 +270,21 @@ def dataset_snapshot(root, minimum_train=5):
                 raise ValueError('同一画像に異なる正解があります。学習データ一覧から誤ったデータを削除してください。')
             continue
         seen[digest] = (signature, row['source'])
-        row['partition'] = ('train' if row['source'] == 'automatic' else
-                            'test' if test_group(row['plate_key']) else
-                            'validation' if validation_group(row['plate_key']) else 'train')
+        eval_eligible = row['source'] == 'manual' or (row['lipla_confidence'] or 0) >= .98
+        row['partition'] = ('test' if eval_eligible and test_group(row['plate_key']) else
+                            'validation' if eval_eligible and validation_group(row['plate_key'])
+                            else 'train')
         samples.append(row)
+    manual_keys = {r['plate_key'] for r in samples if r['source'] == 'manual'}
+    eval_keys = {r['plate_key'] for r in samples if r['partition'] != 'train'}
+    samples = [r for r in samples if not (r['source'] == 'automatic' and
+               (r['plate_key'] in manual_keys or
+                (r['partition'] == 'train' and r['plate_key'] in eval_keys)))]
     train = {r['plate_key'] for r in samples if r['partition'] == 'train'}
-    valid = {r['plate_key'] for r in samples if r['partition'] == 'validation' and r['source'] == 'manual'}
-    test = {r['plate_key'] for r in samples if r['partition'] == 'test' and r['source'] == 'manual'}
+    valid = {r['plate_key'] for r in samples if r['partition'] == 'validation'}
+    test = {r['plate_key'] for r in samples if r['partition'] == 'test'}
     if len(train) < minimum_train or len(valid) < 2 or len(test) < 2:
-        raise ValueError(f'異なるナンバーが不足しています（手動確認済み学習用 {len(train)}/{minimum_train}、検証用 {len(valid)}/2、未使用テスト用 {len(test)}/2）。ナンバーごとに固定で約6:2:2に振り分けます。')
+        raise ValueError(f'異なるナンバーが不足しています（学習用 {len(train)}/{minimum_train}、検証用 {len(valid)}/2、未使用テスト用 {len(test)}/2）。自動評価候補にはLipla-jpのOCR信頼度98%以上が必要です。')
     return samples
 
 

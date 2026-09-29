@@ -59,7 +59,7 @@ def export(root, output, pseudo_confidence=.80):
     detector = {'train': {}, 'val': {}, 'test': {}}
     manual_ids = {(r['observation_id'], r['candidate_index']) for r in reviewed}
     reviewed_keys = {r['plate_key'] for r in reviewed if r['source'] == 'manual'}
-    val_keys = {r['plate_key'] for r in reviewed if r['source'] == 'manual' and partition(r['plate_key']) == 'val'}
+    eval_keys = {r['plate_key'] for r in reviewed if r['partition'] != 'train'}
     audit = []
     pseudo_count = 0
     train_keys = set()
@@ -124,7 +124,7 @@ def export(root, output, pseudo_confidence=.80):
                 continue
             # A reviewed identity anywhere in the dataset overrides every
             # Unreviewed predictions cannot enter validation or held-out test.
-            if key in reviewed_keys or key in val_keys:
+            if key in reviewed_keys or key in eval_keys:
                 continue
             source = safe_vehicle_image(root, record)
             if source is None:
@@ -158,7 +158,7 @@ def export(root, output, pseudo_confidence=.80):
                 continue
 
     if not rec_lines['val'] or not rec_lines['train']:
-        raise ValueError('学習用画像と手動確認済みの検証用画像が必要です。')
+        raise ValueError('学習用画像と検証用画像が必要です。自動評価候補はOCR信頼度98%以上に限ります。')
     for split, lines in rec_lines.items():
         (output / 'rec' / f'{split}.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
     for split, rows in detector.items():
@@ -178,6 +178,8 @@ def export(root, output, pseudo_confidence=.80):
         f'path: {json.dumps(str((output / "det").resolve()))}\n'
         'train: images/train\nval: images/val\nnames:\n  0: plate\n')
     report = dict(reviewed=sum(r['source'] == 'manual' for r in reviewed), unreviewed_pseudo=pseudo_count,
+                  auto_eval_val=sum(r['source'] == 'automatic' and r['partition'] == 'validation' for r in reviewed),
+                  auto_eval_test=sum(r['source'] == 'automatic' and r['partition'] == 'test' for r in reviewed),
                   train_unique_plates=len(train_keys),
                   rec_train=len(rec_lines['train']), rec_val=len(rec_lines['val']),
                   det_train=len(detector['train']), det_val=len(detector['val']),

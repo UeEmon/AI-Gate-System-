@@ -75,7 +75,7 @@ class PaddleTrainingManager:
                 state = dict(state='insufficient_data', error=str(error))
                 self._save(state)
                 return state
-            fingerprint = hashlib.sha256(('partition-v3-auto-candidates:' + json.dumps({
+            fingerprint = hashlib.sha256(('partition-v4-auto-evaluation-98:' + json.dumps({
                 'reviewed': [
                 (r['id'], r['image_sha256'], r['top_text'], r['bottom_text'], r['fields_json'], r['source'])
                 for r in rows], 'auto': ocr_learning.auto_signature(self.root)},
@@ -98,7 +98,7 @@ class PaddleTrainingManager:
             if (report.get('train_unique_plates', report['det_train']) < 5 or report['det_train'] < 5 or
                     report['det_val'] < 2 or report['det_test'] < 2):
                 shutil.rmtree(directory, ignore_errors=True)
-                state = dict(state='insufficient_data', error='学習用に異なる番号5件の画像、手動確認済みの検証・未使用テスト用に各2件の車両画像が必要です。', report=report)
+                state = dict(state='insufficient_data', error='学習用に異なる番号5件、検証・未使用テスト用に各2件の車両画像が必要です。自動評価候補はLipla-jpのOCR信頼度98%以上です。', report=report)
                 self._save(state)
                 return state
             log = (directory / 'train.log').open('wb')
