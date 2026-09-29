@@ -82,6 +82,7 @@ def initialize(root):
         db.execute('CREATE INDEX IF NOT EXISTS ocr_samples_retention ON ocr_samples(source,created_at DESC,id DESC)')
         # Apply the current threshold to candidates recorded before the change.
         db.execute("UPDATE ocr_auto_candidates SET status='pseudo' WHERE status='pending' AND confidence>=0.80")
+        db.execute("DELETE FROM ocr_auto_candidates WHERE status='pending' AND confidence<0.50")
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='observations'").fetchone():
             records = db.execute('''SELECT DISTINCT o.details_json FROM observations o
                 JOIN ocr_auto_candidates c ON c.observation_id=o.id
@@ -118,6 +119,10 @@ def queue_observation(root, record, db, minimum=.80):
         except (ValueError, TypeError, KeyError):
             continue
         if not math.isfinite(confidence) or not 0 <= confidence <= 1:
+            continue
+        if confidence < .50:
+            db.execute('''DELETE FROM ocr_auto_candidates WHERE observation_id=? AND candidate_index=?
+                AND status='pending' ''', (record['id'], index))
             continue
         already = db.execute('''SELECT ocr_confidence FROM ocr_samples
             WHERE observation_id=? AND candidate_index=? AND source='automatic' ''',

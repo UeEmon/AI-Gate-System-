@@ -93,13 +93,22 @@ class AutoQueueTests(unittest.TestCase):
                     dict(ocr_backend='lipla-native', confidence=.99,
                          fields=dict(region='品川', category='330', kana='さ', serial='1234')),
                     dict(ocr_backend='lipla-native', confidence=.79,
-                         fields=dict(region='横浜', category='500', kana='あ', serial='5678'))])
-                self.assertEqual(ocr_learning.queue_observation(root, record, db), 2)
-                self.assertEqual(ocr_learning.queue_observation(root, record, db), 2)
+                         fields=dict(region='横浜', category='500', kana='あ', serial='5678')),
+                    dict(ocr_backend='lipla-native', confidence=.49,
+                         fields=dict(region='横浜', category='500', kana='あ', serial='0001')),
+                    dict(ocr_backend='lipla-native', confidence=.50,
+                         fields=dict(region='横浜', category='500', kana='あ', serial='0002'))])
+                self.assertEqual(ocr_learning.queue_observation(root, record, db), 3)
+                self.assertEqual(ocr_learning.queue_observation(root, record, db), 3)
                 self.assertEqual([r[0] for r in db.execute(
                     'SELECT status FROM ocr_auto_candidates ORDER BY candidate_index')],
-                    ['pseudo', 'pending'])
+                    ['pseudo', 'pending', 'pending'])
+                db.execute('''INSERT INTO ocr_auto_candidates
+                    (observation_id,candidate_index,plate_key,confidence,status,created_at)
+                    VALUES (?,?,?,?,?,?)''', ('legacy', 0, '品川|300|あ|1', .49, 'pending', 'old'))
                 db.commit()
+                ocr_learning.initialize(root)
+                self.assertIsNone(db.execute("SELECT 1 FROM ocr_auto_candidates WHERE observation_id='legacy'").fetchone())
                 self.assertEqual(len(ocr_learning.auto_signature(root)), 1)
                 record['plate_candidates'][1]['confidence'] = .80
                 ocr_learning.queue_observation(root, record, db)

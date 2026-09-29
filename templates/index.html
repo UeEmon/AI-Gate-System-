@@ -96,7 +96,7 @@
 <button id="paddle-compare" type="button" disabled>比較を再実行</button>
 <p id="paddle-compare-status" role="status"></p>
 <div id="paddle-comparison"></div>
-<details><summary>自動登録された学習候補（最新200件）</summary><p class="hint">OCR信頼度80%以上の候補は学習用に、98%以上の候補は番号単位の固定分割に従い検証・テストにも利用します。未確認候補は人が確認するまで教師データに使用しません。誤認識は「確認・修正」から正しい番号と画像範囲を保存してください。</p><div id="learning-auto-candidates"></div></details>
+<details><summary>自動登録された学習候補（最新200件）</summary><p class="hint">OCR信頼度80%以上の候補は学習用に、98%以上の候補は番号単位の固定分割に従い検証・テストにも利用します。50%以上80%未満は確認待ち候補とし、人が確認するまで教師データに使用しません。50%未満は候補へ登録しません。誤認識は「確認・修正」から正しい番号と画像範囲を保存してください。</p><div id="learning-auto-candidates"></div></details>
 <details><summary>確認済みデータ（最新200件）</summary><div id="learning-samples"></div></details>
 </section>
 <div class="workspace" data-page="monitor">
