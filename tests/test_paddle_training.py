@@ -10,6 +10,7 @@ from PIL import Image
 
 import events
 import ocr_learning
+from app import delete_observations
 from paddle_training import export, partition
 
 
@@ -31,7 +32,7 @@ class PaddleTrainingTests(unittest.TestCase):
                     path = root / 'images' / f'{identifier}.jpg'
                     image.save(path)
                     record = dict(id=identifier, image_path=str(path), plate_candidates=[dict(
-                        ocr_backend='lipla-native', confidence=.99, bbox_in_vehicle=[0, 0, 120, 60],
+                        ocr_backend='lipla-native', confidence=.80, bbox_in_vehicle=[0, 0, 120, 60],
                         fields=dict(region='品川', category='300', kana='あ', serial=str(n)))])
                     db.execute('INSERT INTO observations VALUES (?,?)', (identifier,
                                json.dumps(record, ensure_ascii=False)))
@@ -104,6 +105,13 @@ class PaddleTrainingTests(unittest.TestCase):
                            (observation_id, json.dumps(pseudo_record, ensure_ascii=False)))
                 ocr_learning.queue_observation(root, pseudo_record, db)
             self.assertEqual(export(root, root / 'with-pseudo')['unreviewed_pseudo'], 1)
+            with events.connection(root) as db:
+                # The synthetic observations table in this test contains only JSON.
+                db.execute('ALTER TABLE observations ADD COLUMN image_path TEXT')
+                db.execute('UPDATE observations SET image_path=? WHERE id=?',
+                           (str(image_path), observation_id))
+                delete_observations(db, root, [(observation_id, str(image_path))], archive=True)
+            self.assertEqual(export(root, root / 'archived-pseudo')['unreviewed_pseudo'], 1)
             with events.connection(root) as db:
                 db.execute("UPDATE ocr_auto_candidates SET status='excluded' WHERE observation_id=?",
                            (observation_id,))

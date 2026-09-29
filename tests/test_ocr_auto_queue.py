@@ -20,7 +20,7 @@ class AutoQueueTests(unittest.TestCase):
                 record = dict(id='observation', image_path=str(image), plate_candidates=[
                     dict(ocr_backend='lipla-native', confidence=.99,
                          fields=dict(region='品川', category='330', kana='さ', serial='1234')),
-                    dict(ocr_backend='lipla-native', confidence=.91,
+                    dict(ocr_backend='lipla-native', confidence=.79,
                          fields=dict(region='横浜', category='500', kana='あ', serial='5678'))])
                 self.assertEqual(ocr_learning.queue_observation(root, record, db), 2)
                 self.assertEqual(ocr_learning.queue_observation(root, record, db), 2)
@@ -29,6 +29,10 @@ class AutoQueueTests(unittest.TestCase):
                     ['pseudo', 'pending'])
                 db.commit()
                 self.assertEqual(len(ocr_learning.auto_signature(root)), 1)
+                record['plate_candidates'][1]['confidence'] = .80
+                ocr_learning.queue_observation(root, record, db)
+                self.assertEqual(db.execute('SELECT status FROM ocr_auto_candidates '
+                                            'WHERE candidate_index=1').fetchone()[0], 'pseudo')
                 db.execute("UPDATE ocr_auto_candidates SET status='excluded' WHERE candidate_index=0")
                 ocr_learning.queue_observation(root, record, db)
                 self.assertEqual(db.execute('SELECT status FROM ocr_auto_candidates '

@@ -40,9 +40,9 @@ def plate_box(candidate, size):
     return (x1, y1, x2, y2)
 
 
-def export(root, output, pseudo_confidence=.98):
-    if not 0.9 <= pseudo_confidence <= 1:
-        raise ValueError('未修正のLipla教師データには90%以上の信頼度を指定してください。')
+def export(root, output, pseudo_confidence=.80):
+    if not 0.8 <= pseudo_confidence <= 1:
+        raise ValueError('未修正のLipla教師データには80%以上の信頼度を指定してください。')
     root, output = Path(root), Path(output)
     if output.exists():
         raise FileExistsError('既存の学習データは上書きしません。別の出力先を指定してください。')
@@ -50,6 +50,8 @@ def export(root, output, pseudo_confidence=.98):
     with events.connection(root) as db:
         observations = {row['id']: json.loads(row['details_json']) for row in
                         db.execute('SELECT id, details_json FROM observations')}
+        observations.update({row['observation_id']: json.loads(row['details_json']) for row in
+                             db.execute('SELECT observation_id,details_json FROM ocr_auto_archive')})
         auto_status = {(row['observation_id'], row['candidate_index']): row['status'] for row in
                        db.execute('SELECT observation_id,candidate_index,status FROM ocr_auto_candidates')}
     output.mkdir(parents=True)
@@ -104,7 +106,7 @@ def export(root, output, pseudo_confidence=.98):
         for index, candidate in enumerate(record.get('plate_candidates', [])):
             if (record['id'], index) in manual_ids:
                 continue
-            if auto_status.get((record['id'], index), 'pseudo') != 'pseudo':
+            if auto_status.get((record['id'], index)) != 'pseudo':
                 continue
             if candidate.get('ocr_backend') not in ('lipla-native', 'lipla-jp'):
                 continue
@@ -184,6 +186,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--data', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--pseudo-confidence', type=float, default=.98)
+    parser.add_argument('--pseudo-confidence', type=float, default=.80)
     args = parser.parse_args()
     print(json.dumps(export(args.data, args.output, args.pseudo_confidence), ensure_ascii=False))

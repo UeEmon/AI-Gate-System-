@@ -24,13 +24,15 @@ class ObservationRetentionTests(unittest.TestCase):
                 db.execute('INSERT INTO ocr_auto_candidates VALUES (?,?,?,?,?,?)',
                            ('0', 0, '品川|300|あ|1', .99, 'pseudo', 'now'))
                 db.execute('INSERT INTO ocr_samples VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-                           ('manual', '0', 0, '品川|300|あ|1', '', '品川300', 'あ1',
+                           ('manual', '0', 1, '品川|300|あ|1', '', '品川300', 'あ1',
                             .45, b'crop', 'hash', 'now'))
                 db.commit()
                 self.assertEqual(prune_observations(db, root), 2)
                 self.assertEqual(db.execute('SELECT count(*) FROM observations').fetchone()[0], 100)
                 self.assertFalse((images / '0.jpg').exists())
-                self.assertIsNone(db.execute('SELECT 1 FROM ocr_auto_candidates').fetchone())
+                self.assertIsNotNone(db.execute('SELECT 1 FROM ocr_auto_candidates').fetchone())
+                self.assertIsNotNone(db.execute('SELECT 1 FROM ocr_auto_archive').fetchone())
+                self.assertTrue((images / 'learning' / '0.jpg').is_file())
                 self.assertEqual(db.execute('SELECT count(*) FROM ocr_samples').fetchone()[0], 1)
                 rows = db.execute("SELECT id,image_path FROM observations WHERE id='2'").fetchall()
                 self.assertEqual(delete_observations(db, root, rows), 1)

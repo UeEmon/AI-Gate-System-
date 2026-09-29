@@ -64,18 +64,44 @@ def prune_observations(db, root, limit=100):
         (SELECT id FROM observations ORDER BY processed_at DESC,id DESC LIMIT ?)''', (limit,)).fetchall()
     if not rows:
         return 0
-    return delete_observations(db, root, rows)
+    return delete_observations(db, root, rows, archive=True)
 
 
-def delete_observations(db, root, rows):
+def delete_observations(db, root, rows, archive=False):
     """Remove selected history, transient candidate labels and owned image files."""
     rows = list(rows)
     if not rows:
         return 0
     identifiers = [(row[0],) for row in rows]
+    archived = set()
+    if archive:
+        from shutil import copy2
+        for identifier, value in rows:
+            candidates = db.execute('''SELECT 1 FROM ocr_auto_candidates c WHERE c.observation_id=?
+                AND c.status='pseudo' AND NOT EXISTS (SELECT 1 FROM ocr_samples s WHERE
+                s.observation_id=c.observation_id AND s.candidate_index=c.candidate_index) LIMIT 1''',
+                                    (identifier,)).fetchone()
+            if not candidates or not value:
+                continue
+            source = Path(value).resolve()
+            images = (Path(root) / 'images').resolve()
+            if not source.is_relative_to(images) or not source.is_file():
+                continue
+            target = images / 'learning' / (identifier + source.suffix)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            copy2(source, target)
+            record = json.loads(db.execute('SELECT details_json FROM observations WHERE id=?',
+                                           (identifier,)).fetchone()[0])
+            record['image_path'] = str(target)
+            with db:
+                db.execute('INSERT OR REPLACE INTO ocr_auto_archive VALUES (?,?)',
+                           (identifier, json.dumps(record, ensure_ascii=False)))
+            archived.add(identifier)
     with db:
         db.executemany('DELETE FROM ocr_auto_candidates WHERE observation_id=?',
-                       identifiers)
+                       [(identifier,) for identifier, in identifiers if identifier not in archived])
+        if not archive:
+            db.executemany('DELETE FROM ocr_auto_archive WHERE observation_id=?', identifiers)
         db.executemany('DELETE FROM observations WHERE id=?', identifiers)
     images = (Path(root) / 'images').resolve()
     for _, value in rows:

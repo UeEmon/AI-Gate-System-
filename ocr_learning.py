@@ -32,15 +32,19 @@ def initialize(root):
           plate_key TEXT NOT NULL, confidence REAL NOT NULL,
           status TEXT NOT NULL, created_at TEXT NOT NULL,
           PRIMARY KEY(observation_id,candidate_index));
+        CREATE TABLE IF NOT EXISTS ocr_auto_archive (
+          observation_id TEXT PRIMARY KEY, details_json TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS ocr_training_runs (
           id TEXT PRIMARY KEY, status TEXT NOT NULL, created_at TEXT NOT NULL,
           report_json TEXT, error TEXT);
         CREATE UNIQUE INDEX IF NOT EXISTS ocr_one_run ON ocr_training_runs(status)
           WHERE status='running';
         ''')
+        # Apply the current threshold to candidates recorded before the change.
+        db.execute("UPDATE ocr_auto_candidates SET status='pseudo' WHERE status='pending' AND confidence>=0.80")
 
 
-def queue_observation(root, record, db, minimum=.98):
+def queue_observation(root, record, db, minimum=.80):
     """Keep Lipla results as provisional data; never call them reviewed truth."""
     if not record.get('image_path') or not Path(record['image_path']).is_file():
         return 0
@@ -85,6 +89,9 @@ def sample_image(root, observation_id, candidate_index, db):
     import cv2
     import numpy as np
     row = db.execute('SELECT details_json FROM observations WHERE id=?', (observation_id,)).fetchone()
+    if row is None:
+        row = db.execute('SELECT details_json FROM ocr_auto_archive WHERE observation_id=?',
+                         (observation_id,)).fetchone()
     if row is None:
         raise ValueError('元の認識結果が見つかりません。')
     record = json.loads(row[0])

@@ -592,6 +592,9 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
         with manager.connect() as db:
             row = db.execute('SELECT details_json FROM observations WHERE id=?',
                              (observation_id,)).fetchone()
+            if row is None:
+                row = db.execute('SELECT details_json FROM ocr_auto_archive WHERE observation_id=?',
+                                 (observation_id,)).fetchone()
         if not row:
             abort(404, description='読み取り結果が見つかりません。')
         item = json.loads(row[0])
@@ -607,6 +610,10 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
     def observation_image(observation_id):
         with manager.connect() as db:
             row = db.execute('SELECT image_path FROM observations WHERE id=?', (observation_id,)).fetchone()
+            if row is None:
+                archived = db.execute('SELECT details_json FROM ocr_auto_archive WHERE observation_id=?',
+                                      (observation_id,)).fetchone()
+                row = (json.loads(archived[0]).get('image_path'),) if archived else None
         if not row or not row[0]:
             abort(404)
         path = Path(row[0]).resolve()
@@ -664,7 +671,7 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
                                 candidate_index=item['candidate_index'],
                                 plate_key=item['plate_key'], top_text=parts[0]+parts[1],
                                 bottom_text=parts[2]+parts[3], original_text='',
-                                fields=None, has_observation=1, source='automatic',
+                                fields=None, has_observation=True, source='automatic',
                                 confidence=item['confidence']))
         return jsonify(samples=samples, count=count, automatic=[item for item in auto if item not in confirmed_auto],
                        automatic_confirmed=len(confirmed_auto),
@@ -678,6 +685,16 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
                                 (observation_id, candidate_index))
             if cursor.rowcount == 0:
                 abort(404, description='自動候補が見つかりません。')
+            remaining = db.execute("SELECT 1 FROM ocr_auto_candidates WHERE observation_id=? AND status='pseudo' LIMIT 1",
+                                   (observation_id,)).fetchone()
+            if not remaining:
+                archived = db.execute('SELECT details_json FROM ocr_auto_archive WHERE observation_id=?',
+                                      (observation_id,)).fetchone()
+                if archived:
+                    db.execute('DELETE FROM ocr_auto_archive WHERE observation_id=?', (observation_id,))
+                    path = Path(json.loads(archived[0])['image_path']).resolve()
+                    if path.is_relative_to((manager.root / 'images' / 'learning').resolve()):
+                        path.unlink(missing_ok=True)
         return jsonify(status='excluded')
 
     @app.get('/api/ocr-learning/preview/<observation_id>/<int:candidate_index>')
