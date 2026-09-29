@@ -786,11 +786,11 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
     @app.post('/api/vehicles')
     def add_vehicle():
         data = request.get_json() or {}
+        if 'learning' in data:
+            abort(400, description='OCR学習データはOCR学習画面から別に登録してください。')
         try:
             with events.connection(manager.root) as db:
                 vehicle_id = events.register_vehicle(manager.root, data, database=db)
-                if data.get('learning') is not None:
-                    ocr_learning.save_sample(manager.root, data['learning'], data, db)
         except (ValueError,KeyError,TypeError,sqlite3.IntegrityError) as error:
             abort(400,description='登録できません: ' + str(error))
         return jsonify(id=vehicle_id),201
@@ -832,10 +832,10 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
             if not db.execute('SELECT id FROM vehicles WHERE id=?',(vehicle_id,)).fetchone(): abort(404)
         try:
             data = request.get_json() or {}
+            if 'learning' in data:
+                abort(400, description='OCR学習データはOCR学習画面から別に登録してください。')
             with events.connection(manager.root) as db:
                 events.register_vehicle(manager.root, data, vehicle_id, database=db)
-                if data.get('learning') is not None:
-                    ocr_learning.save_sample(manager.root, data['learning'], data, db)
         except (ValueError,KeyError,TypeError,sqlite3.IntegrityError):
             abort(400,description='登録内容を確認してください。同じナンバーは重複登録できません。')
         return jsonify(id=vehicle_id)

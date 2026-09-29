@@ -19,6 +19,15 @@ class Process:
     def kill(self): self.done.set()
 
 class WebTests(unittest.TestCase):
+    def test_vehicle_registration_is_independent_of_ocr_training(self):
+        vehicle = dict(region='品川', category='300', kana='あ', serial='1234',
+                       vehicle_type='car', label='試験車両', watch=True)
+        rejected = self.client.post('/api/vehicles', json={**vehicle, 'learning': {'confirmed': True}},
+                                    headers=self.headers)
+        self.assertEqual(rejected.status_code, 400)
+        self.assertEqual(self.client.post('/api/vehicles', json=vehicle, headers=self.headers).status_code, 201)
+        with self.manager.connect() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM ocr_samples').fetchone()[0], 0)
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(); self.commands=[]; self.processes=[]
         def launch(command,**kwargs):

@@ -172,7 +172,6 @@ const deliveryNames={pending:'送信待ち',sending:'送信中',sent:'メール�
 let registrationDraft=null, registrationRequest=0;
 function resetVehicle(){
   registrationRequest++;registrationDraft=null;
-  if(typeof resetLearning==='function')resetLearning();
   $('vehicle-form').reset();$('vehicle-id').value='';$('vehicle-enabled').checked=true;
   $('registration-review').hidden=true;$('registration-image').hidden=true;$('registration-image').removeAttribute('src');
   $('registration-candidate').replaceChildren();
@@ -180,8 +179,6 @@ function resetVehicle(){
 function chooseRegistrationCandidate(){
   const candidate=registrationDraft?.plate_candidates[Number($('registration-candidate').value)];
   for(const id of ['region','category','kana','serial'])$(id).value=candidate?.fields?.[id]??'';
-  // Initialize the learning answers after the selected OCR values are shown.
-  if(typeof prepareLearning==='function')prepareLearning();
   const plateHint=candidate?.kei_strength==='strong'?' · 軽自動車プレートとして検出':
     candidate?.kei_strength==='review'?' · 図柄入り軽ナンバーの可能性あり（車種を確認）':'';
   const threshold=registrationDraft?.result_thresholds?.ocr??.7;
@@ -225,13 +222,9 @@ async function loadVehicles(){
 $('vehicle-form').onsubmit=async event=>{
   event.preventDefault();const payload={region:$('region').value,category:$('category').value,kana:$('kana').value,serial:$('serial').value,vehicle_type:$('registered-type').value,label:$('vehicle-label').value,watch:$('watch').checked,enabled:$('vehicle-enabled').checked};
   try{
-    if(registrationDraft?.has_image&&registrationDraft.plate_candidates?.length){
-      if(typeof learningPayload!=='function')throw new Error('学習画像の準備中です。画面を再読み込みしてください。');
-      payload.learning=learningPayload(false);
-    }
     await api('/api/vehicles'+($('vehicle-id').value?'/'+$('vehicle-id').value:''),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     resetVehicle();await loadVehicles();
-    message(payload.learning?'登録車両と学習データを保存しました。OCR学習タブで確認できます。':'登録車両を保存しました。元画像・認識候補がないため学習データは保存されていません。');
+    message('登録車両と通知指定を保存しました。OCR学習データは認識時に別途自動登録されます。');
   }catch(error){message(error.message);}
 };
 async function renderAlerts(){

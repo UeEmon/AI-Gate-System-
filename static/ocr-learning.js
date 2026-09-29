@@ -1,6 +1,6 @@
 'use strict';
 const learningFields=['region','category','kana','serial'];
-let learningImage=null, learningGeneration=0;
+let learningImage=null, learningGeneration=0, learningDraft=null;
 function resetLearning(){
   learningGeneration++;learningImage=null;
   $('learning-review').hidden=true;
@@ -22,8 +22,8 @@ function drawLearning(){
 }
 function prepareLearning(savedFields=null){
   resetLearning();
-  if(!registrationDraft?.has_image||!registrationDraft.plate_candidates.length)return;
-  const candidate=registrationDraft.plate_candidates[Number($('registration-candidate').value)];
+  if(!learningDraft?.has_image||!learningDraft.plate_candidates.length)return;
+  const candidate=learningDraft.plate_candidates[Number($('learning-candidate').value)];
   const detected=candidate?.fields||{};
   const defaults={region:[0,0,.55,.45],category:[.55,0,1,.45],kana:[0,.45,.2,1],serial:[.2,.45,1,1]};
   for(const name of learningFields){
@@ -31,29 +31,38 @@ function prepareLearning(savedFields=null){
     ['x1','y1','x2','y2'].forEach((part,i)=>$('learning-'+name+'-'+part).value=String(box[i]*100));
     // Registration fields are also the learning answers. OCR values are the
     // initial before-correction data; saved reviews take precedence.
-    $(name).value=savedFields?.[name]?.text??detected[name]??$(name).value;
+    $('learning-text-'+name).value=savedFields?.[name]?.text??detected[name]??'';
   }
   const generation=learningGeneration;
   const img=new Image();
   img.onload=()=>{if(generation!==learningGeneration)return;learningImage=img;$('learning-review').hidden=false;$('learning-full-image').src=img.src;drawLearning();};
   img.onerror=()=>{if(generation===learningGeneration)message('この候補は学習画像として取得できません。画像保存設定と候補枠を確認してください。');};
-  img.src='/api/ocr-learning/preview/'+encodeURIComponent(registrationDraft.observation_id)+'/'+Number($('registration-candidate').value);
+  img.src='/api/ocr-learning/preview/'+encodeURIComponent(learningDraft.observation_id)+'/'+Number($('learning-candidate').value);
 }
+async function importLearningObservation(observationId, candidateIndex=0, savedFields=null){
+  const draft=await api('/api/observations/'+encodeURIComponent(observationId)+'/registration');
+  learningDraft=draft;
+  $('learning-candidate').replaceChildren(...draft.plate_candidates.map((item,index)=>new Option((index+1)+': '+(item.text||'候補'),String(index))));
+  $('learning-candidate').value=String(candidateIndex);
+  showPage('learning');prepareLearning(savedFields);
+  $('learning-review').scrollIntoView({behavior:'smooth'});
+}
+$('learning-candidate').onchange=()=>prepareLearning();
 function learningPayload(requireConfirmation=true){
-  if(!learningImage||!registrationDraft)throw new Error('学習用画像を読み込めません。画像の保存と候補の範囲を確認してください。');
+  if(!learningImage||!learningDraft)throw new Error('学習用画像を読み込めません。画像の保存と候補の範囲を確認してください。');
   if(requireConfirmation&&!$('learning-confirm').checked)throw new Error('4項目それぞれの学習画像と正解を確認してください。');
   const fields={};
-  for(const name of learningFields)fields[name]={text:$(name).value,box:fieldBox(name)};
-  return {observation_id:registrationDraft.observation_id,candidate_index:Number($('registration-candidate').value),fields,confirmed:true};
+  for(const name of learningFields)fields[name]={text:$('learning-text-'+name).value,box:fieldBox(name)};
+  return {observation_id:learningDraft.observation_id,candidate_index:Number($('learning-candidate').value),fields,confirmed:true};
 }
 for(const name of learningFields){
   for(const part of ['x1','y1','x2','y2'])$('learning-'+name+'-'+part).oninput=drawLearning;
-  $(name).addEventListener('input',()=>{$('learning-confirm').checked=false;});
+  $('learning-text-'+name).addEventListener('input',()=>{$('learning-confirm').checked=false;});
 }
 $('learning-save').onclick=async()=>{
   try{
     const payload={learning:learningPayload()};
-    for(const id of ['region','category','kana','serial'])payload[id]=$(id).value;
+    for(const id of learningFields)payload[id]=$('learning-text-'+id).value;
     await api('/api/ocr-learning/samples',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     message('確認したナンバーと画像を保存しました。');
     await refreshLearning();
@@ -72,7 +81,7 @@ async function refreshLearning(){
       const row=document.createElement('div');row.className='job';
       const label=document.createElement('span');label.textContent=item.plate_key+' · OCR '+Math.round(item.confidence*100)+'% · '+(item.status==='pseudo'?'学習用候補':'確認待ち');
       const review=document.createElement('button');review.textContent='確認・修正';
-      review.onclick=async()=>{try{await importRegistration(item.observation_id);if(registrationDraft?.observation_id===item.observation_id){$('registration-candidate').value=String(item.candidate_index);chooseRegistrationCandidate();}}catch(error){message(error.message);}};
+      review.onclick=async()=>{try{await importLearningObservation(item.observation_id,item.candidate_index);}catch(error){message(error.message);}};
       const exclude=document.createElement('button');exclude.textContent='学習から除外';
       exclude.onclick=async()=>{try{await api('/api/ocr-learning/auto/'+encodeURIComponent(item.observation_id)+'/'+item.candidate_index,{method:'DELETE'});await refreshLearning();}catch(error){message(error.message);}};
       row.append(label,review,exclude);$('learning-auto-candidates').append(row);
@@ -122,11 +131,10 @@ async function refreshLearning(){
       edit.disabled=!sample.has_observation;
       if(!sample.has_observation)edit.title='元の認識履歴は削除されています。学習データ自体は保持されています。';
       edit.onclick=async()=>{
-        await importRegistration(sample.observation_id);
-        if(registrationDraft?.observation_id!==sample.observation_id)return;
-        $('registration-candidate').value=String(sample.candidate_index);
-        const values=sample.plate_key.split('|');learningFields.forEach((name,i)=>$(name).value=values[i]);
-        prepareLearning(sample.fields);
+        try{
+          await importLearningObservation(sample.observation_id,sample.candidate_index,sample.fields);
+          const values=sample.plate_key.split('|');learningFields.forEach((name,i)=>$('learning-text-'+name).value=sample.fields?.[name]?.text??values[i]);
+        }catch(error){message(error.message);}
       };
       row.append(label,edit,button);$('learning-samples').append(row);
     }
