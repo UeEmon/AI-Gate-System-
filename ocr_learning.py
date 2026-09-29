@@ -16,6 +16,15 @@ import events
 from plate_rules import KANA_PATTERN
 
 
+def discard_sample(db, row):
+    """Remove a superseded label and prevent its old pseudo-label from reappearing."""
+    identifier, observation_id, index = row[:3]
+    db.execute('DELETE FROM ocr_sample_fields WHERE sample_id=?', (identifier,))
+    db.execute('DELETE FROM ocr_samples WHERE id=?', (identifier,))
+    db.execute("UPDATE ocr_auto_candidates SET status='excluded' WHERE observation_id=? AND candidate_index=?",
+               (observation_id, index))
+
+
 def initialize(root):
     with events.connection(root) as db:
         db.executescript('''
@@ -45,9 +54,31 @@ def initialize(root):
         columns = {row[1] for row in db.execute('PRAGMA table_info(ocr_samples)')}
         if 'source' not in columns:
             db.execute("ALTER TABLE ocr_samples ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
+        if 'ocr_confidence' not in columns:
+            db.execute('ALTER TABLE ocr_samples ADD COLUMN ocr_confidence REAL')
         auto_columns = {row[1] for row in db.execute('PRAGMA table_info(ocr_auto_candidates)')}
         if 'last_error' not in auto_columns:
             db.execute('ALTER TABLE ocr_auto_candidates ADD COLUMN last_error TEXT')
+        db.execute('''UPDATE ocr_samples SET ocr_confidence=(SELECT c.confidence
+            FROM ocr_auto_candidates c WHERE c.observation_id=ocr_samples.observation_id
+            AND c.candidate_index=ocr_samples.candidate_index) WHERE ocr_confidence IS NULL''')
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='observations'").fetchone():
+            db.execute('''UPDATE ocr_samples SET ocr_confidence=(SELECT json_extract(o.details_json,
+                '$.plate_candidates['||ocr_samples.candidate_index||'].confidence') FROM observations o
+                WHERE o.id=ocr_samples.observation_id) WHERE ocr_confidence IS NULL''')
+        db.execute('''UPDATE ocr_samples SET ocr_confidence=(SELECT json_extract(a.details_json,
+            '$.plate_candidates['||ocr_samples.candidate_index||'].confidence') FROM ocr_auto_archive a
+            WHERE a.observation_id=ocr_samples.observation_id) WHERE ocr_confidence IS NULL''')
+        duplicates = db.execute('''SELECT id,observation_id,candidate_index,plate_key,
+            COALESCE(ocr_confidence,-1) AS score,created_at FROM ocr_samples
+            ORDER BY plate_key,score DESC,created_at DESC,id DESC''').fetchall()
+        kept = set()
+        for row in duplicates:
+            if row['plate_key'] in kept:
+                discard_sample(db, row)
+            else:
+                kept.add(row['plate_key'])
+        db.execute('CREATE UNIQUE INDEX IF NOT EXISTS ocr_samples_plate_key ON ocr_samples(plate_key)')
         db.execute('CREATE INDEX IF NOT EXISTS ocr_samples_retention ON ocr_samples(source,created_at DESC,id DESC)')
         # Apply the current threshold to candidates recorded before the change.
         db.execute("UPDATE ocr_auto_candidates SET status='pseudo' WHERE status='pending' AND confidence>=0.80")
@@ -88,6 +119,11 @@ def queue_observation(root, record, db, minimum=.80):
             continue
         if not math.isfinite(confidence) or not 0 <= confidence <= 1:
             continue
+        already = db.execute('''SELECT ocr_confidence FROM ocr_samples
+            WHERE observation_id=? AND candidate_index=? AND source='automatic' ''',
+            (record['id'], index)).fetchone()
+        if already and already[0] is not None and confidence <= already[0]:
+            continue
         status = 'pseudo' if confidence >= minimum else 'pending'
         db.execute('''INSERT INTO ocr_auto_candidates (observation_id,candidate_index,plate_key,confidence,status,created_at) VALUES (?,?,?,?,?,?)
             ON CONFLICT(observation_id,candidate_index) DO UPDATE SET
@@ -105,14 +141,27 @@ def queue_observation(root, record, db, minimum=.80):
             try:
                 image, original = sample_image(root, record['id'], index, db)
                 parts = candidate['fields']
+                existing = db.execute('SELECT id,observation_id,candidate_index,plate_key,ocr_confidence,created_at,source FROM ocr_samples WHERE plate_key=?', (key,)).fetchone()
+                if existing and (existing[1], existing[2]) != (record['id'], index):
+                    if (confidence, events.utc()) <= (existing[4] if existing[4] is not None else -1, existing[5]):
+                        db.execute("UPDATE ocr_auto_candidates SET status='excluded' WHERE observation_id=? AND candidate_index=?",
+                                   (record['id'], index))
+                        continue
+                    discard_sample(db, existing)
                 db.execute('''INSERT INTO ocr_samples
                     (id,observation_id,candidate_index,plate_key,original_text,top_text,bottom_text,
-                     split,image,image_sha256,created_at,source)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-                    ON CONFLICT(observation_id,candidate_index) DO NOTHING''',
+                     split,image,image_sha256,created_at,source,ocr_confidence)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(observation_id,candidate_index) DO UPDATE SET
+                      plate_key=excluded.plate_key,original_text=excluded.original_text,
+                      top_text=excluded.top_text,bottom_text=excluded.bottom_text,
+                      image=excluded.image,image_sha256=excluded.image_sha256,
+                      created_at=excluded.created_at,ocr_confidence=excluded.ocr_confidence
+                    WHERE ocr_samples.source='automatic'
+                      AND excluded.ocr_confidence>=COALESCE(ocr_samples.ocr_confidence,-1)''',
                     (uuid.uuid4().hex, record['id'], index, key, original,
                      parts['region']+parts['category'], parts['kana']+parts['serial'], .45,
-                     sqlite3.Binary(image), hashlib.sha256(image).hexdigest(), events.utc(), 'automatic'))
+                     sqlite3.Binary(image), hashlib.sha256(image).hexdigest(), events.utc(), 'automatic',confidence))
                 db.execute('''UPDATE ocr_auto_candidates SET last_error=NULL
                     WHERE observation_id=? AND candidate_index=?''', (record['id'], index))
             except (ValueError, KeyError, OSError, ImportError) as error:
@@ -224,16 +273,29 @@ def save_sample(root, data, fields, db):
     if not isinstance(observation_id, str):
         raise ValueError('元画像を指定してください。')
     image, original = sample_image(root, observation_id, index, db)
+    record_row = db.execute('SELECT details_json FROM observations WHERE id=?', (observation_id,)).fetchone()
+    if record_row is None:
+        record_row = db.execute('SELECT details_json FROM ocr_auto_archive WHERE observation_id=?',
+                                (observation_id,)).fetchone()
+    candidate = json.loads(record_row[0])['plate_candidates'][index]
+    confidence = float(candidate.get('confidence') or 0)
+    key = events.plate_key(fields)
+    existing = db.execute('''SELECT id,observation_id,candidate_index,plate_key,ocr_confidence,created_at
+        FROM ocr_samples WHERE plate_key=?''', (key,)).fetchone()
+    if existing and (existing[1], existing[2]) != (observation_id, index):
+        if (confidence, events.utc()) <= (existing[4] if existing[4] is not None else -1, existing[5]):
+            return existing[0]
+        discard_sample(db, existing)
     identifier = uuid.uuid4().hex
     db.execute('''INSERT INTO ocr_samples
         (id,observation_id,candidate_index,plate_key,original_text,top_text,bottom_text,
-         split,image,image_sha256,created_at,source) VALUES (?,?,?,?,?,?,?,?,?,?,?, 'manual')
+         split,image,image_sha256,created_at,source,ocr_confidence) VALUES (?,?,?,?,?,?,?,?,?,?,?, 'manual',?)
         ON CONFLICT(observation_id,candidate_index) DO UPDATE SET
         plate_key=excluded.plate_key,top_text=excluded.top_text,bottom_text=excluded.bottom_text,
         split=excluded.split,image=excluded.image,image_sha256=excluded.image_sha256,
-        created_at=excluded.created_at,source='manual' ''',
+        created_at=excluded.created_at,source='manual',ocr_confidence=excluded.ocr_confidence ''',
         (identifier, observation_id, index, events.plate_key(fields), original, top, bottom,
-         float(split), sqlite3.Binary(image), hashlib.sha256(image).hexdigest(), events.utc()))
+         float(split), sqlite3.Binary(image), hashlib.sha256(image).hexdigest(), events.utc(),confidence))
     identifier = db.execute('SELECT id FROM ocr_samples WHERE observation_id=? AND candidate_index=?',
                             (observation_id, index)).fetchone()[0]
     db.execute('DELETE FROM ocr_auto_candidates WHERE observation_id=? AND candidate_index=?',
@@ -257,7 +319,7 @@ def test_group(key):
 def dataset_snapshot(root, minimum_train=5):
     with events.connection(root) as db:
         overrides = {r[0] for r in db.execute('SELECT plate_key FROM ocr_plate_partitions')}
-        rows = [dict(r) for r in db.execute("""SELECT s.*,f.fields_json,c.confidence AS lipla_confidence
+        rows = [dict(r) for r in db.execute("""SELECT s.*,f.fields_json,COALESCE(s.ocr_confidence,c.confidence) AS lipla_confidence
             FROM ocr_samples s LEFT JOIN ocr_sample_fields f ON f.sample_id=s.id
             LEFT JOIN ocr_auto_candidates c ON c.observation_id=s.observation_id
               AND c.candidate_index=s.candidate_index

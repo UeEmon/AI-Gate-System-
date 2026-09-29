@@ -638,7 +638,7 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
     def learning_status():
         with events.connection(manager.root) as db:
             samples = [dict(r) for r in db.execute("""SELECT s.id,s.observation_id,s.candidate_index,s.plate_key,s.top_text,s.bottom_text,s.original_text,s.created_at,s.source,f.fields_json,
-                COALESCE(c.confidence,
+                COALESCE(s.ocr_confidence,c.confidence,
                     json_extract(o.details_json,'$.plate_candidates['||s.candidate_index||'].confidence'),
                     json_extract(a.details_json,'$.plate_candidates['||s.candidate_index||'].confidence')) AS ocr_confidence,
                 CASE WHEN o.id IS NULL AND a.observation_id IS NULL THEN 0 ELSE 1 END AS has_observation
@@ -670,7 +670,7 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
     @app.post('/api/ocr-learning/samples/<identifier>/validation')
     def designate_validation(identifier):
         with events.connection(manager.root) as db:
-            row = db.execute('''SELECT s.plate_key,s.source,COALESCE(c.confidence,
+            row = db.execute('''SELECT s.plate_key,s.source,COALESCE(s.ocr_confidence,c.confidence,
                 json_extract(o.details_json,'$.plate_candidates['||s.candidate_index||'].confidence'),
                 json_extract(a.details_json,'$.plate_candidates['||s.candidate_index||'].confidence')) AS confidence
                 FROM ocr_samples s LEFT JOIN ocr_auto_candidates c ON c.observation_id=s.observation_id

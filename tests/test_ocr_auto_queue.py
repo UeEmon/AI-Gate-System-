@@ -10,6 +10,51 @@ from app import open_database
 
 
 class AutoQueueTests(unittest.TestCase):
+    def test_migration_deduplicates_by_confidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with open_database(root / 'gate.db') as db:
+                db.execute('''CREATE TABLE ocr_samples (
+                    id TEXT PRIMARY KEY,observation_id TEXT,candidate_index INTEGER,plate_key TEXT,
+                    original_text TEXT,top_text TEXT,bottom_text TEXT,split REAL,image BLOB,
+                    image_sha256 TEXT,created_at TEXT)''')
+                db.execute('''CREATE TABLE ocr_auto_candidates (
+                    observation_id TEXT,candidate_index INTEGER,plate_key TEXT,confidence REAL,
+                    status TEXT,created_at TEXT,PRIMARY KEY(observation_id,candidate_index))''')
+                for name, score, timestamp in [('best', .99, 'older'), ('newer', .81, 'recent')]:
+                    db.execute('INSERT INTO ocr_samples VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                               (name, name, 0, '品川|300|あ|1234', '', '品川300', 'あ1234',
+                                .45, b'crop', name, timestamp))
+                    db.execute('INSERT INTO ocr_auto_candidates VALUES (?,?,?,?,?,?)',
+                               (name, 0, '品川|300|あ|1234', score, 'pseudo', timestamp))
+                db.commit()
+            ocr_learning.initialize(root)
+            with open_database(root / 'gate.db') as db:
+                self.assertEqual(db.execute('SELECT id,ocr_confidence FROM ocr_samples').fetchall(),
+                                 [('best', .99)])
+                self.assertEqual(db.execute("SELECT status FROM ocr_auto_candidates WHERE observation_id='newer'").fetchone()[0],
+                                 'excluded')
+
+    def test_same_plate_keeps_higher_confidence_then_newer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'images').mkdir()
+            ocr_learning.initialize(root)
+            with open_database(root / 'gate.db') as db:
+                for identifier, confidence in [('first', .80), ('second', .95), ('third', .95),
+                                               ('low', .85)]:
+                    path = root / 'images' / (identifier + '.jpg')
+                    path.write_bytes(b'image')
+                    record = dict(id=identifier, image_path=str(path), plate_candidates=[dict(
+                        ocr_backend='lipla-native', confidence=confidence,
+                        fields=dict(region='品川', category='300', kana='あ', serial='1234'))])
+                    with patch.object(ocr_learning, 'sample_image', return_value=(identifier.encode(), '')):
+                        ocr_learning.queue_observation(root, record, db)
+                kept = db.execute('SELECT observation_id,ocr_confidence FROM ocr_samples').fetchall()
+                self.assertEqual(kept, [('third', .95)])
+                self.assertEqual(db.execute("SELECT status FROM ocr_auto_candidates WHERE observation_id='low'").fetchone()[0],
+                                 'excluded')
+
     def test_high_confidence_creates_real_auto_sample_and_manual_can_replace_it(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
