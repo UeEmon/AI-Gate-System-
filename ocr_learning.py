@@ -342,7 +342,21 @@ def test_group(key):
     return int(hashlib.sha256(key.encode()).hexdigest()[:8], 16) % 10 in (0, 1)
 
 
-def dataset_snapshot(root, minimum_train=5):
+def balance_evaluation_samples(samples):
+    """Balance the complete held-out pool without moving training identities."""
+    groups = {name: sorted({r['plate_key'] for r in samples if r['partition'] == name},
+                           key=lambda key: (hashlib.sha256(key.encode()).hexdigest(), key))
+              for name in ('validation', 'test')}
+    larger, smaller = ('validation', 'test') if len(groups['validation']) >= len(groups['test']) else ('test', 'validation')
+    moves = (len(groups[larger]) - len(groups[smaller])) // 2
+    moved = set(groups[larger][-moves:]) if moves else set()
+    for row in samples:
+        if row['plate_key'] in moved:
+            row['partition'] = smaller
+    return samples
+
+
+def dataset_snapshot(root, minimum_train=5, require_ready=True):
     with events.connection(root) as db:
         overrides = {r[0]: r[1] for r in db.execute('SELECT plate_key,partition FROM ocr_plate_partitions')}
         rows = [dict(r) for r in db.execute("""SELECT s.*,f.fields_json,COALESCE(s.ocr_confidence,c.confidence) AS lipla_confidence
@@ -372,10 +386,11 @@ def dataset_snapshot(root, minimum_train=5):
     samples = [r for r in samples if not (r['source'] == 'automatic' and
                (r['plate_key'] in manual_keys or
                 (r['partition'] == 'train' and r['plate_key'] in eval_keys)))]
+    balance_evaluation_samples(samples)
     train = {r['plate_key'] for r in samples if r['partition'] == 'train'}
     valid = {r['plate_key'] for r in samples if r['partition'] == 'validation'}
     test = {r['plate_key'] for r in samples if r['partition'] == 'test'}
-    if len(train) < minimum_train or len(valid) < 2 or len(test) < 2:
+    if require_ready and (len(train) < minimum_train or len(valid) < 2 or len(test) < 2):
         raise ValueError(f'異なるナンバーが不足しています（学習用 {len(train)}/{minimum_train}、検証用 {len(valid)}/2、未使用テスト用 {len(test)}/2）。自動評価候補にはLipla-jpのOCR信頼度98%以上が必要です。')
     return samples
 

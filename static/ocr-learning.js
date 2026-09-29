@@ -99,7 +99,7 @@ async function refreshLearning(){
     const target=$('paddle-comparison');target.replaceChildren();
     const report=comparison.report;
     if(report&&comparison.dataset===training.dataset){
-      const caption=document.createElement('p');caption.textContent=(report.evaluation_partition==='test'?'学習・モデル選択に未使用のテスト画像':'検証用画像（学習中のモデル選択に使用）')+' '+report.evaluated+'件（除外 '+report.skipped+'件） / '+(report.ground_truth==='manual_review'?'手動確認済みの正解':'Lipla-jp高確度の仮ラベルを含む比較。Lipla-jp自身の正解率を独立に検証した結果ではありません')+' / IoU 0.50 / 車両画像からの処理時間';target.append(caption);
+      const caption=document.createElement('p');caption.textContent=(report.evaluation_partition==='test'?'今回の学習に使用しないテスト画像':'検証用画像（学習中のモデル選択に使用）')+' '+report.evaluated+'件（除外 '+report.skipped+'件） / '+(report.ground_truth==='manual_review'?'手動確認済みの正解':'Lipla-jp高確度の仮ラベルを含む比較。Lipla-jp自身の正解率を独立に検証した結果ではありません')+' / IoU 0.50 / 車両画像からの処理時間';target.append(caption);
       const table=document.createElement('table');
       const head=document.createElement('tr');
       for(const title of ['方式','検出率','ナンバー完全一致率','平均遅延 (ms)','95%遅延 (ms)','処理速度 (FPS)']){const cell=document.createElement('th');cell.textContent=title;head.append(cell);}table.append(head);
@@ -126,7 +126,7 @@ async function refreshLearning(){
       const row=document.createElement('div');const label=document.createElement('span');
       label.textContent=sample.top_text+' / '+sample.bottom_text+
         ' · Lipla-jp OCR '+(sample.ocr_confidence==null?'不明':(sample.ocr_confidence*100).toFixed(1)+'%')+
-        ' · '+({train:'学習用',validation:'検証用',test:'テスト用'}[sample.partition]||'学習用')+
+        ' · '+({train:'学習用',validation:'検証用',test:'テスト用',excluded:'対象外（画像重複等）'}[sample.partition]||'学習用')+
         (sample.source==='automatic'?' （自動登録・Lipla推定値） ':' （手動修正済み・元のOCR: '+sample.original_text+'） ');
       const button=document.createElement('button');button.textContent='学習対象から削除';
       button.onclick=async()=>{try{await api(sample.source==='automatic'?'/api/ocr-learning/auto/'+encodeURIComponent(sample.observation_id)+'/'+sample.candidate_index:'/api/ocr-learning/samples/'+sample.id,{method:'DELETE'});await refreshLearning();}catch(error){message(error.message);}};

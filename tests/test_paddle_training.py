@@ -16,6 +16,49 @@ from paddle_training import export, partition
 
 
 class PaddleTrainingTests(unittest.TestCase):
+    def test_skewed_existing_evaluation_pool_is_balanced(self):
+        for explicitly_designated in (False, True):
+            with self.subTest(explicit=explicitly_designated), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                ocr_learning.initialize(root)
+                keys = [f'品川|300|あ|{n}' for n in range(1, 500)
+                        if ocr_learning.validation_group(f'品川|300|あ|{n}')][:5]
+                training_key = next(f'品川|300|あ|{n}' for n in range(1, 500)
+                                    if partition(f'品川|300|あ|{n}') == 'train')
+                with events.connection(root) as db:
+                    for n, key in enumerate(keys + [training_key]):
+                        db.execute("""INSERT INTO ocr_samples
+                            (id,observation_id,candidate_index,plate_key,original_text,top_text,bottom_text,
+                             split,image,image_sha256,created_at,source,ocr_confidence)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (str(n), str(n), 0, key, '', '品川300', 'あ1', .45,
+                             b'crop', str(n), events.utc(), 'automatic', .99))
+                    if explicitly_designated:
+                        db.executemany('INSERT INTO ocr_plate_partitions VALUES (?,?)',
+                                       [(key, 'validation') for key in keys])
+                    # Removed records must not affect the effective distribution.
+                    db.execute('INSERT INTO ocr_plate_partitions VALUES (?,?)', ('deleted', 'test'))
+                rows = ocr_learning.dataset_snapshot(root, minimum_train=1)
+                self.assertEqual([sum(r['partition'] == group for r in rows)
+                                  for group in ('train', 'validation', 'test')], [1, 3, 2])
+                before = {r['plate_key']: r['partition'] for r in rows}
+                ocr_learning.initialize(root)
+                after = {r['plate_key']: r['partition'] for r in
+                         ocr_learning.dataset_snapshot(root, require_ready=False)}
+                self.assertEqual(before, after)
+                self.assertEqual(after[training_key], 'train')
+
+    def test_small_evaluation_pool_and_reverse_skew(self):
+        for size in range(1, 7):
+            for group in ('validation', 'test'):
+                rows = [{'plate_key': str(n), 'partition': group} for n in range(size)]
+                ocr_learning.balance_evaluation_samples(rows)
+                self.assertLessEqual(abs(sum(r['partition'] == 'validation' for r in rows) -
+                                         sum(r['partition'] == 'test' for r in rows)), 1)
+                original = {r['plate_key']: r['partition'] for r in rows}
+                ocr_learning.balance_evaluation_samples(rows)
+                self.assertEqual(original, {r['plate_key']: r['partition'] for r in rows})
+
     def test_designated_evaluation_is_balanced_and_stable(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -656,14 +656,13 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
                 ORDER BY c.created_at DESC LIMIT 200''')]
             auto_counts = {r['status']: r['total'] for r in db.execute('''SELECT status,count(*) total
                 FROM ocr_auto_candidates GROUP BY status''')}
+        partitions = {r['id']: r['partition'] for r in
+                      ocr_learning.dataset_snapshot(manager.root, require_ready=False)}
         for sample in samples:
             sample['fields'] = json.loads(sample.pop('fields_json') or 'null')
-            eligible = sample['source'] == 'manual' or (sample['ocr_confidence'] or 0) >= .98
             key = sample['plate_key']
             sample['validation_override'] = key in overrides
-            sample['partition'] = (overrides[key] if eligible and key in overrides else
-                                   'validation' if eligible and ocr_learning.validation_group(key) else
-                                   'test' if eligible and ocr_learning.test_group(key) else 'train')
+            sample['partition'] = partitions.get(sample['id'], 'excluded')
         return jsonify(samples=samples, count=counts.get('manual', 0), automatic=auto,
                        automatic_confirmed=counts.get('automatic', 0),
                        automatic_counts=auto_counts)
@@ -684,7 +683,9 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
             if row['confidence'] is None or row['confidence'] < .98:
                 abort(400, description='Lipla-jpのOCR信頼度98%以上のデータだけを検証・テスト用に指定できます。')
             destination = ocr_learning.assign_evaluation_partition(db, row['plate_key'])
-        return jsonify(plate_key=row['plate_key'], partition=destination)
+        partitions = {r['plate_key']: r['partition'] for r in
+                      ocr_learning.dataset_snapshot(manager.root, require_ready=False)}
+        return jsonify(plate_key=row['plate_key'], partition=partitions.get(row['plate_key'], destination))
 
     @app.delete('/api/ocr-learning/samples/<identifier>/validation')
     def reset_validation(identifier):
