@@ -504,7 +504,7 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
             page = max(1, int(request.args.get('page', 1)))
         except ValueError:
             abort(400, description='ページ番号が不正です。')
-        clauses, values = ["json_extract(details_json,'$.result_eligible') = 1"], []
+        clauses, values = ["COALESCE(json_extract(details_json,'$.result_eligible'), 1) = 1"], []
         for argument, column in [('job', 'run_id'), ('vehicle', 'vehicle_type')]:
             if request.args.get(argument):
                 clauses.append(column + ' = ?')

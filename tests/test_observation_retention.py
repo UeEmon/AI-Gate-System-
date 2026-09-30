@@ -56,6 +56,26 @@ class ObservationRetentionTests(unittest.TestCase):
                 self.assertEqual(delete_observations(db, root, rows), 1)
                 self.assertFalse((images / '2.jpg').exists())
 
+    def test_visible_history_survives_newer_hidden_observations(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            ocr_learning.initialize(root)
+            with open_database(root / 'gate.db') as db:
+                for n in range(200):
+                    save_observation(db, dict(id=str(n), processed_at=f'{n:04d}',
+                        run_id='run', frame_index=n, media_ms=0, vehicle_type='car',
+                        confidence=.9, image_path=None, result_eligible=n < 110))
+                self.assertEqual(prune_observations(db, root), 100)
+                rows = db.execute('SELECT id FROM observations ORDER BY processed_at').fetchall()
+                self.assertEqual([r[0] for r in rows], [str(n) for n in range(10, 110)])
+                self.assertEqual(db.execute("SELECT count(*) FROM observations WHERE "
+                    "COALESCE(json_extract(details_json,'$.result_eligible'), 1) = 1").fetchone()[0], 100)
+                save_observation(db, dict(id='200', processed_at='0200', run_id='run',
+                    frame_index=200, media_ms=0, vehicle_type='car', confidence=.9,
+                    image_path=None, result_eligible=False))
+                self.assertEqual(prune_observations(db, root), 1)
+                self.assertIsNone(db.execute("SELECT id FROM observations WHERE id='200'").fetchone())
+
 
 if __name__ == '__main__':
     unittest.main()

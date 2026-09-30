@@ -59,9 +59,11 @@ def save_observation(db, record):
 
 
 def prune_observations(db, root, limit=100):
-    """Retain the newest observations and their images; reviewed crops stay independent."""
+    """Keep up to 100 visible recognition results before lower-confidence records."""
     rows = db.execute('''SELECT id,image_path FROM observations WHERE id NOT IN
-        (SELECT id FROM observations ORDER BY processed_at DESC,id DESC LIMIT ?)''', (limit,)).fetchall()
+        (SELECT id FROM observations ORDER BY
+            COALESCE(json_extract(details_json,'$.result_eligible'), 1) DESC,
+            processed_at DESC,id DESC LIMIT ?)''', (limit,)).fetchall()
     if not rows:
         return 0
     return delete_observations(db, root, rows)
