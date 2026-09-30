@@ -267,3 +267,5 @@ flowchart TB
 - `onprem/compose.yaml`、`templates/index.html`: コンテナと画面
 
 UMLの元データはこのMarkdown内の Mermaid です。GitHub上で図として表示でき、ソースを編集して実装変更に追随できます。配置図の標準的なUML表記は [deployment.puml](deployment.puml) に保存しています。最初に `web.py:create_app` と `app.py:main` の呼び出し先を再確認し、次にテーブル定義と Compose のサービス定義を更新してください。リバースエンジニアリングによる静的な図であり、コンテナを起動して計測した結果ではありません。
+
+Mac Docker Desktop で全図を選択して閲覧・SVG保存するには [UML閲覧コンテナの手順](../onprem/UML_VIEWER.md) を参照してください。

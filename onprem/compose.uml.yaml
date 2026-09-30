@@ -1,0 +1,44 @@
+name: ai-gate-uml
+
+services:
+  viewer:
+    build:
+      context: ../uml_viewer
+      dockerfile: Dockerfile
+    image: ai-gate-uml-viewer:local
+    restart: unless-stopped
+    depends_on:
+      - kroki
+    ports:
+      - "127.0.0.1:${GATE_UML_PORT:-8890}:8080"
+    environment:
+      KROKI_URL: http://kroki:8000
+    volumes:
+      - ../docs:/diagrams:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
+  kroki:
+    image: yuzutech/kroki:0.32.1
+    restart: unless-stopped
+    environment:
+      KROKI_MERMAID_HOST: kroki-mermaid
+      KROKI_SAFE_MODE: SECURE
+    depends_on:
+      - kroki-mermaid
+    security_opt:
+      - no-new-privileges:true
+
+  kroki-mermaid:
+    image: yuzutech/kroki-mermaid:0.32.1
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
