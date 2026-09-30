@@ -4,31 +4,33 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import re
+import subprocess
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
+import generator
 
 
 DIAGRAMS = Path(os.environ.get('UML_SOURCE_DIR', '/diagrams'))
 KROKI_URL = os.environ.get('KROKI_URL', 'http://kroki:8000').rstrip('/')
-HEADING = re.compile(r'^## (\d+)\. (.+)$', re.M)
-BLOCK = re.compile(r'^```mermaid\s*\n(.*?)^```\s*$', re.M | re.S)
 MAX_SOURCE_BYTES = 100_000
+TITLES = {
+    'classes': '主要クラスと依存関係',
+    'recognition': '認識から通知まで',
+    'learning': 'OCR学習と評価',
+    'job-state': 'ジョブ状態',
+    'data-model': '保存データの論理関係',
+    'containers': 'コンテナ構成',
+    'deployment': 'UML配置図',
+}
 
 
 def diagrams():
-    """Extract only committed diagram sources from the fixed read-only directory."""
-    markdown = (DIAGRAMS / 'UML.md').read_text(encoding='utf-8')
-    headings = list(HEADING.finditer(markdown))
-    result = {}
-    for index, heading in enumerate(headings):
-        end = headings[index + 1].start() if index + 1 < len(headings) else len(markdown)
-        block = BLOCK.search(markdown, heading.end(), end)
-        if block:
-            result[f'mermaid-{heading.group(1)}'] = ('mermaid', heading.group(2), block.group(1).strip())
-    plantuml = (DIAGRAMS / 'deployment.puml').read_text(encoding='utf-8').strip()
-    result['deployment'] = ('plantuml', 'UML配置図（PlantUML）', plantuml)
-    if not result or any(len(item[2].encode('utf-8')) > MAX_SOURCE_BYTES for item in result.values()):
+    """Load authored PlantUML and list lazily generated Pyreverse diagrams."""
+    result = {key: ('plantuml', title, (DIAGRAMS / f'{key}.puml').read_text(encoding='utf-8').strip())
+              for key, title in TITLES.items()}
+    result.update({key: ('plantuml', title, None) for key, title in generator.titles().items()})
+    if any(item[2] is not None and len(item[2].encode('utf-8')) > MAX_SOURCE_BYTES for item in result.values()):
         raise ValueError('図の読み込みに失敗しました。')
     return result
 
@@ -52,10 +54,21 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/healthz':
             self.respond(200, b'ok', 'text/plain; charset=utf-8')
             return
+        if path == '/regenerate':
+            try:
+                for group in generator.GROUPS:
+                    generator.source(group, 'classes', force=True)
+            except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
+                self.respond(503, html.escape(str(error)).encode('utf-8'))
+                return
+            self.send_response(303)
+            self.send_header('Location', '/')
+            self.end_headers()
+            return
         try:
             sources = diagrams()
         except (OSError, ValueError):
-            self.respond(503, 'UML.md と deployment.puml を確認してください。'.encode())
+            self.respond(503, 'docs内のPlantUMLファイルを確認してください。'.encode())
             return
         if path == '/':
             options = ''.join(f'<option value="{html.escape(key)}">{html.escape(title)}</option>'
@@ -71,7 +84,7 @@ select,a{{font:inherit;margin:.4rem;padding:.4rem}}a{{color:#005a90}}
 pre{{background:#ecf0f4;white-space:pre-wrap;overflow-wrap:anywhere;padding:1rem}}
 </style><header><h1>AI Gate System UML</h1></header><main>
 <label for="choose">図を選択</label><select id="choose">{options}</select>
-<a id="source" href="#">ソースを見る</a><a id="download" href="#">SVGを保存</a>
+<a id="source" href="#">ソースを見る</a><a id="puml" href="#">PlantUMLを保存</a><a id="download" href="#">SVGを保存</a><a href="/regenerate">自動図を再生成</a>
 <p id="status" role="status">図を読み込み中です。</p><div class="canvas"><img id="drawing" alt="選択したUML図"></div>
 <script>
 const select=document.getElementById('choose'), drawing=document.getElementById('drawing');
@@ -79,22 +92,38 @@ const status=document.getElementById('status');
 function show(){{const id=encodeURIComponent(select.value);
   drawing.hidden=true; status.textContent='図を読み込み中です。';
   document.getElementById('source').href='/source/'+id;
+  document.getElementById('puml').href='/download/'+id+'.puml';
   document.getElementById('download').href='/download/'+id+'.svg';
   drawing.src='/diagram/'+id+'.svg';
 }}
 drawing.onload=()=>{{drawing.hidden=false;status.textContent='表示しました。'}};
-drawing.onerror=()=>{{status.textContent='描画に失敗しました。docker compose -f onprem/compose.uml.yaml logs kroki kroki-mermaid で確認してください。'}};
+drawing.onerror=()=>{{status.textContent='描画に失敗しました。docker compose -f onprem/compose.uml.yaml logs uml kroki で確認してください。'}};
 select.onchange=show;show();
 </script></main></html>'''
             self.respond(200, body.encode('utf-8'))
             return
         source_match = re.fullmatch(r'/source/([a-z0-9-]+)', path)
+        puml_match = re.fullmatch(r'/download/([a-z0-9-]+)\.puml', path)
         image_match = re.fullmatch(r'/(diagram|download)/([a-z0-9-]+)\.svg', path)
-        key = source_match.group(1) if source_match else image_match.group(2) if image_match else None
+        key = (source_match.group(1) if source_match else puml_match.group(1) if puml_match
+               else image_match.group(2) if image_match else None)
         if key not in sources:
             self.respond(404, b'Not found', 'text/plain; charset=utf-8')
             return
         kind, title, source = sources[key]
+        if source is None:
+            group, subtype = key.removeprefix('auto-').rsplit('-', 1)
+            try:
+                source = generator.source(group, subtype)
+            except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
+                self.respond(503, html.escape(str(error)).encode('utf-8'))
+                return
+        if len(source.encode('utf-8')) > MAX_SOURCE_BYTES:
+            self.respond(503, '図が大きすぎます。'.encode('utf-8'))
+            return
+        if puml_match:
+            self.respond(200, source.encode('utf-8'), 'text/plain; charset=utf-8', attachment=f'{key}.puml')
+            return
         if source_match:
             body = f'<!doctype html><html lang="ja"><meta charset="utf-8"><title>{html.escape(title)}</title><h1>{html.escape(title)}</h1><p><a href="/">一覧へ</a></p><pre>{html.escape(source)}</pre></html>'
             self.respond(200, body.encode('utf-8'))

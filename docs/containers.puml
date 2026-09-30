@@ -1,0 +1,37 @@
+@startuml
+title On-premise components and storage
+skinparam componentStyle rectangle
+component "Browser" as browser
+component "GoPro / RTMP camera" as camera
+node "Mac Docker Desktop" {
+  node "gate container" {
+    component "Flask / Waitress" as web
+    component "app.py workers" as workers
+    component "Resident ModelServer\nYOLO26n + Lipla-jp" as model
+    component "Alert Dispatcher" as dispatch
+  }
+  node "trainer container" {
+    component "PaddleOCR training" as trainer
+  }
+  node "rtmp-ingest container" {
+    component "MediaMTX" as mediamtx
+  }
+  node "stream-init container" as init
+  database "gate-data" as data
+  folder "gate-models" as models
+  folder "stream-config" as config
+}
+browser --> web : HTTP 8080
+camera --> mediamtx : RTMP/RTMPS
+mediamtx --> workers : Input
+web --> workers : Start job
+workers --> model : Local socket
+workers --> data
+web --> data
+dispatch --> data
+trainer --> data
+model --> models
+trainer --> models
+init --> config
+mediamtx --> config
+@enduml

@@ -9,6 +9,7 @@ from urllib.error import HTTPError
 from urllib.request import urlopen
 
 import server
+import generator
 
 
 class Response:
@@ -45,17 +46,18 @@ class UmlViewerTests(unittest.TestCase):
         self.patch_dir.start()
         self.addCleanup(self.patch_dir.stop)
 
-    def test_extracts_every_markdown_diagram_and_plantuml(self):
+    def test_catalog_contains_authored_and_generated_plantuml(self):
         diagrams = server.diagrams()
-        self.assertEqual(len(diagrams), 7)
-        self.assertEqual(diagrams['mermaid-1'][0], 'mermaid')
-        self.assertIn('classDiagram', diagrams['mermaid-1'][2])
+        self.assertEqual(len(diagrams), 13)
+        self.assertEqual(diagrams['classes'][0], 'plantuml')
+        self.assertIn('@startuml', diagrams['classes'][2])
+        self.assertIsNone(diagrams['auto-core-classes'][2])
         self.assertEqual(diagrams['deployment'][0], 'plantuml')
 
     def test_source_escapes_markup_and_rejects_unknown_paths(self):
         with website() as base:
-            with urlopen(base + '/source/mermaid-1') as response:
-                self.assertIn(b'classDiagram', response.read())
+            with urlopen(base + '/source/classes') as response:
+                self.assertIn(b'@startuml', response.read())
             with self.assertRaises(HTTPError) as missing:
                 urlopen(base + '/source/../../etc/passwd')
             self.assertEqual(missing.exception.code, 404)
@@ -72,6 +74,19 @@ class UmlViewerTests(unittest.TestCase):
                 self.assertEqual(response.headers['Content-Type'], 'image/svg+xml')
                 self.assertIn('attachment', response.headers['Content-Disposition'])
                 self.assertIn(b'<svg', response.read())
+
+    def test_generated_source_is_available_in_same_gallery(self):
+        with website() as base, patch.object(generator, 'source', return_value='@startuml\nclass JobManager\n@enduml') as generated:
+            with urlopen(base + '/source/auto-core-classes') as response:
+                self.assertIn(b'JobManager', response.read())
+        generated.assert_called_once_with('core', 'classes')
+
+    def test_plantuml_download_preserves_source_without_renderer(self):
+        with website() as base, patch.object(server, 'urlopen') as renderer:
+            with urlopen(base + '/download/classes.puml') as response:
+                self.assertEqual(response.headers['Content-Disposition'], 'attachment; filename="classes.puml"')
+                self.assertEqual(response.read().decode('utf-8'), server.diagrams()['classes'][2])
+        renderer.assert_not_called()
 
 
 if __name__ == '__main__':

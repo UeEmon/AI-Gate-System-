@@ -1,0 +1,62 @@
+@startuml
+title AI Gate System - runtime classes
+left to right direction
+skinparam classAttributeIconSize 0
+class JobManager {
+  +start(kind, source) : job_id
+  +stop(job_id) : bool
+  +list_jobs() : list
+}
+class ModelServiceProcess {
+  +address
+  +client
+  +close()
+}
+class ModelClient {
+  +predict(frame) : result
+  +read_plate(crop, threshold) : candidates
+}
+class ModelServer {
+  +reload(config)
+  +handle(operation, payload)
+}
+class LiplaPlatePipeline {
+  +run(vehicle_crop) : candidates
+}
+class ConsecutivePlateBest {
+  +select(records) : winners
+}
+class Dispatcher {
+  +start()
+  +tick()
+  +stop()
+}
+class EvidenceRecorder {
+  +feed(frame, seconds)
+  +trigger(alert_id, seconds, frame)
+}
+class PaddleTrainingManager {
+  +maybe_start()
+  +maybe_compare()
+  +status()
+}
+class PerformanceManager {
+  +startup_benchmark()
+  +record()
+  +summary()
+}
+class StreamReceiver {
+  +settings()
+  +status()
+  +update(publish, rtmps)
+}
+JobManager --> ModelServiceProcess : holds
+ModelServiceProcess --> ModelServer : starts
+ModelClient ..> ModelServer : local IPC
+ModelServer ..> LiplaPlatePipeline : uses
+JobManager --> PerformanceManager : records progress
+note bottom of PaddleTrainingManager
+  Uses saved OCR samples for training.
+  No automatic production model switch.
+end note
+@enduml

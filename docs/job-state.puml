@@ -1,0 +1,17 @@
+@startuml
+title Recognition job state
+[*] --> starting : POST /api/jobs
+starting --> running : Worker started
+starting --> failed : Start error
+running --> completed : Exit code 0
+running --> failed : Exit code nonzero
+running --> stopping : Stop requested
+stopping --> stopped : Worker exited
+starting --> interrupted : Web restarted
+running --> interrupted : Web restarted
+stopping --> interrupted : Web restarted
+completed --> [*]
+failed --> [*]
+stopped --> [*]
+interrupted --> [*]
+@enduml

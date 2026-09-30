@@ -1,11 +1,12 @@
 name: ai-gate-uml
 
 services:
-  viewer:
+  uml:
     build:
-      context: ../uml_viewer
+      context: ../uml
       dockerfile: Dockerfile
-    image: ai-gate-uml-viewer:local
+    image: ai-gate-uml:local
+    container_name: ai-gate-uml
     restart: unless-stopped
     depends_on:
       - kroki
@@ -13,8 +14,21 @@ services:
       - "127.0.0.1:${GATE_UML_PORT:-8890}:8080"
     environment:
       KROKI_URL: http://kroki:8000
+      PYLINTHOME: /tmp/pylint
     volumes:
       - ../docs:/diagrams:ro
+      - ../aigate:/source/aigate:ro
+      - ../app.py:/source/app.py:ro
+      - ../web.py:/source/web.py:ro
+      - ../model_service.py:/source/model_service.py:ro
+      - ../lipla_pipeline.py:/source/lipla_pipeline.py:ro
+      - ../plate_pipeline.py:/source/plate_pipeline.py:ro
+      - ../ocr_backends.py:/source/ocr_backends.py:ro
+      - ../ocr_learning.py:/source/ocr_learning.py:ro
+      - ../paddle_auto_train.py:/source/paddle_auto_train.py:ro
+      - ../paddle_training.py:/source/paddle_training.py:ro
+      - ../events.py:/source/events.py:ro
+      - ../evidence.py:/source/evidence.py:ro
     read_only: true
     tmpfs:
       - /tmp
@@ -30,15 +44,6 @@ services:
     image: yuzutech/kroki:0.32.1
     restart: unless-stopped
     environment:
-      KROKI_MERMAID_HOST: kroki-mermaid
       KROKI_SAFE_MODE: SECURE
-    depends_on:
-      - kroki-mermaid
-    security_opt:
-      - no-new-privileges:true
-
-  kroki-mermaid:
-    image: yuzutech/kroki-mermaid:0.32.1
-    restart: unless-stopped
     security_opt:
       - no-new-privileges:true

@@ -1,0 +1,41 @@
+@startuml
+title Input to recognition and notification
+actor User
+participant "Web UI" as UI
+participant "web.py / JobManager" as Web
+participant "app.py worker" as Worker
+participant "ModelClient / ModelServer" as Model
+database "gate.db" as DB
+participant "EvidenceRecorder" as Recorder
+participant "events.Dispatcher" as Dispatcher
+User -> UI : Choose input and start
+UI -> Web : POST /api/jobs
+Web -> Worker : Start app.py process
+loop Each selected frame
+  Worker -> Model : predict(frame) - vehicle detection
+  alt Vehicle found
+    loop Each vehicle crop
+      Worker -> Model : read_plate(vehicle crop)
+      Model --> Worker : Lipla detection + rectification + OCR
+    end
+    Worker -> Worker : ConsecutivePlateBest.select()
+    Worker -> DB : Save observation and OCR learning candidate
+    Worker -> DB : Match vehicle, insert alert if needed
+    opt Alert created
+      Worker -> Recorder : trigger(alert_id, frame)
+      Recorder -> DB : Update media status
+    end
+  end
+  Worker -> Web : Update preview.jpg and progress.json
+end
+Dispatcher -> DB : Poll saved alerts
+opt Delivery configured
+  Dispatcher -> Dispatcher : Deliver and update status
+end
+UI -> Web : GET /api/observations and /api/alerts
+Web --> UI : History and alerts
+note over Model
+  Operational OCR is Lipla-jp only.
+  Its internal stages have combined timing.
+end note
+@enduml

@@ -1,0 +1,58 @@
+@startuml
+title AI Gate System - logical SQLite relations
+left to right direction
+class jobs <<SQLite table>> {
+  id : PK
+  status
+  kind
+}
+class observations <<SQLite table>> {
+  id : PK
+  run_id
+  details_json
+  image_path
+}
+class vehicles <<SQLite table>> {
+  id : PK
+  plate_key : UNIQUE
+}
+class alerts <<SQLite table>> {
+  id : PK
+  observation_id
+  run_id
+  registry_json
+}
+class ocr_samples <<SQLite table>> {
+  id : PK
+  observation_id
+  plate_key : UNIQUE
+  source
+  ocr_confidence
+}
+class ocr_sample_fields <<SQLite table>> {
+  sample_id : PK
+  fields_json
+}
+class ocr_auto_candidates <<SQLite table>> {
+  observation_id : PK part
+  candidate_index : PK part
+  status
+}
+class ocr_auto_archive <<SQLite table>> {
+  observation_id : PK
+  details_json
+}
+class ocr_plate_partitions <<SQLite table>> {
+  plate_key : PK
+  partition
+}
+jobs "1" ..> "0..*" observations : run_id
+observations "1" ..> "0..*" alerts : observation_id
+vehicles "0..1" ..> "0..*" alerts : registry snapshot
+observations "0..1" ..> "0..*" ocr_samples : observation_id
+ocr_samples "1" --> "0..1" ocr_sample_fields : sample_id
+observations "0..1" ..> "0..*" ocr_auto_candidates : observation_id
+ocr_auto_archive "0..1" ..> "0..*" ocr_samples : archived observation
+ocr_plate_partitions "0..1" ..> "0..1" ocr_samples : plate_key
+note "Dashed links are logical identifiers/snapshots.\nThey do not assert SQLite foreign keys." as RelationNote
+@enduml

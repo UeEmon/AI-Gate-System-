@@ -1,0 +1,35 @@
+@startuml
+title Lipla OCR samples to PaddleOCR training and evaluation
+participant "recognition worker" as Worker
+participant "ocr_learning.py" as Learning
+database "gate.db + images" as DB
+participant "trainer container" as Trainer
+participant "paddle_training.py" as Export
+participant "paddle_finetune.py" as FineTune
+participant "OCR learning UI" as UI
+Worker -> Learning : queue_observation(Lipla result)
+Learning -> DB : Candidate if confidence >= 50%
+opt Confidence >= 80% and valid crop
+  Learning -> DB : Save automatic ocr_samples
+end
+opt Manual correction
+  UI -> Learning : Correct four fields and crop
+  Learning -> DB : Save preferred label per plate
+end
+loop Periodic trainer check
+  Trainer -> Learning : dataset_snapshot()
+  Learning --> Trainer : Train / validation / test split
+  opt Enough samples and pretrained weights
+    Trainer -> Export : export() immutable dataset
+    Export -> DB : Read samples and images
+    Trainer -> FineTune : Train plate detector and PaddleOCR
+    FineTune --> Trainer : Weights and logs
+    Trainer -> Trainer : Compare with Lipla
+    UI -> Trainer : Read status and comparison
+  end
+end
+note over Learning, Trainer
+  Auto evaluation requires Lipla confidence >= 98%.
+  Pseudo-label comparison is not independent accuracy.
+end note
+@enduml
