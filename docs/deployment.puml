@@ -1,0 +1,43 @@
+@startuml
+title AI Gate System onprem - deployed components
+skinparam componentStyle rectangle
+
+node "User device" as user {
+  artifact "Web browser" as browser
+  artifact "RTMP/RTMPS camera" as camera
+}
+
+node "Mac Docker Desktop" as mac {
+  node "gate : container" as gate {
+    component "Flask / Waitress\nweb.py" as web
+    component "Job workers\napp.py" as worker
+    component "Resident ModelServer\nYOLO26n + Lipla-jp" as model
+    component "Alert Dispatcher" as dispatcher
+    web --> worker : starts process
+    worker --> model : local authenticated socket
+  }
+  node "rtmp-ingest : container" as ingest {
+    component "MediaMTX" as media
+  }
+  node "trainer : container" as trainer {
+    component "paddle_auto_worker.py\nPaddleOCR training" as paddle
+  }
+  node "stream-init : one-shot" as streamInit
+  database "gate-data\nSQLite + images + learning" as data
+  folder "gate-models" as models
+  folder "stream-config" as config
+}
+
+browser --> web : HTTP 8080 (host bind configurable)
+camera --> media : RTMP 1935 / RTMPS 1936
+media --> worker : internal RTMP source
+streamInit --> config : initialize
+media --> config : read
+web --> config : manage
+worker --> data : read/write
+web --> data : read/write
+dispatcher --> data : pending alerts
+paddle --> data : datasets and state
+model --> models : cached models
+paddle --> models : pretrained weights
+@enduml
