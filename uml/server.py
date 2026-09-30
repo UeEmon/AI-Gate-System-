@@ -1,18 +1,18 @@
-"""Read-only local gallery for UML sources rendered by an internal Kroki server."""
+"""Read-only local gallery using Pyreverse and the Java PlantUML renderer."""
 import html
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import re
 import subprocess
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+import threading
 import generator
 
 
 DIAGRAMS = Path(os.environ.get('UML_SOURCE_DIR', '/diagrams'))
-KROKI_URL = os.environ.get('KROKI_URL', 'http://kroki:8000').rstrip('/')
+PLANTUML_JAR = os.environ.get('PLANTUML_JAR', '/opt/plantuml.jar')
+RENDER_LOCK = threading.Lock()
 MAX_SOURCE_BYTES = 100_000
 TITLES = {
     'classes': '主要クラスと依存関係',
@@ -33,6 +33,23 @@ def diagrams():
     if any(item[2] is not None and len(item[2].encode('utf-8')) > MAX_SOURCE_BYTES for item in result.values()):
         raise ValueError('図の読み込みに失敗しました。')
     return result
+
+
+def render_svg(source):
+    """Render with bounded Java memory and only one active renderer."""
+    with RENDER_LOCK:
+        result = subprocess.run(
+            ['java', '-Xmx256m', '-Djava.awt.headless=true',
+             '-DPLANTUML_SECURITY_PROFILE=SANDBOX', '-jar', PLANTUML_JAR,
+             '-charset', 'UTF-8', '-pipe', '-tsvg', '-timeout', '45'],
+            input=source.encode('utf-8'), capture_output=True, timeout=60, check=False)
+    if result.returncode:
+        raise RuntimeError(result.stderr.decode('utf-8', errors='replace')[-2000:]
+                           or f'PlantUML終了コード: {result.returncode}')
+    image = result.stdout
+    if len(image) > 2_000_000 or b'<svg' not in image[:1024]:
+        raise ValueError('描画結果がSVGではありません。')
+    return image
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -59,6 +76,7 @@ class Handler(BaseHTTPRequestHandler):
                 for group in generator.GROUPS:
                     generator.source(group, 'classes', force=True)
             except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
+                self.log_error('Pyreverse: %s', error)
                 self.respond(503, html.escape(str(error)).encode('utf-8'))
                 return
             self.send_response(303)
@@ -97,7 +115,7 @@ function show(){{const id=encodeURIComponent(select.value);
   drawing.src='/diagram/'+id+'.svg';
 }}
 drawing.onload=()=>{{drawing.hidden=false;status.textContent='表示しました。'}};
-drawing.onerror=()=>{{status.textContent='描画に失敗しました。docker compose -f onprem/compose.uml.yaml logs uml kroki で確認してください。'}};
+drawing.onerror=()=>{{status.textContent='描画に失敗しました。docker compose -f onprem/compose.uml.yaml logs uml で確認してください。'}};
 select.onchange=show;show();
 </script></main></html>'''
             self.respond(200, body.encode('utf-8'))
@@ -116,6 +134,7 @@ select.onchange=show;show();
             try:
                 source = generator.source(group, subtype)
             except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
+                self.log_error('Pyreverse: %s', error)
                 self.respond(503, html.escape(str(error)).encode('utf-8'))
                 return
         if len(source.encode('utf-8')) > MAX_SOURCE_BYTES:
@@ -128,17 +147,12 @@ select.onchange=show;show();
             body = f'<!doctype html><html lang="ja"><meta charset="utf-8"><title>{html.escape(title)}</title><h1>{html.escape(title)}</h1><p><a href="/">一覧へ</a></p><pre>{html.escape(source)}</pre></html>'
             self.respond(200, body.encode('utf-8'))
             return
-        request = Request(f'{KROKI_URL}/{kind}/svg', data=source.encode('utf-8'),
-                          headers={'Content-Type': 'text/plain; charset=utf-8', 'Accept': 'image/svg+xml'},
-                          method='POST')
         try:
-            with urlopen(request, timeout=30) as response:
-                image = response.read(2_000_001)
-                if len(image) > 2_000_000 or b'<svg' not in image[:1024]:
-                    raise ValueError('描画結果がSVGではありません。')
+            image = render_svg(source)
             self.respond(200, image, 'image/svg+xml', attachment=f'{key}.svg' if image_match.group(1) == 'download' else None)
-        except (HTTPError, URLError, TimeoutError, ValueError) as error:
-            message = f'Krokiによる描画に失敗しました ({type(error).__name__})。コンテナのログを確認してください。'
+        except (OSError, RuntimeError, subprocess.TimeoutExpired, ValueError) as error:
+            self.log_error('PlantUML: %s', error)
+            message = f'PlantUMLによる描画に失敗しました ({type(error).__name__})。コンテナのログを確認してください。'
             self.respond(502, message.encode('utf-8'), 'text/plain; charset=utf-8')
 
 

@@ -46,5 +46,7 @@ def source(group, kind, force=False):
                  f'--output-directory={output_dir}', *map(str, paths)],
                 cwd=SOURCE_ROOT, capture_output=True, text=True, timeout=90, check=False)
             if completed.returncode or not requested.is_file() or not other.is_file():
-                raise RuntimeError(f'Pyreverse失敗: {completed.stderr[-1000:]}')
+                diagnostic = (completed.stderr + '\n' + completed.stdout).strip()[-2000:]
+                raise RuntimeError(f'Pyreverse失敗 ({group}, 終了コード {completed.returncode}): '
+                                   f'{diagnostic or "クラス図またはパッケージ図が生成されませんでした。"}')
         return requested.read_text(encoding='utf-8')

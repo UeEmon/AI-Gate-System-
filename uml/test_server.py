@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 import threading
+import subprocess
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
@@ -10,20 +11,6 @@ from urllib.request import urlopen
 
 import server
 import generator
-
-
-class Response:
-    def __init__(self, body):
-        self.body = body
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_):
-        return None
-
-    def read(self, _limit):
-        return self.body
 
 
 @contextmanager
@@ -62,14 +49,15 @@ class UmlViewerTests(unittest.TestCase):
                 urlopen(base + '/source/../../etc/passwd')
             self.assertEqual(missing.exception.code, 404)
 
-    def test_render_uses_local_kroki_and_returns_svg_attachment(self):
-        def render(request, timeout):
-            self.assertEqual(request.full_url, 'http://kroki:8000/plantuml/svg')
-            self.assertIn(b'@startuml', request.data)
-            self.assertEqual(timeout, 30)
-            return Response(b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+    def test_render_uses_java_and_returns_svg_attachment(self):
+        def render(command, **kwargs):
+            self.assertEqual(command[0], 'java')
+            self.assertIn('-DPLANTUML_SECURITY_PROFILE=SANDBOX', command)
+            self.assertIn(b'@startuml', kwargs['input'])
+            self.assertEqual(kwargs['timeout'], 60)
+            return subprocess.CompletedProcess(command, 0, b'<svg xmlns="http://www.w3.org/2000/svg"></svg>', b'')
 
-        with website() as base, patch.object(server, 'urlopen', side_effect=render):
+        with website() as base, patch.object(server.subprocess, 'run', side_effect=render):
             with urlopen(base + '/download/deployment.svg') as response:
                 self.assertEqual(response.headers['Content-Type'], 'image/svg+xml')
                 self.assertIn('attachment', response.headers['Content-Disposition'])
@@ -82,11 +70,24 @@ class UmlViewerTests(unittest.TestCase):
         generated.assert_called_once_with('core', 'classes')
 
     def test_plantuml_download_preserves_source_without_renderer(self):
-        with website() as base, patch.object(server, 'urlopen') as renderer:
+        with website() as base, patch.object(server, 'render_svg') as renderer:
             with urlopen(base + '/download/classes.puml') as response:
                 self.assertEqual(response.headers['Content-Disposition'], 'attachment; filename="classes.puml"')
                 self.assertEqual(response.read().decode('utf-8'), server.diagrams()['classes'][2])
         renderer.assert_not_called()
+
+    def test_renderer_failure_is_reported_as_502(self):
+        failed = subprocess.CompletedProcess(['java'], 1, b'', b'render failed')
+        with website() as base, patch.object(server.subprocess, 'run', return_value=failed):
+            with self.assertRaises(HTTPError) as error:
+                urlopen(base + '/diagram/classes.svg')
+            self.assertEqual(error.exception.code, 502)
+
+    def test_renderer_rejects_non_svg_output(self):
+        with patch.object(server.subprocess, 'run', return_value=
+                          subprocess.CompletedProcess(['java'], 0, b'broken', b'')):
+            with self.assertRaises(ValueError):
+                server.render_svg('@startuml\nclass Gate\n@enduml')
 
 
 if __name__ == '__main__':
