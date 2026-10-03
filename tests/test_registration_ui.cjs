@@ -44,17 +44,12 @@ test('shows strong and review-only kei plate hints',async()=>{
   $('registration-candidate').value='1';context.chooseRegistrationCandidate();
   assert.match($('registration-confidence').textContent,/車種を確認/);
 });
-test('learning form initialization sees the selected OCR values',async()=>{
-  let observed;
-  const holder={};
-  const {context,$}=setup(async()=>draft,{prepareLearning(){
-    observed=['region','category','kana','serial'].map(id=>holder.$(id).value);
-  }});
-  holder.$=$;
+test('registration import does not initialize the independent learning form',async()=>{
+  let called=false;
+  const {context,$}=setup(async()=>draft,{prepareLearning(){called=true;}});
   await context.importRegistration('a');
-  assert.deepEqual(observed,['品川','300','あ','1234']);
   $('registration-candidate').value='1';context.chooseRegistrationCandidate();
-  assert.deepEqual(observed,['品川','300','あ','5678']);
+  assert.equal(called,false);assert.equal($('serial').value,'5678');
 });
 test('unreadable input clears old plate and remains editable',async()=>{
   const {context,$}=setup(async()=>({...draft,has_image:false,plate_candidates:[]}));
@@ -87,7 +82,7 @@ test('failed import does not switch pages',async()=>{
   await context.importRegistration('missing');
   assert.deepEqual(pages,[]);
 });
-test('registration submit automatically saves the corrected plate as training data',async()=>{
+test('registration submit never adds learning data implicitly',async()=>{
   const calls=[],messages=[];
   const {context,$}=setup(async(url,options)=>{
     if(url.startsWith('/api/observations/'))return draft;
@@ -102,8 +97,8 @@ test('registration submit automatically saves the corrected plate as training da
   await $('vehicle-form').onsubmit({preventDefault(){}});
   assert.equal(calls.length,1);
   assert.equal(calls[0].payload.serial,'1235');
-  assert.equal(calls[0].payload.learning.observation_id,'a');
-  assert.match(messages.at(-1),/学習データを保存/);
+  assert.equal(calls[0].payload.learning,undefined);
+  assert.doesNotMatch(messages.at(-1),/学習データを保存/);
 });
 test('manual vehicle registration without observation remains possible',async()=>{
   const calls=[];
