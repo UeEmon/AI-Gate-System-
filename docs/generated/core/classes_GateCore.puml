@@ -66,6 +66,7 @@ class "JobManager" as web.JobManager {
   model : str
   model_service : NoneType
   models : ModelRegistry, NoneType
+  optimizing : bool
   performance : NoneType, PerformanceManager
   performance_frames : dict
   popen : Popen
@@ -105,6 +106,7 @@ class "ModelServer" as model_service.ModelServer {
   vehicle : NoneType
   handle(operation, payload)
   reload(config)
+  resources()
 }
 class "ModelServiceProcess" as model_service.ModelServiceProcess {
   address : str

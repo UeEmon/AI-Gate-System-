@@ -1,5 +1,9 @@
 @startuml packages_GateLearning
 set namespaceSeparator none
+package "model_package" as model_package {
+}
+package "model_publish" as model_publish {
+}
 package "ocr_backends" as ocr_backends {
 }
 package "ocr_learning" as ocr_learning {
@@ -8,6 +12,7 @@ package "paddle_auto_train" as paddle_auto_train {
 }
 package "paddle_training" as paddle_training {
 }
+model_publish --> model_package
 paddle_auto_train --> ocr_learning
 paddle_auto_train --> paddle_training
 paddle_training --> ocr_learning

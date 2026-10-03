@@ -1,5 +1,11 @@
 @startuml classes_GateLearning
 set namespaceSeparator none
+class "GitHubModels" as model_publish.GitHubModels {
+  repository
+  token
+  publish(path)
+  request(method, path, payload)
+}
 class "LiplaPlateReader" as ocr_backends.LiplaPlateReader {
   model
   name : str
@@ -7,6 +13,7 @@ class "LiplaPlateReader" as ocr_backends.LiplaPlateReader {
 }
 class "PaddleTrainingManager" as paddle_auto_train.PaddleTrainingManager {
   comparison_path
+  lease : ResourceLease
   lock : _RLock
   path
   process : NoneType, Popen

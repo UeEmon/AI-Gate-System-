@@ -41,6 +41,15 @@ class "Frame" as aigate.contracts.Frame {
   source_id : str
   timestamp_ms : float | None
 }
+class "FrameTelemetry" as aigate.telemetry.FrameTelemetry {
+  last_resources : int
+  path : Path
+  snapshot : dict
+  started
+  stream
+  close()
+  record(frame_index, measured)
+}
 class "InputProvider" as aigate.contracts.InputProvider {
   {abstract}frames() -> Iterable[Frame]
 }
@@ -85,18 +94,40 @@ class "OCRResult" as aigate.contracts.OCRResult {
 class "ObjectDetector" as aigate.contracts.ObjectDetector {
   {abstract}detect(frame: Frame) -> list[Detection]
 }
-class "PerformanceManager" as aigate.performance.PerformanceManager {
-  lock : _RLock
+class "OptimizationManager" as aigate.optimization.OptimizationManager {
+  jobs
+  lease
+  lock : lock
   path
+  settings
+  thread : NoneType, Thread
+  save(report)
+  start()
+  status()
+}
+class "PerformanceManager" as aigate.performance.PerformanceManager {
+  job_totals : dict
+  lock : _RLock
+  offsets : dict
+  path
+  process_cpu : dict
   root : Path
   samples : deque
+  total_samples : int
   current_resources() -> dict
-  record() -> None
+  ingest()
+  record()
   startup_benchmark() -> dict
   startup_report() -> dict
   summary() -> dict
 }
 class "PlateDetector" as aigate.contracts.PlateDetector {
+}
+class "ResourceLease" as resource_lock.ResourceLease {
+  path
+  stream : NoneType
+  acquire()
+  release()
 }
 class "RuntimeSystemManager" as aigate.services.RuntimeSystemManager {
   performance
@@ -131,6 +162,10 @@ class "StreamReceiver" as aigate.stream_receiver.StreamReceiver {
 class "SystemManager" as aigate.contracts.SystemManager {
   {abstract}health() -> dict[str, Any]
 }
+class "TimedInput" as aigate.telemetry.TimedInput {
+  capture_ms : int
+  stream
+}
 class "TrainingManager" as aigate.contracts.TrainingManager {
   {abstract}train(samples: list[dict[str, Any]]) -> str
 }
@@ -144,6 +179,7 @@ aigate.services.ApplicationServices --> aigate.services.DatabaseNotificationMana
 aigate.services.ApplicationServices --> aigate.services.ManagedStorageManager : storage
 aigate.services.ApplicationServices --> aigate.services.RuntimeSystemManager : system
 aigate.services.ApplicationServices --> aigate.services.SQLiteDatabaseManager : database
+resource_lock.ResourceLease --* aigate.optimization.OptimizationManager : lease
 aigate.performance.PerformanceManager --o aigate.services.RuntimeSystemManager : performance
 aigate.services.SQLiteDatabaseManager --o aigate.services.DatabaseNotificationManager : database
 @enduml

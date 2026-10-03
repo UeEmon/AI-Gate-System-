@@ -8,6 +8,8 @@ package "aigate.evaluation" as aigate.evaluation {
 }
 package "aigate.model_registry" as aigate.model_registry {
 }
+package "aigate.optimization" as aigate.optimization {
+}
 package "aigate.performance" as aigate.performance {
 }
 package "aigate.reset" as aigate.reset {
@@ -18,11 +20,18 @@ package "aigate.settings" as aigate.settings {
 }
 package "aigate.stream_receiver" as aigate.stream_receiver {
 }
+package "aigate.telemetry" as aigate.telemetry {
+}
 package "aigate.web_api" as aigate.web_api {
+}
+package "resource_lock" as resource_lock {
 }
 aigate --> aigate.model_registry
 aigate --> aigate.performance
 aigate --> aigate.settings
+aigate.optimization --> aigate.evaluation
+aigate.optimization --> resource_lock
+aigate.performance --> aigate.telemetry
 aigate.services --> aigate.contracts
 aigate.services --> aigate.performance
 aigate.web_api --> aigate.performance
