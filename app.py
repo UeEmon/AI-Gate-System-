@@ -628,6 +628,7 @@ def main():
     parser.add_argument('--run-id', default=None)
     parser.add_argument('--alerts', action='store_true', help='登録車両照合・通知イベント・映像保存')
     parser.add_argument('--progress', default=None, help='Web管理用の進捗JSON')
+    parser.add_argument('--performance-log', default=None, help='全処理フレームの計測JSONL')
     parser.add_argument('--preview', default=None, help='最新の処理済みフレームJPEG')
     args = parser.parse_args()
     if (args.every < 1 or not 0 < args.confidence <= 1 or
@@ -677,20 +678,27 @@ def main():
         stream = (browser_frames(args.source, cv2, args.every, recorder.feed, stopped) if args.source_kind == 'browser' else
                   live_frames(args.source, cv2, args.every, recorder.feed, stopped) if is_live else
                   frames(args.source, cv2, args.every, recorder.feed))
+    from aigate.telemetry import FrameTelemetry, TimedInput
+    telemetry = FrameTelemetry(args.performance_log or (out / 'jobs' / run_id / 'performance.jsonl'))
     processed, observations = 0, 0
     timings = deque(maxlen=120)
     plate_best = ConsecutivePlateBest()
+    timed_stream = TimedInput(stream)
     try:
-        for index, media_ms, frame in stream:
+        for index, media_ms, frame in timed_stream:
             if stopped.is_set(): break
             frame_started = time.perf_counter()
+            preprocess_started = time.perf_counter()
             canvas = frame.copy() if args.preview else None
+            preprocess_ms = (time.perf_counter() - preprocess_started) * 1000
             detection_started = time.perf_counter()
             result = model.predict(frame, conf=args.confidence, imgsz=args.imgsz,
                                    iou=.55, device='cpu', verbose=False)[0]
             detection_ms = (time.perf_counter() - detection_started) * 1000
             ocr_ms = storage_ms = decision_ms = notification_ms = 0.0
             plate_detection_ms = rectification_ms = plate_recognition_ms = 0.0
+            combined_timing = False
+            model_resources = {}
             frame_records = []
             for box in result.boxes:
                 label = result.names[int(box.cls.item())]
@@ -708,6 +716,8 @@ def main():
                 plate_report = {}
                 plates = read_plate(crop, reader, cv2, args.ocr_threshold, plate_model,
                                     diagnostics=plate_report)
+                model_resources.update(plate_report.get('model_resources',{}))
+                combined_timing |= plate_report.get('timing_scope') == 'lipla_detection_rectification_ocr_combined'
                 plate_detection_ms += plate_report.get('plate_detection_ms', 0.0)
                 plate_recognition_ms += plate_report.get('plate_recognition_ms', 0.0)
                 rectification_ms += plate_report.get('rectification_ms', 0.0)
@@ -763,6 +773,7 @@ def main():
                         record['vehicle_identity'] = dict(status='unavailable', provider=None,
                             manufacturer=None, model=None, confidence=None, error=type(error).__name__)
                         request_identity = False
+                storage_started = time.perf_counter()
                 if args.save_images:
                     folder = out / 'images'
                     folder.mkdir(exist_ok=True)
@@ -772,7 +783,6 @@ def main():
                         raise OSError('車両画像の保存に失敗しました。')
                     encoded.tofile(image)
                     record['image_path'] = str(image.resolve())
-                storage_started = time.perf_counter()
                 if previous is None:
                     save_observation(db, record)
                     observations += int(record['result_eligible'])
@@ -781,6 +791,7 @@ def main():
                     observations += int(record['result_eligible']) - int(previous['result_eligible'])
                 with db:
                     ocr_learning.queue_observation(out, record, db)
+                    ocr_learning.save_evaluation_frame(db, record, frame, cv2)
                 prune_observations(db, out)
                 storage_ms += (time.perf_counter() - storage_started) * 1000
                 if request_identity:
@@ -823,6 +834,13 @@ def main():
                 os.replace(temporary, preview)
             frame_ms = (time.perf_counter() - frame_started) * 1000
             timings.append(frame_ms)
+            measured = dict(frame_ms=frame_ms + timed_stream.capture_ms, processing_ms=frame_ms,
+                capture_ms=timed_stream.capture_ms, preprocess_ms=preprocess_ms,
+                detection_ms=detection_ms, plate_ms=None if combined_timing else plate_detection_ms,
+                plate_recognition_ms=plate_recognition_ms, rectification_ms=None if combined_timing else rectification_ms,
+                ocr_ms=None if combined_timing else ocr_ms, decision_ms=decision_ms, storage_ms=storage_ms,
+                notification_ms=notification_ms, model_resources=model_resources, timing_scope='lipla_combined')
+            telemetry.record(index, measured)
             if args.progress:
                 atomic_json(args.progress, dict(phase='processing', frames_processed=processed,
                             observations=observations, frame_index=index, media_ms=media_ms,
@@ -840,6 +858,7 @@ def main():
             if recorder: recorder.close()
         finally:
             if old_term is not None: signal.signal(signal.SIGTERM, old_term)
+            telemetry.close()
             db.close()
             identity_executor.shutdown(wait=not stopped.is_set(), cancel_futures=stopped.is_set())
 
