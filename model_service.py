@@ -49,6 +49,8 @@ class ModelServer:
         self.lock = threading.RLock()
         self.loader = loader or self._load
         self.vehicle = self.plate = self.readers = None
+        self._resource_time = 0
+        self._resource_snapshot = {}
 
     def _load(self, config):
         from ultralytics import YOLO
@@ -82,9 +84,18 @@ class ModelServer:
                 raise
             self.vehicle, self.plate, self.readers = replacement
 
+    def resources(self):
+        if time.monotonic()-self._resource_time >= 1:
+            from aigate.telemetry import resources
+            self._resource_snapshot = resources(include_gpu=True)
+            self._resource_time = time.monotonic()
+        return self._resource_snapshot
+
     def handle(self, operation, payload):
         if operation == 'ping':
             return {'ready': self.vehicle is not None}
+        if operation == 'resources':
+            return self.resources()
         with self.lock:
             if operation == 'reload':
                 self.reload(payload['config'])
@@ -101,6 +112,7 @@ class ModelServer:
                 report = {}
                 candidates = read_plate(payload['crop'], self.readers, cv2,
                                         payload['threshold'], self.plate, diagnostics=report)
+                report['model_resources'] = self.resources()
                 return candidates, report
             raise ValueError('不明なモデル操作です。')
 
