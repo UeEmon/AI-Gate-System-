@@ -66,6 +66,7 @@ class JobManager:
         self.model_service = None
         self.performance = None
         self.performance_frames = {}
+        self.optimizing = False
         events.initialize(self.root)
         with events.connection(self.root) as db:
             db.execute("UPDATE alerts SET media_status='failed',s3_status=CASE WHEN s3_status='waiting' THEN 'failed' ELSE s3_status END,media_error='録画完了前にサーバーが停止しました。' WHERE media_status='recording'")
@@ -119,6 +120,8 @@ class JobManager:
     def start(self, kind, source, label, every, confidence, upload=None,
               ocr_confidence=OCR_RESULT_CONFIDENCE):
         with self.lock:
+            if self.optimizing:
+                raise BusyError('性能測定中です。完了後に処理を開始してください。')
             active_kinds = [value[1] for value in self.processes.values()]
             if kind == 'file' and self.processes:
                 raise BusyError('カメラ処理を停止してからファイル処理を開始してください。')
@@ -242,18 +245,6 @@ class JobManager:
                 item['progress'] = json.loads((folder / 'progress.json').read_text(encoding='utf-8'))
             except (FileNotFoundError, ValueError):
                 item['progress'] = {}
-            measured = item['progress'].get('performance')
-            frame_index = item['progress'].get('frame_index')
-            if (self.performance and measured and frame_index is not None and
-                    self.performance_frames.get(item['id']) != frame_index):
-                self.performance.record(job_id=item['id'], frame_ms=float(measured.get('frame_ms', 0)),
-                    detection_ms=float(measured.get('detection_ms', 0)), ocr_ms=float(measured.get('ocr_ms', 0)),
-                    plate_ms=float(measured.get('plate_detection_ms', 0)),
-                    plate_recognition_ms=float(measured.get('plate_recognition_ms', 0)),
-                    rectification_ms=float(measured.get('rectification_ms', 0)),
-                    decision_ms=float(measured.get('decision_ms', 0)), storage_ms=float(measured.get('storage_ms', 0)),
-                    notification_ms=float(measured.get('notification_ms', 0)))
-                self.performance_frames[item['id']] = frame_index
             item['has_preview'] = (folder / 'preview.jpg').is_file()
             result.append(item)
         return result
@@ -318,7 +309,10 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
     app.extensions['models'] = models
     app.extensions['performance'] = performance
     app.extensions['services'] = ApplicationServices.build(manager.root, performance)
-    app.register_blueprint(create_system_blueprint(settings, performance))
+    from aigate.optimization import OptimizationManager
+    optimization = OptimizationManager(manager, settings)
+    app.extensions['optimization'] = optimization
+    app.register_blueprint(create_system_blueprint(settings, performance, optimization))
     receiver = StreamReceiver()
     password = password if password is not None else os.environ.get('GATE_ADMIN_PASSWORD')
 
@@ -706,6 +700,7 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
                 abort(404, description='自動候補が見つかりません。')
             db.execute("DELETE FROM ocr_samples WHERE observation_id=? AND candidate_index=? AND source='automatic'",
                        (observation_id, candidate_index))
+            db.execute('DELETE FROM ocr_evaluation_frames WHERE observation_id NOT IN (SELECT observation_id FROM ocr_samples)')
             remaining = db.execute("SELECT 1 FROM ocr_auto_candidates WHERE observation_id=? AND status='pseudo' LIMIT 1",
                                    (observation_id,)).fetchone()
             if not remaining:
@@ -801,6 +796,28 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
         os.replace(temporary, request_path)
         return jsonify(state='queued'), 202
 
+    @app.post('/api/paddle-training/package')
+    def export_model_package():
+        from model_package import package_from_state
+        try:
+            path, manifest = package_from_state(manager.root)
+        except (ValueError, OSError) as error:
+            abort(400, description=str(error))
+        return send_file(path, as_attachment=True, download_name=path.name,
+                         mimetype='application/zip')
+
+    @app.post('/api/paddle-training/publish')
+    def publish_model_package():
+        from model_package import package_from_state
+        from model_publish import publish_from_environment
+        try:
+            path, manifest = package_from_state(manager.root)
+            return jsonify(publish_from_environment(path))
+        except ValueError as error:
+            abort(400, description=str(error))
+        except (OSError, RuntimeError):
+            abort(502, description='GitHubへの登録に失敗しました。設定・権限・同時更新を確認してください。')
+
     @app.get('/api/paddle-training/diagnostics/<sample_id>/image')
     def paddle_diagnostic_image(sample_id):
         if not re.fullmatch(r'[a-f0-9]{32}', sample_id):
@@ -825,6 +842,7 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
         with events.connection(manager.root) as db:
             db.execute('DELETE FROM ocr_sample_fields WHERE sample_id=?', (identifier,))
             db.execute('DELETE FROM ocr_samples WHERE id=?', (identifier,))
+            db.execute('DELETE FROM ocr_evaluation_frames WHERE observation_id NOT IN (SELECT observation_id FROM ocr_samples)')
         return jsonify(status='deleted')
 
     @app.post('/api/vehicles')
@@ -949,6 +967,11 @@ def main():
     manager = app.extensions['jobs']
     from model_service import ModelServiceProcess
     manager.model_service = ModelServiceProcess(manager.root, manager.model_configuration())
+    if os.getenv('GATE_AUTO_OPTIMIZE', '1') == '1' and manager.settings.read()['profile'] == 'auto':
+        try:
+            app.extensions['optimization'].start()
+        except (ValueError, RuntimeError) as error:
+            print(f'実映像の自動最適化を保留: {error}', flush=True)
     atexit.register(manager.model_service.close)
     dispatcher = events.Dispatcher(manager.root)
     dispatcher.start()
