@@ -87,13 +87,15 @@ async function refreshLearning(){
       row.append(label,review,exclude);$('learning-auto-candidates').append(row);
     }
     const training=await api('/api/paddle-training');
-    $('paddle-training-status').textContent='PaddleOCR追加学習: '+({idle:'待機',running:'学習中',completed:'完了（未適用）',failed:'失敗',interrupted:'中断',insufficient_data:'データ不足',unavailable:'学習環境未準備'}[training.state]||training.state)+(training.error?' / '+training.error:'');
+    $('paddle-training-status').textContent='PaddleOCR追加学習: '+({idle:'待機',waiting_for_resources:'性能測定の終了待ち',running:'学習中',completed:'完了（未適用）',failed:'失敗',interrupted:'中断',insufficient_data:'データ不足',unavailable:'学習環境未準備'}[training.state]||training.state)+(training.error?' / '+training.error:'');
     $('paddle-retry').hidden=training.state!=='failed'||!!training.retry_queued;
     const stage={detector:'プレート検出器',recognizer:'PaddleOCR',validation:'評価',export:'推論形式への変換'}[training.stage]||training.stage;
     const counts=training.report||{};
     $('paddle-training-details').textContent=[stage?'工程: '+stage:'',counts.det_train!==undefined?'検出器 学習 '+counts.det_train+'件 / 評価 '+counts.det_val+'件':'',training.exit_code!==undefined?'終了コード: '+training.exit_code:''].filter(Boolean).join(' / ');
     $('paddle-training-log').textContent=training.recent_log||'ログはまだありません。';
     const comparison=training.comparison||{state:'idle'};
+    $('paddle-package').disabled=training.state!=='completed'||comparison.state!=='completed';
+    $('paddle-publish').disabled=training.state!=='completed'||comparison.state!=='completed';
     $('paddle-compare').disabled=training.state!=='completed'||comparison.state==='running';
     $('paddle-compare-status').textContent='同一画像での比較: '+({idle:'未実施',running:'実行中',completed:'完了',failed:'失敗',interrupted:'中断'}[comparison.state]||comparison.state)+(comparison.error?' / '+comparison.error:'');
     const target=$('paddle-comparison');target.replaceChildren();
@@ -159,3 +161,16 @@ $('paddle-retry').onclick=async()=>{try{await api('/api/paddle-training/retry',{
 $('paddle-compare').onclick=async()=>{try{await api('/api/paddle-training/compare',{method:'POST'});message('比較を予約しました。');await refreshLearning();}catch(e){message(e.message);}};
 refreshLearning().catch(e=>message(e.message));
 setInterval(()=>refreshLearning().catch(()=>{}),10000);
+
+if($('paddle-package'))$('paddle-package').onclick=async()=>{
+  try{
+    const response=await fetch('/api/paddle-training/package',{method:'POST',headers:{'X-CSRF-Token':document.querySelector('meta[name="csrf-token"]').content}});
+    if(!response.ok){const data=await response.json();throw new Error(data.error||'モデルを出力できません。');}
+    const url=URL.createObjectURL(await response.blob());const link=document.createElement('a');link.href=url;link.download='jp-plate-model.zip';link.click();setTimeout(()=>URL.revokeObjectURL(url),10000);
+  }catch(error){message(error.message);}
+};
+if($('paddle-publish'))$('paddle-publish').onclick=async()=>{
+  const button=$('paddle-publish');button.disabled=true;
+  try{const result=await api('/api/paddle-training/publish',{method:'POST'});message('モデルを登録しました: '+result.url);}
+  catch(error){message(error.message);}finally{button.disabled=false;}
+};
