@@ -1,45 +1,31 @@
 # AI-Gate-JP-Models
 
-AI GATE SYSTEMで確認済みの日本のナンバープレート実データから追加学習した、再利用可能なOCRモデルを管理するリポジトリです。
+AI GATE SYSTEMで追加学習した日本ナンバープレート検出器＋PaddleOCRを、他のPythonプロジェクトで再利用するためのパッケージです。運用のLipla-jpを変更する機能ではありません。
 
-このリポジトリには、推論に必要なモデル本体、プレート設定、評価結果、ライセンス、SHA-256チェックサムを登録します。実画像、登録車両情報、履歴、個人情報は原則として登録しません。教師データは非公開のAI-Gate-System側に保持します。
+## Web画面から出力
 
-## リポジトリ構成
+OCR学習画面の「再利用パッケージをダウンロード」を押します。現在の学習が完了し、そのモデルで未使用テスト画像2件以上の比較が完了している場合にZIPを出力します。画像・ナンバーの正解ラベル・登録情報・通知・APIキーは含めません。
 
-```text
-models/
-└── fast-plate-ocr-jp/
-    └── 1.0.0/
-        ├── model.onnx
-        ├── plate_config.yaml
-        ├── manifest.json
-        └── evaluation.json
-scripts/
-└── validate_model_package.py
+ZIPには `models/plate.pt`、`models/paddle-inference/`、`recognize.py`、依存関係、ライセンス資料、評価の集計、全ファイルのSHA-256を含む `manifest.json` が入ります。重み・読み込みコード・評価集計のハッシュに基づくバージョンを使います。検証用データはモデル選択に、テスト用データは最終評価に使用します。Lipla-jpの仮ラベルを含む評価は独立した正解による精度測定ではありません。
+
+## 別プロジェクトで利用
+
+Python 3.11の独立環境でZIPを展開し、`requirements.txt`を導入してください。PaddlePaddleに対応するCPU環境が必要です。Apple SiliconのDockerでは学習コンテナ同様のamd64環境を使用します。
+
+```python
+from recognize import JapanesePlateRecognizer
+recognizer = JapanesePlateRecognizer('/path/to/unpacked-package')
+candidates, diagnostics = recognizer.recognize(vehicle_bgr_image)
 ```
 
-各モデルは変更せず、バージョンディレクトリを追加して管理します。`manifest.json`のチェックサムと評価結果を確認してから、利用側プロジェクトへ導入してください。
+入力は空でないBGR車両切り出し画像です。モデルを起動時に一度生成して繰り返し利用できます。全画角の場合は利用側の車両検出後に渡してください。
 
-## AI GATE SYSTEMへの導入
+## GitHubで管理
 
-```bash
-export GATE_OCR_BACKEND=fastalpr
-export GATE_FAST_OCR_MODEL_PATH="$PWD/models/fast-plate-ocr-jp/1.0.0/model.onnx"
-export GATE_FAST_OCR_CONFIG_PATH="$PWD/models/fast-plate-ocr-jp/1.0.0/plate_config.yaml"
-```
+`models/<manifestのversion>/`にパッケージの内容を保存します。同じバージョンは変更せず、新しい重みには新しいバージョンを使います。大きい重みはGit LFS又はGitHub Releaseで管理し、取得後に `manifest.json` のチェックサムを検証してください。
 
-FastPlateOCR公式の`LicensePlateRecognizer`が要求するONNXモデルと対応設定ファイルの組み合わせを保持します。設定ファイルはモデルと同じバージョンのものを使用してください。
+WebからのGitHub登録は `GATE_MODEL_REPO_TOKEN`、`GATE_MODEL_REPOSITORY`（既定 `UeEmon/AI-Gate-JP-Models`）、`GATE_MODEL_EXPORT_LICENSE` を設定した場合に利用できます。100 MiB未満の各ファイルをGitデータAPIでバージョン別に登録し、既存バージョンは上書きしません。APIキーをGitHubへ登録しません。
 
-## 検証
+## 利用条件
 
-```bash
-python scripts/validate_model_package.py models/fast-plate-ocr-jp/1.0.0
-```
-
-## 公開方針
-
-実データを用いたモデルであるため、当面はGitHub Private Repositoryで管理します。公開する場合は、学習画像を含めず、第三者ライセンス、モデルの評価範囲、利用制限を確認してから公開します。
-
-## ライセンス
-
-追加学習モデル固有のライセンスは未確定です。FastPlateOCR等の基盤ライセンスと、学習データの利用許諾を分離して管理してください。
+検出器のUltralytics、OCRのPaddleOCR、基盤重み、教師データの条件をそれぞれ確認してください。`manifest.license=UNRESOLVED`は、出力した重みの再配布条件が未確定であることを示します。出力機能は第三者の権利や本体のライセンスを変更しません。`GATE_MODEL_EXPORT_LICENSE`には確認済みの追加学習モデルの条件を記載します。
