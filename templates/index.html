@@ -93,7 +93,7 @@
 <details><summary>学習ログ（最新12行）</summary><pre id="paddle-training-log"></pre></details>
 <h3>Lipla-jp / 学習済みPaddleOCR 比較</h3>
 <p class="hint">OCR信頼度98%以上のLipla-jp自動ラベルまたは手動修正済み評価画像で比較します。自動ラベルのみではLipla-jp自身の正解率を検証できません。両方式とも車両画像からプレート検出・OCRまで測定します。運用モデルはLipla-jpです。</p>
-<button id="paddle-compare" type="button" disabled>比較を再実行</button>
+<button id="paddle-package" type="button">再利用パッケージをダウンロード</button><button id="paddle-publish" type="button">モデルをGitHubへ登録</button><button id="paddle-compare" type="button" disabled>比較を再実行</button>
 <p id="paddle-compare-status" role="status"></p>
 <div id="paddle-comparison"></div>
 <details><summary>自動登録された学習候補（最新200件）</summary><p class="hint">OCR信頼度80%以上の候補は学習用に、98%以上の候補は番号単位で検証・テストにも利用し、評価対象全体を約1:1に自動配分します。50%以上80%未満は確認待ち候補とし、人が確認するまで教師データに使用しません。50%未満は候補へ登録しません。誤認識は「確認・修正」から正しい番号と画像範囲を保存してください。</p><div id="learning-auto-candidates"></div></details>
@@ -130,7 +130,7 @@
 <p class="hint">削除は元に戻せません。実行中は削除できません。登録車両・通知履歴・通知映像・OCR学習データと学習済みモデルは残ります。自動教師データの画像は学習用領域に退避します。手動確認済みの切り出し画像は保持します。</p></div></section>
 <section class="panel" id="system-page" data-page="system" hidden><div class="panel-title"><h2>システム性能</h2><span class="badge" id="realtime-state">未測定</span></div>
 <p class="hint">車両検出はYOLO26n、ナンバープレート検出・文字認識はLipla-jpを使用します。PaddleOCRは学習・評価専用です。</p>
-<div class="actions"><button id="run-benchmark" type="button">性能測定を実行</button></div>
-<div class="metrics system-metrics"><div><span>CPU</span><strong id="perf-cpu">—</strong></div><div><span>メモリ</span><strong id="perf-memory">—</strong></div><div><span>GPU</span><strong id="perf-gpu">—</strong></div><div><span>実測FPS</span><strong id="perf-fps">—</strong></div></div></section>
+<div class="actions"><button id="run-benchmark" type="button">実映像で測定・自動最適化</button></div>
+<p class="hint">検証用フルフレームで640・960・1280の入力サイズを実測します。既存の車両切り出し画像のみの場合は参考測定とし自動適用しません。未使用テストは設定選択に使いません。精度が基準設定を下回る候補は採用しません。</p><pre id="optimization-report"></pre><pre id="performance-stages"></pre><div class="metrics system-metrics"><div><span>CPU</span><strong id="perf-cpu">—</strong></div><div><span>メモリ</span><strong id="perf-memory">—</strong></div><div><span>GPU</span><strong id="perf-gpu">—</strong></div><div><span>実測FPS</span><strong id="perf-fps">—</strong></div></div></section>
 <footer>AI Gate System · OpenCV / 車両区分・ナンバー認識 <span>登録照合・検知通知 / ゲート開閉は行いません</span></footer>
 </main></body></html>
