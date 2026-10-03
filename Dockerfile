@@ -16,6 +16,9 @@ RUN useradd --create-home --uid 10001 gate && mkdir /data /models && chown gate:
 COPY --chown=gate:gate app.py web.py events.py evidence.py registry_csv.py mail_delivery.py ocr_learning.py ocr_train.py ocr_backends.py accuracy_benchmark.py vision_train.py plate_geometry.py plate_rules.py vehicle_identity.py ./
 COPY --chown=gate:gate plate_pipeline.py lipla_pipeline.py model_service.py plate_only_benchmark.py plate_benchmark_web.py inference_device.py ./
 COPY --chown=gate:gate fast_plate_ocr_training.py fast_plate_ocr_train.py ./
+COPY --chown=gate:gate model_package.py model_publish.py resource_lock.py ./
+COPY --chown=gate:gate licenses/ licenses/
+COPY --chown=gate:gate THIRD_PARTY_NOTICES.md ./
 COPY --chown=gate:gate scripts/ scripts/
 COPY --chown=gate:gate training/ training/
 COPY --chown=gate:gate aigate/ aigate/
