@@ -66,6 +66,9 @@ def initialize(root):
         columns = {row[1] for row in db.execute('PRAGMA table_info(ocr_samples)')}
         if 'source' not in columns:
             db.execute("ALTER TABLE ocr_samples ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
+        db.execute('''CREATE TABLE IF NOT EXISTS ocr_evaluation_frames (
+            observation_id TEXT PRIMARY KEY,image BLOB NOT NULL,created_at TEXT NOT NULL)''')
+        db.execute('DELETE FROM ocr_evaluation_frames WHERE observation_id NOT IN (SELECT observation_id FROM ocr_samples)')
         if 'ocr_confidence' not in columns:
             db.execute('ALTER TABLE ocr_samples ADD COLUMN ocr_confidence REAL')
         auto_columns = {row[1] for row in db.execute('PRAGMA table_info(ocr_auto_candidates)')}
@@ -625,3 +628,18 @@ def training_crops(sample, width, height):
     boundary = round(height * sample['split'])
     return [(sample['top_text'], (0, 0, width, boundary)),
             (sample['bottom_text'], (0, boundary, width, height))]
+
+
+def save_evaluation_frame(db, record, frame, cv2):
+    """Retain full-frame input only for 98%+ confirmed automatic supervision."""
+    db.execute('''CREATE TABLE IF NOT EXISTS ocr_evaluation_frames (
+        observation_id TEXT PRIMARY KEY,image BLOB NOT NULL,created_at TEXT NOT NULL)''')
+    eligible = any(c.get('fields') and c.get('ocr_backend') in ('lipla-native','lipla-jp')
+                   and c.get('confidence',0) >= .98 for c in record.get('plate_candidates',[]))
+    if eligible and db.execute('SELECT 1 FROM ocr_samples WHERE observation_id=? LIMIT 1',(record['id'],)).fetchone():
+        ok,encoded=cv2.imencode('.jpg',frame)
+        if not ok:
+            raise ValueError('検証用フルフレームを保存できません。')
+        db.execute('INSERT OR REPLACE INTO ocr_evaluation_frames VALUES (?,?,?)',
+                   (record['id'],sqlite3.Binary(encoded.tobytes()),events.utc()))
+    db.execute('DELETE FROM ocr_evaluation_frames WHERE observation_id NOT IN (SELECT observation_id FROM ocr_samples)')
