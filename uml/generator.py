@@ -10,9 +10,9 @@ GROUPS = {
     'core': ('GateCore', ('app.py', 'web.py', 'model_service.py',
                           'lipla_pipeline.py', 'plate_pipeline.py', 'events.py', 'evidence.py',
                           'vehicle_identity.py')),
-    'services': ('GateServices', ('aigate',)),
+    'services': ('GateServices', ('aigate', 'resource_lock.py')),
     'learning': ('GateLearning', ('ocr_learning.py', 'paddle_auto_train.py',
-                                  'paddle_training.py', 'ocr_backends.py')),
+                                  'paddle_training.py', 'ocr_backends.py', 'model_package.py', 'model_publish.py')),
 }
 LOCK = threading.Lock()
 
