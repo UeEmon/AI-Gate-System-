@@ -8,7 +8,7 @@ import sqlite3
 
 
 TABLES = ("alerts", "vehicles", "observations", "jobs", "ocr_samples", "ocr_sample_fields",
-          "ocr_auto_candidates", "ocr_training_runs")
+          "ocr_auto_candidates", "ocr_training_runs", "ocr_evaluation_frames", "ocr_auto_archive", "ocr_plate_partitions")
 DATA_DIRECTORIES = ("events", "images", "jobs", "ocr-learning", "training")
 
 
