@@ -269,13 +269,17 @@ async function loadSystem(){
   if(!$('system-page'))return;
   const performance=await api('/api/system/performance');
   const startup=performance.startup||{},runtime=performance.runtime||{};
-  $('perf-cpu').textContent=(startup.cpu_count??'—')+' cores';
+  $('perf-cpu').textContent=(startup.cpu_count??'—')+' cores / '+(performance.resources?.gate_cpu_percent??'—')+'%';
   $('perf-memory').textContent=startup.memory?.total_bytes?Math.round(startup.memory.total_bytes/1073741824)+' GB':'—';
+  if($('optimization-report'))$('optimization-report').textContent=JSON.stringify(performance.optimization,null,2);
+  if($('performance-stages'))$('performance-stages').textContent=JSON.stringify({total_frames:runtime.total_samples,latency_ms:runtime.latency_ms,resources:performance.resources,scope:runtime.timing_scope},null,2);
   $('perf-gpu').textContent=startup.gpu?.available?(startup.gpu.name||'利用可能'):'なし';
   $('perf-fps').textContent=runtime.fps??'—';
   $('realtime-state').textContent=runtime.realtime===null?'実映像未測定':runtime.realtime?'リアルタイム適合':'要設定調整';
 }
-if($('run-benchmark'))$('run-benchmark').onclick=async()=>{try{message('性能測定を実行しています。');await api('/api/system/benchmark',{method:'POST'});await loadSystem();message('性能測定が完了しました。');}catch(error){message(error.message);}};
+let systemRefreshTimer=null;
+if($('system-page'))systemRefreshTimer=setInterval(()=>{if(!$('system-page').hidden)loadSystem().catch(()=>{});},3000);
+if($('run-benchmark'))$('run-benchmark').onclick=async()=>{try{message('性能測定を実行しています。');await api('/api/system/benchmark',{method:'POST'});await loadSystem();message('性能測定を開始しました。結果はこの画面で確認できます。');}catch(error){message(error.message);}};
 if($('system-page'))showPage(globalThis.location?.hash?.slice(1)||'monitor');
 
 async function deleteVehicle(vehicle){
