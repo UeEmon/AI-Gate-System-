@@ -79,7 +79,9 @@ class LearningTests(unittest.TestCase):
         np.testing.assert_array_equal(actual, expected)
 
     def test_delete_vehicle_preserves_history_and_learning_and_requires_csrf(self):
-        response = self.post('/api/vehicles')
+        self.assertEqual(self.post('/api/ocr-learning/samples').status_code, 201)
+        registration={k:v for k,v in self.data.items() if k!='learning'}
+        response = self.post('/api/vehicles', registration)
         identifier = response.json['id']
         route = '/api/vehicles/' + identifier
         observation = dict(id='check',run_id='check',vehicle_type='car',
@@ -97,12 +99,14 @@ class LearningTests(unittest.TestCase):
         with events.connection(self.root) as db:
             self.assertIsNone(db.execute('SELECT id FROM vehicles WHERE plate_key=?', ('品川|330|さ|1234',)).fetchone())
 
-    def test_registration_and_sample_are_atomic_and_pixels_match(self):
+    def test_registration_and_learning_are_separate_and_pixels_match(self):
         self.data['learning']['bottom_text'] = 'さ12-35'
         self.assertEqual(self.post('/api/vehicles').status_code, 400)
         self.assertEqual(self.client.get('/api/vehicles').json['items'], [])
         self.data['learning']['bottom_text'] = 'さ1234'
-        self.assertEqual(self.post('/api/vehicles').status_code, 201)
+        self.assertEqual(self.post('/api/ocr-learning/samples').status_code, 201)
+        registration={k:v for k,v in self.data.items() if k!='learning'}
+        self.assertEqual(self.post('/api/vehicles', registration).status_code, 201)
         with events.connection(self.root) as db:
             row = dict(db.execute('SELECT * FROM ocr_samples').fetchone())
         self.assertEqual(row['original_text'], '品川330さ12-35')
