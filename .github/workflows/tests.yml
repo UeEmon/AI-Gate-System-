@@ -1,0 +1,33 @@
+name: Tests
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['docs/generated/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install test dependencies
+        run: python -m pip install 'flask>=3.1,<4' 'numpy>=1.26,<3' 'opencv-python-headless>=4.10,<5' 'Pillow>=10,<13' 'boto3>=1.35,<2' 'PyYAML>=6,<7' 'psutil>=6,<8'
+      - name: Python regression tests
+        run: python -m unittest discover -s tests -v
+      - name: Web regression tests
+        run: node --test tests/*.cjs
+      - name: UML server tests
+        run: PYTHONPATH=uml python -m unittest discover -s uml -p 'test_*.py' -v
+      - name: JavaScript syntax
+        run: for file in static/*.js; do node --check "$file"; done
