@@ -40,9 +40,9 @@ class VehiclePlateTests(unittest.TestCase):
             self.assertEqual(detector.call_args.args[0].shape, (200, 320, 3))
 
     def test_no_candidate_skips_ocr(self):
-        reader = Mock()
+        reader = Mock(spec=['readtext'])
         with patch('app.plate_regions', return_value=[]) as proposals:
-            self.assertEqual(app.read_plate(np.zeros((100, 160, 3), np.uint8), reader, cv2), [])
+            self.assertEqual(app.read_plate(np.zeros((100, 160, 3), np.uint8), [('legacy-test', reader)], cv2), [])
         self.assertEqual(proposals.call_count, 2)
         reader.readtext.assert_not_called()
 
