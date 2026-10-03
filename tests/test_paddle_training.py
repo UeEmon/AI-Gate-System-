@@ -270,6 +270,7 @@ class PaddleTrainingTests(unittest.TestCase):
                 delete_observations(db, root, [(observation_id, str(image_path))], archive=True)
             self.assertEqual(export(root, root / 'archived-pseudo')['unreviewed_pseudo'], 1)
             with events.connection(root) as db:
+                db.execute("DELETE FROM ocr_samples WHERE observation_id=? AND source='automatic'", (observation_id,))
                 db.execute("UPDATE ocr_auto_candidates SET status='excluded' WHERE observation_id=?",
                            (observation_id,))
             self.assertEqual(export(root, root / 'excluded-pseudo')['unreviewed_pseudo'], 0)
