@@ -20,6 +20,8 @@ class PaddleTrainingManager:
         self.comparison_path = self.path.parent / 'comparison-state.json'
         self.lock = threading.RLock()
         self.process = None
+        from resource_lock import ResourceLease
+        self.lease = ResourceLease(root)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if self.status().get('state') == 'running':
             self._save(dict(state='interrupted', error='コンテナ再起動で学習が中断されました。'))
@@ -101,12 +103,20 @@ class PaddleTrainingManager:
                 state = dict(state='insufficient_data', error='学習用に異なる番号5件、検証・未使用テスト用に各2件の車両画像が必要です。自動評価候補はLipla-jpのOCR信頼度98%以上です。', report=report)
                 self._save(state)
                 return state
+            if not self.lease.acquire():
+                shutil.rmtree(directory, ignore_errors=True)
+                state = dict(state='waiting_for_resources', error='実映像の性能測定が完了するまで学習を待機します。')
+                self._save(state)
+                return state
             log = (directory / 'train.log').open('wb')
             try:
                 self.process = subprocess.Popen([
                     sys.executable, str(Path(__file__).with_name('paddle_finetune.py')),
                     '--dataset', str(directory), '--paddle-repo', str(repo),
                     '--pretrained', str(pretrained)], stdout=log, stderr=subprocess.STDOUT)
+            except BaseException:
+                self.lease.release()
+                raise
             finally:
                 log.close()
             state = dict(state='running', fingerprint=fingerprint, dataset=str(directory),
@@ -118,6 +128,7 @@ class PaddleTrainingManager:
     def _watch(self, process, state):
         code = process.wait()
         with self.lock:
+            self.lease.release()
             self._save({**state, 'state': 'completed' if code == 0 else 'failed',
                         'exit_code': code,
                         **({'error': '学習プロセスがSIGKILLで停止しました。メモリ不足などによる強制終了の可能性があります。'} if code == -9 else {})})
@@ -145,15 +156,21 @@ class PaddleTrainingManager:
                 return previous
             if requested:
                 request.unlink(missing_ok=True)
+            if not self.lease.acquire():
+                return self.comparison_status()
             state = dict(state='running', dataset=str(dataset), log=str(dataset / 'comparison.log'))
             self._save_comparison(state)
-            with (dataset / 'comparison.log').open('wb') as log:
-                process = subprocess.Popen([
-                    sys.executable, str(Path(__file__).with_name('paddle_evaluate.py')),
-                    '--data', str(self.root), '--dataset', str(dataset),
-                    '--plate-weights', str(weights / 'plate.pt'),
-                    '--recognition-dir', str(weights / 'paddle-inference'), '--compare-lipla'],
-                    stdout=log, stderr=subprocess.STDOUT)
+            try:
+                with (dataset / 'comparison.log').open('wb') as log:
+                    process = subprocess.Popen([
+                        sys.executable, str(Path(__file__).with_name('paddle_evaluate.py')),
+                        '--data', str(self.root), '--dataset', str(dataset),
+                        '--plate-weights', str(weights / 'plate.pt'),
+                        '--recognition-dir', str(weights / 'paddle-inference'), '--compare-lipla'],
+                        stdout=log, stderr=subprocess.STDOUT)
+            except BaseException:
+                self.lease.release()
+                raise
             self.process = process
             threading.Thread(target=self._watch_comparison, args=(process, state), daemon=True).start()
             return state
@@ -161,6 +178,7 @@ class PaddleTrainingManager:
     def _watch_comparison(self, process, state):
         code = process.wait()
         with self.lock:
+            self.lease.release()
             result = {**state, 'state': 'completed' if code == 0 else 'failed', 'exit_code': code}
             if code == 0:
                 try:
