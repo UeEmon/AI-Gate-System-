@@ -26,10 +26,10 @@ class GeometryTests(unittest.TestCase):
         self.assertEqual(method, 'perspective')
         self.assertIsNotNone(quad)
         self.assertGreater(roi[8:-8, 12:-12].mean(), 220)
-        reader = Mock()
+        reader = Mock(spec=['readtext'])
         reader.readtext.return_value = [([[0,0],[100,0],[100,30],[0,30]], '品川330さ1234', .9)]
         with patch('app.plate_regions', return_value=[(60,40,266,166)]):
-            candidate = read_plate(image, reader, cv2)[0]
+            candidate = read_plate(image, [('legacy-test', reader)], cv2)[0]
         self.assertEqual(candidate['rectification'], 'perspective')
         np.testing.assert_allclose(candidate['quad_in_vehicle'], quad)
         self.assertGreater(reader.readtext.call_args.args[0][20:-20, 25:-25].mean(), 220)
