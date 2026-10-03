@@ -1,37 +1,42 @@
-"""Validate the portable model-package contract without loading heavy ML runtimes."""
+"""Verify a ZIP or unpacked package before inference, without ML dependencies."""
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sys
+import zipfile
 
 
-def validate(directory, allow_placeholder=False):
-    directory = Path(directory).resolve()
-    manifest = json.loads((directory / 'manifest.json').read_text(encoding='utf-8'))
-    required = {'model.onnx', 'plate_config.yaml', 'evaluation.json'}
-    files = manifest.get('sha256', {})
-    evaluation_path = directory / 'evaluation.json'
-    evaluation = json.loads(evaluation_path.read_text(encoding='utf-8'))
-    if allow_placeholder and evaluation.get('status') == 'placeholder':
-        return {'model_id': manifest.get('model_id'), 'version': manifest.get('version'), 'valid': True, 'placeholder': True}
-    missing = [name for name in required if not (directory / name).is_file()]
-    if missing:
-        raise ValueError('missing model-package files: ' + ', '.join(missing))
-    if any(value.startswith('REPLACE_') for value in files.values()):
-        raise ValueError('manifest contains placeholder checksums')
-    for name in required:
-        digest = hashlib.sha256((directory / name).read_bytes()).hexdigest()
-        if files.get(name) != digest:
-            raise ValueError(f'checksum mismatch: {name}')
-    metrics = evaluation.get('metrics', {})
-    if evaluation.get('status') != 'passed' or metrics.get('cer') is None or metrics.get('plate_accuracy') is None:
-        raise ValueError('evaluation.json is not a passed evaluation report')
-    return {'model_id': manifest.get('model_id'), 'version': manifest.get('version'), 'valid': True}
-
-
-if __name__ == '__main__':
+def validate(location):
+    location=Path(location)
+    archive=zipfile.ZipFile(location) if location.is_file() else None
     try:
-        print(json.dumps(validate(sys.argv[1], '--allow-placeholder' in sys.argv[2:]), ensure_ascii=False))
-    except (IndexError, OSError, ValueError, json.JSONDecodeError) as exc:
-        print(f'INVALID: {exc}', file=sys.stderr)
-        raise SystemExit(1)
+        read=(archive.read if archive else lambda name:(location/name).read_bytes())
+        manifest=json.loads(read('manifest.json'))
+        if manifest.get('schema_version') != 1:
+            raise ValueError('Unsupported package format')
+        files=manifest['files']
+        required={'models/plate.pt','models/paddle-inference/inference.pdiparams','recognize.py','evaluation.json'}
+        if not required.issubset(files) or not any(n in files for n in ('models/paddle-inference/inference.json','models/paddle-inference/inference.pdmodel')):
+            raise ValueError('Missing inference artifacts')
+        for name,expected in files.items():
+            p=PurePosixPath(name)
+            if p.is_absolute() or '..' in p.parts or '\\' in name:
+                raise ValueError('Unsafe package path')
+            if not archive and not (location/name).resolve().is_relative_to(location.resolve()):
+                raise ValueError('Unsafe file reference')
+            data=read(name)
+            if len(data)!=expected['size'] or hashlib.sha256(data).hexdigest()!=expected['sha256']:
+                raise ValueError('Checksum mismatch: '+name)
+        if archive and (len(set(archive.namelist()))!=len(archive.namelist()) or set(archive.namelist()) != set(files)|{'manifest.json'}):
+            raise ValueError('Unrecorded or duplicate archive files')
+        return dict(valid=True,model_id=manifest['model_id'],version=manifest['version'],license=manifest['license'])
+    finally:
+        if archive:
+            archive.close()
+
+
+if __name__=='__main__':
+    try:
+        print(json.dumps(validate(sys.argv[1]),ensure_ascii=False))
+    except (IndexError,OSError,ValueError,KeyError,zipfile.BadZipFile) as error:
+        print('INVALID: '+str(error),file=sys.stderr);raise SystemExit(1)
