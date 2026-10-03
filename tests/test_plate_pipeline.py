@@ -46,11 +46,11 @@ class PlatePipelineTests(unittest.TestCase):
         reader.assert_not_called()
 
     def test_ocr_failure_retains_plate_location_and_source(self):
-        reader = Mock()
+        reader = Mock(spec=['readtext'])
         reader.readtext.return_value = []
         report = {}
         with patch('app.plate_regions', return_value=[(20, 30, 80, 40)]):
-            results = app.read_plate(self.crop, reader, cv2, diagnostics=report)
+            results = app.read_plate(self.crop, [('legacy-test', reader)], cv2, diagnostics=report)
         self.assertEqual(results, [])
         self.assertEqual(report['status'], 'detected_unreadable')
         self.assertEqual(report['proposals'][0]['bbox_in_vehicle'], [20, 30, 100, 70])
