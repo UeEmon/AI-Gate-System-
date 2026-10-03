@@ -12,7 +12,7 @@ RUN python -m pip install --no-cache-dir 'ultralytics>=8.3,<9' 'paddlepaddle>=3,
 RUN python -m pip install --no-cache-dir -r /tmp/requirements-paddle-training.txt
 RUN python -c 'import paddle, skimage, lmdb, pyclipper, rapidfuzz, albumentations; print("PaddleOCR training imports OK:", paddle.__version__)'
 RUN useradd --create-home --uid 10001 gate && mkdir /data /models && chown gate:gate /data /models
-COPY --chown=gate:gate app.py events.py plate_rules.py ocr_learning.py vision_train.py \
+COPY --chown=gate:gate resource_lock.py app.py events.py plate_rules.py ocr_learning.py vision_train.py \
   paddle_training.py paddle_finetune.py paddle_auto_train.py paddle_auto_worker.py \
   paddle_evaluate.py paddle_plate_pipeline.py lipla_pipeline.py ./
 USER gate
