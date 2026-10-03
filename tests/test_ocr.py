@@ -19,11 +19,11 @@ class OCRTests(unittest.TestCase):
                          [(10,20,100,50)])
 
     def test_processing_result_thresholds_are_inclusive(self):
-        valid = dict(fields={'region':'品川'}, confidence=.7)
-        self.assertTrue(result_is_eligible(.8, [valid]))
-        self.assertFalse(result_is_eligible(.7999, [valid]))
-        self.assertFalse(result_is_eligible(.8, [dict(valid, confidence=.6999)]))
-        self.assertFalse(result_is_eligible(.8, [dict(valid, fields=None)]))
+        valid = dict(fields={'region':'品川'}, confidence=.9)
+        self.assertTrue(result_is_eligible(.6, [valid]))
+        self.assertFalse(result_is_eligible(.5999, [valid]))
+        self.assertFalse(result_is_eligible(.6, [dict(valid, confidence=.8999)]))
+        self.assertFalse(result_is_eligible(.6, [dict(valid, fields=None)]))
         self.assertTrue(result_is_eligible(.65, [dict(valid, confidence=.55)], .65, .55))
         self.assertFalse(result_is_eligible(.649, [dict(valid, confidence=.55)], .65, .55))
         self.assertFalse(result_is_eligible(.65, [dict(valid, confidence=.549)], .65, .55))
@@ -64,11 +64,11 @@ class OCRTests(unittest.TestCase):
 
     @patch('app.plate_regions', return_value=[(0, 0, 100, 50)])
     def test_contrast_retry_and_edge_padding(self, regions):
-        reader = Mock()
+        reader = Mock(spec=['readtext'])
         reader.readtext.side_effect = ([[item(0, 0, 100, 30, '12-34')],
                                        [item(0, 0, 100, 30, '品川330さ12-34', .8)]] +
                                       [[item(0, 0, 100, 30, '12-34')]] * 6)
-        result = read_plate(np.full((60, 110, 3), 100, np.uint8), reader, cv2)[0]
+        result = read_plate(np.full((60, 110, 3), 100, np.uint8), [('legacy-test', reader)], cv2)[0]
         self.assertEqual(result['fields']['serial'], '1234')
         self.assertEqual(result['preprocessing'], 'clahe')
         self.assertEqual(result['bbox_in_vehicle'], [0, 0, 100, 50])
@@ -78,21 +78,21 @@ class OCRTests(unittest.TestCase):
 
     @patch('app.plate_regions', return_value=[(5, 5, 100, 50)])
     def test_consensus_across_preprocessing_variants(self, regions):
-        reader = Mock()
+        reader = Mock(spec=['readtext'])
         reader.readtext.side_effect = [
             [item(0, 0, 100, 30, '品川330さ5678', .95)],
             *[[item(0, 0, 100, 30, '品川330さ12-34', .8)]] * 7]
-        result=read_plate(np.zeros((80, 120, 3), np.uint8), reader, cv2)[0]
+        result=read_plate(np.zeros((80, 120, 3), np.uint8), [('legacy-test', reader)], cv2)[0]
         self.assertEqual(result['fields']['serial'], '1234')
         self.assertEqual(result['variant_votes'], 7)
         self.assertEqual(reader.readtext.call_count,8)
 
     @patch('app.plate_regions', return_value=[(0, 0, 100, 50)])
     def test_low_confidence_not_promoted_and_empty_not_emitted(self, regions):
-        reader = Mock()
+        reader = Mock(spec=['readtext'])
         reader.readtext.return_value = [item(0, 0, 100, 30, '品川330さ12-34', .4)]
-        result = read_plate(np.zeros((60, 110, 3), np.uint8), reader, cv2)[0]
+        result = read_plate(np.zeros((60, 110, 3), np.uint8), [('legacy-test', reader)], cv2)[0]
         self.assertEqual(result['status'], 'needs_review')
         self.assertEqual(result['confidence'], .4)
         reader.readtext.return_value = []
-        self.assertEqual(read_plate(np.zeros((60, 110, 3), np.uint8), reader, cv2), [])
+        self.assertEqual(read_plate(np.zeros((60, 110, 3), np.uint8), [('legacy-test', reader)], cv2), [])
