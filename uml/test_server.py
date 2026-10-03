@@ -35,11 +35,14 @@ class UmlViewerTests(unittest.TestCase):
 
     def test_catalog_contains_authored_and_generated_plantuml(self):
         diagrams = server.diagrams()
-        self.assertEqual(len(diagrams), 13)
+        self.assertGreaterEqual(len(diagrams), 13)
         self.assertEqual(diagrams['classes'][0], 'plantuml')
         self.assertIn('@startuml', diagrams['classes'][2])
         self.assertIsNone(diagrams['auto-core-classes'][2])
         self.assertEqual(diagrams['deployment'][0], 'plantuml')
+        committed = [key for key in diagrams if key.startswith('generated-')]
+        for key in committed:
+            self.assertIn('@startuml', diagrams[key][2])
 
     def test_source_escapes_markup_and_rejects_unknown_paths(self):
         with website() as base:

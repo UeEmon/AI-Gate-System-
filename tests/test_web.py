@@ -210,11 +210,12 @@ class WebTests(unittest.TestCase):
             for i in range(103):
                 save_observation(db,dict(id=str(i),processed_at='2026-09-19',run_id=job,
                     frame_index=i,media_ms=i*1000,vehicle_type='car',confidence=.9,image_path=None,
-                    plate_candidates=[] if i==0 else [dict(fields=fields,confidence=.8)]))
+                    plate_candidates=[] if i==0 else [dict(fields=fields,confidence=.8 if i==1 else .95)]))
         url='/api/registration-feed?job='+job
         data=self.client.get(url).json['items']
         self.assertEqual(len(data),100);self.assertIsNone(data[0]['draft'])
-        self.assertEqual(data[1]['draft']['key'],'品川|300|あ|1234')
+        self.assertIsNone(data[1]['draft'])
+        self.assertEqual(data[2]['draft']['key'],'品川|300|あ|1234')
         rest=self.client.get(url+'&after='+str(data[-1]['cursor'])).json['items']
         self.assertEqual(len(rest),3)
         events.register_vehicle(self.manager.root,dict(fields,vehicle_type='car',enabled=False))

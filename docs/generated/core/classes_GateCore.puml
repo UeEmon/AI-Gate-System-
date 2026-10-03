@@ -1,0 +1,149 @@
+@startuml classes_GateCore
+set namespaceSeparator none
+class "BoundedIdentityExecutor" as vehicle_identity.BoundedIdentityExecutor {
+  executor : ThreadPoolExecutor
+  slots : BoundedSemaphore
+  shutdown(wait, cancel_futures)
+  submit(callback)
+}
+class "<color:red>BusyError</color>" as web.BusyError {
+}
+class "ChatGPTProvider" as vehicle_identity.ChatGPTProvider {
+  api_key
+  endpoint : str
+  model : str
+  name : str
+  timeout
+  identify(image_bytes)
+}
+class "ConsecutivePlateBest" as app.ConsecutivePlateBest {
+  previous : list
+  overlap(a, b)
+  select(records)
+}
+class "Dispatcher" as events.Dispatcher {
+  client_factory : NoneType
+  root : Path
+  stop_event : Event
+  thread : NoneType, Thread
+  client(service)
+  run()
+  start()
+  stop()
+  tick()
+}
+class "EvidenceRecorder" as evidence.EvidenceRecorder {
+  buffer : deque
+  closed : bool
+  fps : int
+  last : float
+  lock : _RLock
+  pending : dict
+  post : int
+  pre : int
+  root : Path
+  still : bool
+  close()
+  encode(frame)
+  feed(frame, seconds)
+  finish(alert_id, partial)
+  trigger(alert_id, seconds, frame)
+  write(clip, seconds, jpeg)
+}
+class "GeminiProvider" as vehicle_identity.GeminiProvider {
+  api_key
+  endpoint : str
+  model : str
+  name : str
+  timeout
+  identify(image_bytes)
+}
+class "JobManager" as web.JobManager {
+  active_id
+  active_ids
+  lock : _RLock
+  max_cameras : int
+  model : str
+  model_service : NoneType
+  models : ModelRegistry, NoneType
+  performance : NoneType, PerformanceManager
+  performance_frames : dict
+  popen : Popen
+  processes : dict
+  root : Path
+  settings : NoneType, SettingsManager
+  sources : dict
+  watchers : dict
+  connect()
+  delete_history(scopes)
+  folder(job_id)
+  history_summary()
+  list_jobs()
+  model_configuration(runtime)
+  shutdown()
+  start(kind, source, label, every, confidence, upload, ocr_confidence)
+  stop(job_id)
+}
+class "LiplaPlatePipeline" as lipla_pipeline.LiplaPlatePipeline {
+  parser : NoneType
+  recognizer
+  run(image)
+}
+class "ModelClient" as model_service.ModelClient {
+  address : str
+  key
+  predict(frame)
+  read_plate(crop, threshold, diagnostics)
+  request(operation)
+}
+class "ModelServer" as model_service.ModelServer {
+  loader
+  lock : _RLock
+  plate : NoneType
+  readers : NoneType, list
+  root : Path
+  vehicle : NoneType
+  handle(operation, payload)
+  reload(config)
+}
+class "ModelServiceProcess" as model_service.ModelServiceProcess {
+  address : str
+  client
+  key
+  process : Popen
+  close()
+  reload(config)
+}
+class "PlateDetection" as plate_pipeline.PlateDetection {
+  attempts : list
+  regions : list
+  source : str
+}
+class "PlateDetector" as plate_pipeline.PlateDetector {
+  bound
+  cv2
+  geometry
+  learned : NoneType
+  detect(crop, fallback_only)
+}
+class "PlateRecognitionPipeline" as plate_pipeline.PlateRecognitionPipeline {
+  detector
+  recognize
+  rectifier
+  run(crop)
+}
+class "PlateRectifier" as plate_pipeline.PlateRectifier {
+  cv2
+  prepare(crop, bbox)
+}
+class "<color:red>VehicleIdentityError</color>" as vehicle_identity.VehicleIdentityError {
+}
+class "VehicleIdentityService" as vehicle_identity.VehicleIdentityService {
+  enabled : bool
+  providers : tuple
+  from_environment(offline)
+  identify(image_bytes)
+  initial_result()
+}
+model_service.ModelClient --* model_service.ModelServiceProcess : client
+@enduml

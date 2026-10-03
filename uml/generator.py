@@ -8,7 +8,8 @@ SOURCE_ROOT = Path('/source')
 OUTPUT_ROOT = Path('/tmp/uml-generated')
 GROUPS = {
     'core': ('GateCore', ('app.py', 'web.py', 'model_service.py',
-                          'lipla_pipeline.py', 'plate_pipeline.py', 'events.py', 'evidence.py')),
+                          'lipla_pipeline.py', 'plate_pipeline.py', 'events.py', 'evidence.py',
+                          'vehicle_identity.py')),
     'services': ('GateServices', ('aigate',)),
     'learning': ('GateLearning', ('ocr_learning.py', 'paddle_auto_train.py',
                                   'paddle_training.py', 'ocr_backends.py')),

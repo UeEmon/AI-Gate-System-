@@ -26,6 +26,7 @@ services:
       - ../paddle_training.py:/source/paddle_training.py:ro
       - ../events.py:/source/events.py:ro
       - ../evidence.py:/source/evidence.py:ro
+      - ../vehicle_identity.py:/source/vehicle_identity.py:ro
     read_only: true
     tmpfs:
       - /tmp

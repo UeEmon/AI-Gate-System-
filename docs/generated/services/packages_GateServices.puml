@@ -1,0 +1,30 @@
+@startuml packages_GateServices
+set namespaceSeparator none
+package "aigate" as aigate {
+}
+package "aigate.contracts" as aigate.contracts {
+}
+package "aigate.evaluation" as aigate.evaluation {
+}
+package "aigate.model_registry" as aigate.model_registry {
+}
+package "aigate.performance" as aigate.performance {
+}
+package "aigate.reset" as aigate.reset {
+}
+package "aigate.services" as aigate.services {
+}
+package "aigate.settings" as aigate.settings {
+}
+package "aigate.stream_receiver" as aigate.stream_receiver {
+}
+package "aigate.web_api" as aigate.web_api {
+}
+aigate --> aigate.model_registry
+aigate --> aigate.performance
+aigate --> aigate.settings
+aigate.services --> aigate.contracts
+aigate.services --> aigate.performance
+aigate.web_api --> aigate.performance
+aigate.web_api --> aigate.settings
+@enduml

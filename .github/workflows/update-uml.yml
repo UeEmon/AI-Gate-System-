@@ -1,0 +1,50 @@
+name: Update UML from main
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/generated/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: uml-main
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install UML tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y graphviz
+          python -m pip install --disable-pip-version-check --no-cache-dir pylint==4.0.9
+
+      - name: Generate PlantUML from Python code
+        run: python uml/generate_repository.py
+
+      - name: Commit generated PlantUML when changed
+        run: |
+          if test -z "$(git status --porcelain -- docs/generated)"; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/generated
+          git commit -m "docs: update UML from main code"
+          git push

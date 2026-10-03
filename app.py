@@ -538,6 +538,54 @@ def atomic_json(path, value):
     os.replace(temporary, path)
 
 
+def prepare_vehicle_identity(record, previous, service):
+    """Schedule once when a consecutive plate first meets the OCR threshold."""
+    previous_identity = (previous or {}).get('vehicle_identity', {})
+    request = (record['result_eligible'] and service.enabled and
+               (previous is None or previous_identity.get('status') in
+                {None, 'not_requested', 'skipped'}))
+    if previous_identity and not request:
+        record['vehicle_identity'] = previous_identity
+    return request
+
+
+def store_vehicle_identity(root, observation_id, identity):
+    """Atomically change only the AI result, preserving concurrent frame updates."""
+    db = open_database(Path(root) / 'gate.db')
+    try:
+        with db:
+            db.execute("""UPDATE observations SET details_json=json_set(
+                details_json, '$.vehicle_identity', json(?)) WHERE id=?""",
+                (json.dumps(identity, ensure_ascii=False), observation_id))
+    finally:
+        db.close()
+
+
+def update_observation(db, record):
+    """Keep a completed external AI result when a better OCR frame replaces it."""
+    with db:
+        db.execute("""UPDATE observations SET frame_index=?,media_ms=?,vehicle_type=?,
+            confidence=?,image_path=?,details_json=json_set(?, '$.vehicle_identity', json(
+                CASE WHEN json_extract(details_json,'$.vehicle_identity.status') IN
+                    ('identified','uncertain','unavailable','cancelled')
+                THEN json_extract(details_json,'$.vehicle_identity') ELSE ? END)) WHERE id=?""",
+            (record['frame_index'], record['media_ms'], record['vehicle_type'],
+             record['confidence'], record['image_path'], json.dumps(record, ensure_ascii=False),
+             json.dumps(record.get('vehicle_identity', {}), ensure_ascii=False), record['id']))
+
+
+def identify_observation(root, observation_id, image_bytes, service):
+    """Run external vehicle identification and merge it into the saved record."""
+    started = time.perf_counter()
+    try:
+        identity = service.identify(image_bytes)
+    except Exception as error:  # External AI must never stop recognition.
+        identity = {'status': 'unavailable', 'provider': None, 'manufacturer': None,
+                    'model': None, 'confidence': None, 'error': type(error).__name__}
+    identity['elapsed_ms'] = round((time.perf_counter() - started) * 1000, 2)
+    store_vehicle_identity(root, observation_id, identity)
+
+
 def initialize_models(model_path, plate_model_path, root, easyocr, yolo_class, offline=False,
                       timeout=None):
     """Prepare inference models, retrying transient first-download failures."""
@@ -609,6 +657,9 @@ def main():
     db = open_database(out / 'gate.db')
     import ocr_learning
     ocr_learning.initialize(out)
+    from vehicle_identity import BoundedIdentityExecutor, VehicleIdentityService
+    identity_service = VehicleIdentityService.from_environment(offline=offline)
+    identity_executor = BoundedIdentityExecutor()
     is_live = args.source_kind in ('camera', 'browser') or (args.source_kind == 'auto' and
               (args.source.isdecimal() or args.source.lower().startswith(('rtsp://', 'rtsps://', 'rtmp://', 'rtmps://'))))
     stream = (browser_frames(args.source, cv2, args.every) if args.source_kind == 'browser' else
@@ -674,6 +725,10 @@ def main():
                               bbox=[x1, y1, x2, y2], plate_candidates=plates,
                               plate_detection=plate_report,
                               plate_status='unreadable' if not plates else 'needs_review',
+                              vehicle_identity=(identity_service.initial_result() if result_eligible else
+                                                {'status': 'not_requested', 'provider': None,
+                                                 'manufacturer': None, 'model': None,
+                                                 'confidence': None}),
                               image_path=None, result_eligible=result_eligible,
                               result_thresholds={'vehicle': args.vehicle_threshold,
                                                  'ocr': args.ocr_threshold})
@@ -690,10 +745,24 @@ def main():
                 if selected is None:
                     continue
                 record = selected
+                request_identity = prepare_vehicle_identity(record, previous, identity_service)
                 if previous is not None:
                     record['id'] = previous['id']
                     record['processed_at'] = previous['processed_at']
                     record['image_path'] = previous['image_path']
+                identity_image = None
+                if request_identity:
+                    try:
+                        scale = min(1.0, 1280 / max(crop.shape[:2]))
+                        ai_crop = cv2.resize(crop, None, fx=scale, fy=scale) if scale < 1 else crop
+                        ok, encoded_ai = cv2.imencode('.jpg', ai_crop, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+                        if not ok:
+                            raise ValueError('JPEG encoding failed')
+                        identity_image = encoded_ai.tobytes()
+                    except Exception as error:
+                        record['vehicle_identity'] = dict(status='unavailable', provider=None,
+                            manufacturer=None, model=None, confidence=None, error=type(error).__name__)
+                        request_identity = False
                 if args.save_images:
                     folder = out / 'images'
                     folder.mkdir(exist_ok=True)
@@ -708,16 +777,25 @@ def main():
                     save_observation(db, record)
                     observations += int(record['result_eligible'])
                 else:
-                    with db:
-                        db.execute('UPDATE observations SET frame_index=?,media_ms=?,vehicle_type=?,confidence=?,image_path=?,details_json=? WHERE id=?',
-                                   (record['frame_index'], record['media_ms'], record['vehicle_type'],
-                                    record['confidence'], record['image_path'],
-                                    json.dumps(record, ensure_ascii=False), record['id']))
+                    update_observation(db, record)
                     observations += int(record['result_eligible']) - int(previous['result_eligible'])
                 with db:
                     ocr_learning.queue_observation(out, record, db)
                 prune_observations(db, out)
                 storage_ms += (time.perf_counter() - storage_started) * 1000
+                if request_identity:
+                    future = identity_executor.submit(identify_observation, out, record['id'],
+                                                      identity_image, identity_service)
+                    if future is None:
+                        record['vehicle_identity'] = dict(status='skipped', provider=None,
+                            manufacturer=None, model=None, confidence=None)
+                        store_vehicle_identity(out, record['id'], record['vehicle_identity'])
+                    else:
+                        def cancelled_identity(done, identifier=record['id']):
+                            if done.cancelled():
+                                store_vehicle_identity(out, identifier, dict(status='cancelled',
+                                    provider=None, manufacturer=None, model=None, confidence=None))
+                        future.add_done_callback(cancelled_identity)
                 if previous is not None:
                     print(json.dumps(record, ensure_ascii=False), flush=True)
                     continue
@@ -763,6 +841,7 @@ def main():
         finally:
             if old_term is not None: signal.signal(signal.SIGTERM, old_term)
             db.close()
+            identity_executor.shutdown(wait=not stopped.is_set(), cancel_futures=stopped.is_set())
 
 
 if __name__ == '__main__':

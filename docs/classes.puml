@@ -26,6 +26,19 @@ class LiplaPlatePipeline {
 class ConsecutivePlateBest {
   +select(records) : winners
 }
+class VehicleIdentityService {
+  +identify(image_bytes) : identity
+}
+class ChatGPTProvider {
+  +identify(image_bytes) : identity
+}
+class GeminiProvider {
+  +identify(image_bytes) : identity
+}
+class BoundedIdentityExecutor {
+  +submit(callback, args) : future
+  +shutdown()
+}
 class Dispatcher {
   +start()
   +tick()
@@ -55,6 +68,9 @@ ModelServiceProcess --> ModelServer : starts
 ModelClient ..> ModelServer : local IPC
 ModelServer ..> LiplaPlatePipeline : uses
 JobManager --> PerformanceManager : records progress
+BoundedIdentityExecutor ..> VehicleIdentityService : background worker
+VehicleIdentityService --> ChatGPTProvider : primary
+VehicleIdentityService --> GeminiProvider : fallback on error
 note bottom of PaddleTrainingManager
   Uses saved OCR samples for training.
   No automatic production model switch.

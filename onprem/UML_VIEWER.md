@@ -14,6 +14,8 @@ docker compose -f onprem/compose.uml.yaml ps
 
 `docs/*.puml` と解析対象のPythonファイルは読み取り専用でマウントし、生成物はUMLコンテナの一時領域に保存します。「PlantUMLを保存」で `.puml` ファイルも取得できます。Pyreverseの自動図は、マウントされたコードの更新時に再生成されます。`git pull` 等で個別のPythonファイルが置換されたときは `docker compose -f onprem/compose.uml.yaml up -d --force-recreate uml` でファイルのマウントを更新してください。閲覧画面はMacの `127.0.0.1` のみに公開されます。PlantUMLはSANDBOX設定で動作し、描画時のJavaヒープ上限は256MB、同時描画は1件です。
 
+mainへのpush時はGitHub Actionsがクラス図・パッケージ図を `docs/generated/` に自動更新し、差分がある場合だけ追コミットを作成します。GitHubの定期監視は行いません。`git pull` 後、画面の「コミット生成」からそのPlantUMLソースと図を閲覧できます。シーケンス図など手作成の図は実装変更時に合わせて更新します。
+
 描画や生成に失敗した場合:
 
 ```sh

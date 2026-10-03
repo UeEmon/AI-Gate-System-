@@ -8,6 +8,9 @@ participant "ModelClient / ModelServer" as Model
 database "gate.db" as DB
 participant "EvidenceRecorder" as Recorder
 participant "events.Dispatcher" as Dispatcher
+participant "VehicleIdentityService" as Identity
+participant "ChatGPT / OpenAI API" as ChatGPT
+participant "Gemini API" as Gemini
 User -> UI : Choose input and start
 UI -> Web : POST /api/jobs
 Web -> Worker : Start app.py process
@@ -20,6 +23,9 @@ loop Each selected frame
     end
     Worker -> Worker : ConsecutivePlateBest.select()
     Worker -> DB : Save observation and OCR learning candidate
+    opt First eligible plate result, AI configured, queue has room
+      Worker ->> Identity : Enqueue vehicle crop (bounded queue)
+    end
     Worker -> DB : Match vehicle, insert alert if needed
     opt Alert created
       Worker -> Recorder : trigger(alert_id, frame)
@@ -27,6 +33,16 @@ loop Each selected frame
     end
   end
   Worker -> Web : Update preview.jpg and progress.json
+end
+group Background manufacturer/model identification
+  Identity -> ChatGPT : Image + identification prompt (when key configured)
+  alt Primary unavailable or response invalid
+    Identity -> Gemini : Image + identification prompt (when key configured)
+    Gemini --> Identity : Manufacturer, model, confidence
+  else Primary successful
+    ChatGPT --> Identity : Manufacturer, model, confidence
+  end
+  Identity -> DB : Atomically update only vehicle_identity in details_json
 end
 Dispatcher -> DB : Poll saved alerts
 opt Delivery configured
@@ -37,5 +53,9 @@ Web --> UI : History and alerts
 note over Model
   Operational OCR is Lipla-jp only.
   Its internal stages have combined timing.
+end note
+note over Identity
+  Recognition does not wait for external AI.
+  Confidence is provider self-assessment.
 end note
 @enduml

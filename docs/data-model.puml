@@ -10,6 +10,7 @@ class observations <<SQLite table>> {
   id : PK
   run_id
   details_json
+  details_json.vehicle_identity
   image_path
 }
 class vehicles <<SQLite table>> {

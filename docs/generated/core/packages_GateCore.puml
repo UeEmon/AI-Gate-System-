@@ -1,0 +1,30 @@
+@startuml packages_GateCore
+set namespaceSeparator none
+package "app" as app {
+}
+package "events" as events {
+}
+package "evidence" as evidence {
+}
+package "lipla_pipeline" as lipla_pipeline {
+}
+package "model_service" as model_service {
+}
+package "plate_pipeline" as plate_pipeline {
+}
+package "vehicle_identity" as vehicle_identity {
+}
+package "web" as web {
+}
+app --> events
+app --> evidence
+app --> lipla_pipeline
+app --> model_service
+app --> plate_pipeline
+app --> vehicle_identity
+evidence --> events
+model_service --> app
+web --> app
+web --> events
+web --> model_service
+@enduml

@@ -1,0 +1,149 @@
+@startuml classes_GateServices
+set namespaceSeparator none
+class "ApplicationServices" as aigate.services.ApplicationServices {
+  database
+  notifications
+  storage
+  system
+  build(root: str | Path, performance: PerformanceManager) -> 'ApplicationServices'
+}
+class "DatabaseManager" as aigate.contracts.DatabaseManager {
+  {abstract}initialize() -> None
+}
+class "DatabaseNotificationManager" as aigate.services.DatabaseNotificationManager {
+  database
+  publish(event: dict) -> None
+}
+class "DecisionEngine" as aigate.contracts.DecisionEngine {
+  {abstract}decide(detection: Detection, ocr: OCRResult | None) -> dict[str, Any]
+}
+class "Detection" as aigate.contracts.Detection {
+  box : tuple[int, int, int, int]
+  confidence : float
+  label : str
+  metadata : dict[str, Any]
+}
+class "EvaluationMetrics" as aigate.evaluation.EvaluationMetrics {
+  false_negative : int
+  false_positive : int
+  ocr_characters : int
+  ocr_edits : int
+  ocr_exact : int
+  ocr_total : int
+  true_positive : int
+  add_detection() -> None
+  add_ocr(truth: str, prediction: str) -> None
+  report() -> dict
+}
+class "Frame" as aigate.contracts.Frame {
+  image : Any
+  index : int
+  source_id : str
+  timestamp_ms : float | None
+}
+class "InputProvider" as aigate.contracts.InputProvider {
+  {abstract}frames() -> Iterable[Frame]
+}
+class "ManagedStorageManager" as aigate.services.ManagedStorageManager {
+  root : Path
+  store(category: str, content: bytes, suffix: str) -> Path
+}
+class "ModelRegistry" as aigate.model_registry.ModelRegistry {
+  model_root : Path
+  get(model_id)
+  list(role)
+  ocr_environment(model_id)
+  plate_environment(model_id)
+  vehicle_argument(model_id)
+}
+class "ModelRole" as aigate.model_registry.ModelRole {
+  name
+}
+class "ModelSpec" as aigate.model_registry.ModelSpec {
+  artifact : str | None
+  backend : str
+  id : str
+  license : str
+  name : str
+  provider : str
+  role
+  source : str
+  json(available, reason)
+}
+class "NotificationManager" as aigate.contracts.NotificationManager {
+  {abstract}publish(event: dict[str, Any]) -> None
+}
+class "OCRReader" as aigate.contracts.OCRReader {
+  {abstract}read(image: Any) -> list[OCRResult]
+}
+class "OCRResult" as aigate.contracts.OCRResult {
+  confidence : float
+  fields : dict[str, str] | None
+  metadata : dict[str, Any]
+  text : str
+}
+class "ObjectDetector" as aigate.contracts.ObjectDetector {
+  {abstract}detect(frame: Frame) -> list[Detection]
+}
+class "PerformanceManager" as aigate.performance.PerformanceManager {
+  lock : _RLock
+  path
+  root : Path
+  samples : deque
+  current_resources() -> dict
+  record() -> None
+  startup_benchmark() -> dict
+  startup_report() -> dict
+  summary() -> dict
+}
+class "PlateDetector" as aigate.contracts.PlateDetector {
+}
+class "RuntimeSystemManager" as aigate.services.RuntimeSystemManager {
+  performance
+  health() -> dict
+}
+class "SQLiteDatabaseManager" as aigate.services.SQLiteDatabaseManager {
+  path
+  root : Path
+  connect() -> sqlite3.Connection
+  initialize() -> None
+}
+class "SettingsManager" as aigate.settings.SettingsManager {
+  lock : _RLock
+  path
+  root : Path
+  read() -> dict
+  update(changes: dict) -> dict
+}
+class "StorageManager" as aigate.contracts.StorageManager {
+  {abstract}store(category: str, content: bytes, suffix: str) -> Path
+}
+class "StreamReceiver" as aigate.stream_receiver.StreamReceiver {
+  api_url
+  available
+  config : Path
+  key : NoneType
+  lock : lock
+  settings()
+  status()
+  update(publish_enabled, rtmps_enabled)
+}
+class "SystemManager" as aigate.contracts.SystemManager {
+  {abstract}health() -> dict[str, Any]
+}
+class "TrainingManager" as aigate.contracts.TrainingManager {
+  {abstract}train(samples: list[dict[str, Any]]) -> str
+}
+aigate.contracts.PlateDetector --|> aigate.contracts.ObjectDetector
+aigate.services.DatabaseNotificationManager --|> aigate.contracts.NotificationManager
+aigate.services.ManagedStorageManager --|> aigate.contracts.StorageManager
+aigate.services.RuntimeSystemManager --|> aigate.contracts.SystemManager
+aigate.services.SQLiteDatabaseManager --|> aigate.contracts.DatabaseManager
+aigate.model_registry.ModelSpec --> aigate.model_registry.ModelRole : role
+aigate.services.ApplicationServices --> aigate.services.DatabaseNotificationManager : notifications
+aigate.services.ApplicationServices --> aigate.services.ManagedStorageManager : storage
+aigate.services.ApplicationServices --> aigate.services.RuntimeSystemManager : system
+aigate.services.ApplicationServices --> aigate.services.SQLiteDatabaseManager : database
+aigate.performance.PerformanceManager --o aigate.services.RuntimeSystemManager : performance
+aigate.services.SQLiteDatabaseManager --o aigate.services.DatabaseNotificationManager : database
+@enduml

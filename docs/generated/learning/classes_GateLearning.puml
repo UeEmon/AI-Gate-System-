@@ -1,0 +1,27 @@
+@startuml classes_GateLearning
+set namespaceSeparator none
+class "LiplaPlateReader" as ocr_backends.LiplaPlateReader {
+  model
+  name : str
+  readtext(image)
+}
+class "PaddleTrainingManager" as paddle_auto_train.PaddleTrainingManager {
+  comparison_path
+  lock : _RLock
+  path
+  process : NoneType, Popen
+  root : Path
+  comparison_status()
+  maybe_compare()
+  maybe_start()
+  status()
+}
+class "TrainingManager" as ocr_learning.TrainingManager {
+  lock : _RLock
+  process : NoneType, Popen
+  root : Path
+  maybe_start_auto()
+  shutdown()
+  start()
+}
+@enduml

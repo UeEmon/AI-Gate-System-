@@ -104,12 +104,24 @@ async function renderObservations(){
   const data=await api('/api/observations?'+params);
   if(data.page>1&&data.items.length===0){state.page=1;return renderObservations();}
   $('result-total').textContent=data.total+'件';$('results').replaceChildren();
-  if(!data.items.length){const tr=document.createElement('tr');const td=cell('認識結果はありません','empty');td.colSpan=5;tr.append(td);$('results').append(tr);}
+  if(!data.items.length){const tr=document.createElement('tr');const td=cell('認識結果はありません','empty');td.colSpan=6;tr.append(td);$('results').append(tr);}
   for(const item of data.items){
     const tr=document.createElement('tr');const plate=item.plate_candidates?.[0];
     tr.append(cell(date(item.processed_at)),cell(item.vehicle_type_ja||item.vehicle_type));
     const td=cell(plate?.text||'読取候補なし','plate');const note=document.createElement('span');note.className='sub';note.textContent=plate?'要確認 · フレーム '+item.frame_index:'車両検出のみ';td.append(note);tr.append(td);
     tr.append(cell(pct(item.confidence)+' / '+pct(plate?.confidence)));
+    const identity=item.vehicle_identity||{};const identityCell=cell('—');
+    if(identity.status==='pending')identityCell.textContent='識別中…';
+    else if(identity.status==='identified'||identity.status==='uncertain'){
+      identityCell.textContent=(identity.manufacturer||'unknown')+' / '+(identity.model||'unknown');
+      const identityNote=document.createElement('span');identityNote.className='sub';
+      identityNote.textContent=(identity.provider==='chatgpt'?'ChatGPT':identity.provider==='gemini'?'Gemini':'外部AI')+' · '+pct(identity.confidence);
+      identityCell.append(identityNote);
+    }else if(identity.status==='unavailable')identityCell.textContent='外部AI利用不可';
+    else if(identity.status==='disabled')identityCell.textContent='外部AI未設定';
+    else if(identity.status==='skipped')identityCell.textContent='識別待ち上限のため省略';
+    else if(identity.status==='cancelled')identityCell.textContent='識別中止';
+    tr.append(identityCell);
     const image=cell('');if(item.has_image){const a=document.createElement('a');a.textContent='画像を確認';a.href='/api/observations/'+encodeURIComponent(item.id)+'/image';a.target='_blank';a.rel='noopener';image.append(a);}
     const register=document.createElement('button');register.type='button';register.className='registration-import';register.textContent='登録に取り込む';register.onclick=()=>importRegistration(item.id);image.append(register);
     const remove=document.createElement('button');remove.type='button';remove.textContent='削除';remove.onclick=async()=>{if(!confirm('この認識履歴と車両画像を削除しますか？'))return;try{await api('/api/observations/'+encodeURIComponent(item.id),{method:'DELETE'});await refresh();}catch(error){message(error.message);}};image.append(remove);tr.append(image);$('results').append(tr);

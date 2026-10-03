@@ -26,9 +26,18 @@ TITLES = {
 
 
 def diagrams():
-    """Load authored PlantUML and list lazily generated Pyreverse diagrams."""
+    """Load authored, commit-generated, and lazily generated PlantUML diagrams."""
     result = {key: ('plantuml', title, (DIAGRAMS / f'{key}.puml').read_text(encoding='utf-8').strip())
               for key, title in TITLES.items()}
+    generated = DIAGRAMS / 'generated'
+    if generated.is_dir():
+        for path in sorted(generated.rglob('*.puml')):
+            relative = path.relative_to(generated)
+            name = relative.with_suffix('').as_posix()
+            key = 'generated-' + re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
+            if key and key not in result:
+                result[key] = ('plantuml', f'コミット生成・{name}',
+                               path.read_text(encoding='utf-8').strip())
     result.update({key: ('plantuml', title, None) for key, title in generator.titles().items()})
     if any(item[2] is not None and len(item[2].encode('utf-8')) > MAX_SOURCE_BYTES for item in result.values()):
         raise ValueError('図の読み込みに失敗しました。')
