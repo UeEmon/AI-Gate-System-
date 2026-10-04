@@ -48,11 +48,12 @@ def setup(directory: Path):
     path = f'gate-{key}'
     config_file = directory / 'stream-config' / 'mediamtx.yml'
     old_config = config_file.read_text(encoding='utf-8') if config_file.is_file() else ''
-    rtmps_enabled = 'rtmpEncryption: no\n' not in old_config
+    rtmps_enabled = not re.search(
+        r'''^rtmpEncryption: ["']?no["']?\s*$''', old_config, re.M)
     publish_enabled = '  - action: publish\n' in old_config if old_config else True
     config = ("rtsp: false\nhls: false\nwebrtc: false\nsrt: false\n"
               "api: true\napiAddress: :9997\nmetrics: false\nrtmp: true\n"
-              f"rtmpEncryption: {'optional' if rtmps_enabled else 'no'}\nrtmpAddress: :1935\nrtmpsAddress: :1936\n"
+              f"rtmpEncryption: \"{'optional' if rtmps_enabled else 'no'}\"\nrtmpAddress: :1935\nrtmpsAddress: :1936\n"
               "rtmpServerKey: /rtmp-certs/server.key\n"
               "rtmpServerCert: /rtmp-certs/server.crt\n"
               "authInternalUsers:\n- user: any\n  permissions:\n"
