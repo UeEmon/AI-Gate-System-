@@ -24,7 +24,8 @@ class StreamReceiver:
             return {'available': False}
         content = self.config.read_text(encoding='utf-8')
         return {'available': True,
-                'rtmps_enabled': 'rtmpEncryption: optional\n' in content,
+                'rtmps_enabled': bool(re.search(
+                    r'''^rtmpEncryption: ["']?optional["']?\s*$''', content, re.M)),
                 'publish_enabled': '  - action: publish\n' in content,
                 'path': f'gate-{self.key}',
                 'rtmp_port': int(os.getenv('GATE_RTMP_PORT', '1935')),
@@ -40,8 +41,8 @@ class StreamReceiver:
             path = f'gate-{self.key}'
             if f'    path: {path}\n' not in original or f'  {path}:\n' not in original:
                 raise ValueError('配信パスの設定が一致しません。')
-            content, count = re.subn(r'^rtmpEncryption: (?:optional|no)$',
-                                     'rtmpEncryption: optional' if rtmps_enabled else 'rtmpEncryption: no',
+            content, count = re.subn(r'''^rtmpEncryption: ["']?(?:optional|no)["']?$''',
+                                     'rtmpEncryption: "optional"' if rtmps_enabled else 'rtmpEncryption: "no"',
                                      original, count=1, flags=re.M)
             if count != 1:
                 raise ValueError('RTMPS設定を読み取れません。')
@@ -78,7 +79,7 @@ class StreamReceiver:
             path = next((item for item in self._get('/v3/paths/list').get('items', [])
                          if item.get('name') == config['path']), {})
             connections = []
-            for protocol in ('rtmp', 'rtmps'):
+            for protocol in (('rtmp', 'rtmps') if config['rtmps_enabled'] else ('rtmp',)):
                 connections.extend({**item, 'protocol': protocol}
                                    for item in self._get(f'/v3/{protocol}/conns/list').get('items', []))
         except Exception:
