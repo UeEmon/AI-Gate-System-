@@ -12,7 +12,17 @@ class LiplaPlateReader:
         options = {'local_files_only': True} if offline else {}
         if cache_dir:
             options['cache_dir'] = str(Path(cache_dir) / 'lipla')
-        self.model = lipla.Recognizer(**options)
+        from aigate.speed_experiment import environment_config
+        from aigate.speed_models import lipla_threads, conditional_class
+        config = environment_config()
+        recognizer = conditional_class() if config['conditional'] else lipla.Recognizer
+        if config['threads']:
+            options['providers'] = ['CPUExecutionProvider']
+        with lipla_threads(config['threads']):
+            self.model = recognizer(**options)
+        if os.getenv('GATE_SPEED_EXPERIMENT') and hasattr(self.model, 'pose_model'):
+            from aigate.speed_models import PoseProbe
+            self.model.pose_model = PoseProbe(self.model.pose_model)
 
     @staticmethod
     def _text(result):
