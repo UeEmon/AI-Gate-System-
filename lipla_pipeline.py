@@ -15,6 +15,8 @@ class LiplaPlatePipeline:
         if image.ndim != 3 or image.shape[2] != 3 or not image.shape[0] or not image.shape[1]:
             raise ValueError('Liplaには空でないBGR車両画像を指定してください。')
         started = time.perf_counter()
+        fast_before = getattr(self.recognizer, 'fast_count', 0)
+        fallback_before = getattr(self.recognizer, 'fallback_count', 0)
         results = self.recognizer(np.ascontiguousarray(image))
         combined_ms = (time.perf_counter() - started) * 1000
         candidates, proposals = [], []
@@ -48,4 +50,22 @@ class LiplaPlatePipeline:
                       timing_scope='lipla_detection_rectification_ocr_combined',
                       plate_recognition_ms=combined_ms,
                       plate_detection_ms=0.0, rectification_ms=0.0, ocr_ms=combined_ms)
+        # Experimental native probe separates plate detection from successful OCR.
+        native = getattr(getattr(self.recognizer, 'pose_model', None), 'last_result', None)
+        if native is not None and isinstance(native.kpts, (list, np.ndarray)):
+            from lipla.core.license_plate_recognizer import suppress_duplicate_detections
+            report['proposals'] = []
+            detections = zip(native.kpts, native.scores, native.class_names)
+            for vertices, score, _ in suppress_duplicate_detections(list(detections)):
+                points = np.asarray(vertices, dtype=float).reshape(4,2)
+                if not np.isfinite(points).all(): continue
+                start, end = np.floor(points.min(axis=0)), np.ceil(points.max(axis=0))
+                bbox = [max(0,int(start[0])),max(0,int(start[1])),
+                        min(image.shape[1],int(end[0])),min(image.shape[0],int(end[1]))]
+                if bbox[2]<=bbox[0] or bbox[3]<=bbox[1]: continue
+                report['proposals'].append(dict(bbox_in_vehicle=bbox,detection_score=float(score),
+                    detection_source='lipla-native-pose-probe'))
+        if type(fast_before) is int and type(fallback_before) is int:
+            report['conditional_fast_count'] = getattr(self.recognizer, 'fast_count', 0)-fast_before
+            report['conditional_fallback_count'] = getattr(self.recognizer, 'fallback_count', 0)-fallback_before
         return candidates, report
