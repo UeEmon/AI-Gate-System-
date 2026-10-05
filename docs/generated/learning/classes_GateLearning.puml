@@ -7,7 +7,7 @@ class "GitHubModels" as model_publish.GitHubModels {
   request(method, path, payload)
 }
 class "LiplaPlateReader" as ocr_backends.LiplaPlateReader {
-  model
+  model : ConditionalRecognizer
   name : str
   readtext(image)
 }

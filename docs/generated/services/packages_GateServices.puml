@@ -18,6 +18,12 @@ package "aigate.services" as aigate.services {
 }
 package "aigate.settings" as aigate.settings {
 }
+package "aigate.speed_benchmark" as aigate.speed_benchmark {
+}
+package "aigate.speed_experiment" as aigate.speed_experiment {
+}
+package "aigate.speed_models" as aigate.speed_models {
+}
 package "aigate.stream_receiver" as aigate.stream_receiver {
 }
 package "aigate.telemetry" as aigate.telemetry {
@@ -34,6 +40,8 @@ aigate.optimization --> resource_lock
 aigate.performance --> aigate.telemetry
 aigate.services --> aigate.contracts
 aigate.services --> aigate.performance
+aigate.speed_benchmark --> aigate.speed_experiment
+aigate.speed_benchmark --> resource_lock
 aigate.web_api --> aigate.performance
 aigate.web_api --> aigate.settings
 @enduml

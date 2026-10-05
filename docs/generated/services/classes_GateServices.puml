@@ -7,6 +7,10 @@ class "ApplicationServices" as aigate.services.ApplicationServices {
   system
   build(root: str | Path, performance: PerformanceManager) -> 'ApplicationServices'
 }
+class "ConditionalRecognizer" as aigate.speed_models.conditional_class.ConditionalRecognizer {
+  fallback_count : int
+  fast_count : int
+}
 class "DatabaseManager" as aigate.contracts.DatabaseManager {
   {abstract}initialize() -> None
 }
@@ -123,6 +127,20 @@ class "PerformanceManager" as aigate.performance.PerformanceManager {
 }
 class "PlateDetector" as aigate.contracts.PlateDetector {
 }
+class "PoseProbe" as aigate.speed_models.PoseProbe {
+  last_result : NoneType
+  model
+}
+class "RecognitionScheduler" as aigate.speed_experiment.RecognitionScheduler {
+  config
+  frame : int
+  next_id : int
+  tracks : dict
+  assign(detections, now)
+  cached(track, image)
+  remember(track, candidates, image, now)
+  should_read(track, image, now)
+}
 class "ResourceLease" as resource_lock.ResourceLease {
   path
   stream : NoneType
@@ -146,6 +164,18 @@ class "SettingsManager" as aigate.settings.SettingsManager {
   read() -> dict
   update(changes: dict) -> dict
 }
+class "SpeedBenchmark" as aigate.speed_benchmark.SpeedBenchmark {
+  cancel : Event
+  jobs
+  lease
+  path
+  root
+  thread : NoneType, Thread
+  run(source, directory, truth, limit, repeats, report)
+  save(report)
+  start(video, truth_file, limit, repeats)
+  status()
+}
 class "StorageManager" as aigate.contracts.StorageManager {
   {abstract}store(category: str, content: bytes, suffix: str) -> Path
 }
@@ -166,6 +196,19 @@ class "TimedInput" as aigate.telemetry.TimedInput {
   capture_ms : int
   stream
 }
+class "Track" as aigate.speed_experiment.Track {
+  area : float
+  attempted : float
+  best_quality : float
+  box : list
+  candidates : list
+  id : int
+  image : Optional[object]
+  key : str
+  label : str
+  seen : float
+  stable : int
+}
 class "TrainingManager" as aigate.contracts.TrainingManager {
   {abstract}train(samples: list[dict[str, Any]]) -> str
 }
@@ -180,6 +223,7 @@ aigate.services.ApplicationServices --> aigate.services.ManagedStorageManager : 
 aigate.services.ApplicationServices --> aigate.services.RuntimeSystemManager : system
 aigate.services.ApplicationServices --> aigate.services.SQLiteDatabaseManager : database
 resource_lock.ResourceLease --* aigate.optimization.OptimizationManager : lease
+resource_lock.ResourceLease --* aigate.speed_benchmark.SpeedBenchmark : lease
 aigate.performance.PerformanceManager --o aigate.services.RuntimeSystemManager : performance
 aigate.services.SQLiteDatabaseManager --o aigate.services.DatabaseNotificationManager : database
 @enduml
