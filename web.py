@@ -313,6 +313,31 @@ def create_app(data_dir='data', model='yolo26n.pt', password=None, manager=None)
     optimization = OptimizationManager(manager, settings)
     app.extensions['optimization'] = optimization
     app.register_blueprint(create_system_blueprint(settings, performance, optimization))
+    from aigate.speed_benchmark import SpeedBenchmark
+    speed_benchmark = SpeedBenchmark(manager)
+    app.extensions['speed_benchmark'] = speed_benchmark
+
+    @app.get('/api/system/speed-experiment')
+    def speed_experiment_status():
+        return jsonify(speed_benchmark.status())
+
+    @app.post('/api/system/speed-experiment')
+    def speed_experiment_start():
+        video = request.files.get('video')
+        if not video or not video.filename:
+            abort(400, description='検証動画を指定してください。')
+        try:
+            return jsonify(speed_benchmark.start(video,request.files.get('truth'),
+                int(request.form.get('limit',120)),int(request.form.get('repeats',2)))), 202
+        except (ValueError, KeyError, TypeError) as error:
+            abort(400, description=str(error))
+        except RuntimeError as error:
+            abort(409, description=str(error))
+
+    @app.post('/api/system/speed-experiment/cancel')
+    def speed_experiment_cancel():
+        speed_benchmark.cancel.set()
+        return jsonify(speed_benchmark.status())
     receiver = StreamReceiver()
     password = password if password is not None else os.environ.get('GATE_ADMIN_PASSWORD')
 
