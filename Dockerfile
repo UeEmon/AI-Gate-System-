@@ -12,6 +12,8 @@ COPY requirements.txt .
 RUN python -m pip install --no-cache-dir 'torch>=2.2,<3' 'torchvision>=0.17,<1' \
     --index-url https://download.pytorch.org/whl/cpu
 RUN python -m pip install --no-cache-dir -r requirements.txt
+ARG SPEED_OPENVINO=0
+RUN if [ "$SPEED_OPENVINO" = "1" ]; then python -m pip install --no-cache-dir 'openvino>=2025,<2027'; fi
 RUN useradd --create-home --uid 10001 gate && mkdir /data /models && chown gate:gate /data /models
 COPY --chown=gate:gate app.py web.py events.py evidence.py registry_csv.py mail_delivery.py ocr_learning.py ocr_train.py ocr_backends.py accuracy_benchmark.py vision_train.py plate_geometry.py plate_rules.py vehicle_identity.py ./
 COPY --chown=gate:gate plate_pipeline.py lipla_pipeline.py model_service.py plate_only_benchmark.py plate_benchmark_web.py inference_device.py ./
