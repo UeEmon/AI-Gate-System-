@@ -197,3 +197,7 @@ Web画面の処理履歴から、処理履歴と認識履歴を選んで一括�
 ## 性能測定と学習済みモデルの再利用
 
 [性能測定・自動最適化・モデル再利用](PERFORMANCE_AND_MODEL_REUSE.md)にWeb画面での操作、計測範囲、環境設定、パッケージとGitHub登録をまとめています。
+
+### Lipla速度改善の検証ブランチ
+
+同じ動画で追跡・フレーム選別・CPU調整・OpenVINO・条件付きOCRを比較する手順は [SPEED_EXPERIMENT.md](SPEED_EXPERIMENT.md) を参照してください。操作はWebのシステム性能画面で行います。
