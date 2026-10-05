@@ -1,0 +1,6 @@
+# Optional Intel CPU OpenVINO dependencies for the experiment branch.
+services:
+  gate:
+    build:
+      args:
+        SPEED_OPENVINO: "1"
