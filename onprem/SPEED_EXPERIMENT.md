@@ -1,8 +1,8 @@
 # Lipla速度改善の段階比較（Intel Mac Docker）
 
-検証ブランチ: `experiment/lipla-speed-stages-20261005`
+mainに統合した速度改善の段階比較機能です。
 通常運用は基準のLipla方式のままです。比較はシステム性能画面から実行します。
-変更をmainへは反映しません。Mac実機での速度・精度はこの画面で測定してください。
+比較候補は通常運用へ自動適用しません。Mac実機での速度・精度はこの画面で測定してください。
 
 ## 起動
 
@@ -10,7 +10,8 @@
 
 ```bash
 git fetch origin
-git switch experiment/lipla-speed-stages-20261005
+git switch main
+git pull --ff-only origin main
 python3 onprem/setup_stream_receiver.py
 docker compose --env-file onprem/.env -f onprem/compose.yaml -f onprem/compose.speed.yaml build gate
 docker compose --env-file onprem/.env -f onprem/compose.yaml -f onprem/compose.speed.yaml up -d gate trainer rtmp-ingest
@@ -18,7 +19,7 @@ docker compose --env-file onprem/.env -f onprem/compose.yaml -f onprem/compose.s
 
 `compose.speed.yaml`は任意のOpenVINO依存をgateへ追加します。
 ディスク容量が不足している場合は通常のcomposeのみで構築できますが、OpenVINO段階は未導入として失敗表示になります。
-このブランチは内部アダプターとの互換性を保つためLipla-jp 0.4.1を固定します。
+内部アダプターとの互換性を保つためLipla-jp 0.4.1を固定します。
 既存キャッシュは保持しますが、モデル改訂で未取得ファイルがあれば初回ダウンロードされます。
 
 Web画面 `http://localhost:8080` の「システム性能」→「Lipla速度改善の段階比較」を開きます。
