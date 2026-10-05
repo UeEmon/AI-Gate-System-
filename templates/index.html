@@ -6,6 +6,7 @@
 <title>AI Gate System | 車両認識管理</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+<script src="{{ url_for('static', filename='speed-experiment.js') }}" defer></script>
 <script src="{{ url_for('static', filename='registration-queue.js') }}" defer></script>
 <script src="{{ url_for('static', filename='registry-csv.js') }}" defer></script>
 <script src="{{ url_for('static', filename='ocr-learning.js') }}" defer></script>
@@ -131,6 +132,16 @@
 <section class="panel" id="system-page" data-page="system" hidden><div class="panel-title"><h2>システム性能</h2><span class="badge" id="realtime-state">未測定</span></div>
 <p class="hint">車両検出はYOLO26n、ナンバープレート検出・文字認識はLipla-jpを使用します。PaddleOCRは学習・評価専用です。</p>
 <div class="actions"><button id="run-benchmark" type="button">実映像で測定・自動最適化</button></div>
+<div class="registration-review"><h3>Lipla速度改善の段階比較</h3>
+<p class="hint">同一動画を基準→追跡→フレーム選別→CPU調整→OpenVINO→条件付きOCRの順に比較します。通常運用の設定は変更しません。検証中は監視・学習を停止します。正解JSONなしでは精度を判定できません。</p>
+<form id="speed-experiment-form"><label>検証動画<input type="file" id="speed-video" accept="video/*" required></label>
+<label>正解JSON（任意）<input type="file" id="speed-truth" accept="application/json,.json"></label>
+<label>先頭からの処理フレーム上限<input type="number" id="speed-limit" value="120" min="1" max="600"></label>
+<label>反復回数<input type="number" id="speed-repeats" value="2" min="1" max="3"></label>
+<div class="actions"><button type="submit" id="speed-start">段階比較を開始</button><button type="button" id="speed-cancel">検証を中止</button></div></form>
+<p><a href="/api/system/speed-experiment" target="_blank" rel="noopener">比較結果JSONを開く</a></p>
+<div style="overflow-x:auto"><table><thead><tr><th>段階</th><th>状態</th><th>OCR回数</th><th>FPS</th><th>平均ms</th><th>95%ms</th><th>検出継続率</th><th>完全一致率</th><th>精度維持</th></tr></thead><tbody id="speed-results"></tbody></table></div>
+<pre id="speed-report"></pre></div>
 <p class="hint">検証用フルフレームで640・960・1280の入力サイズを実測します。既存の車両切り出し画像のみの場合は参考測定とし自動適用しません。未使用テストは設定選択に使いません。精度が基準設定を下回る候補は採用しません。</p><pre id="optimization-report"></pre><pre id="performance-stages"></pre><div class="metrics system-metrics"><div><span>CPU</span><strong id="perf-cpu">—</strong></div><div><span>メモリ</span><strong id="perf-memory">—</strong></div><div><span>GPU</span><strong id="perf-gpu">—</strong></div><div><span>実測FPS</span><strong id="perf-fps">—</strong></div></div></section>
 <footer>AI Gate System · OpenCV / 車両区分・ナンバー認識 <span>登録照合・検知通知 / ゲート開閉は行いません</span></footer>
 </main></body></html>
