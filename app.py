@@ -599,6 +599,9 @@ def initialize_models(model_path, plate_model_path, root, easyocr, yolo_class, o
     while True:
         try:
             model = yolo_class(model_path)
+            from aigate.speed_experiment import environment_config
+            from aigate.speed_models import prepare_vehicle
+            model = prepare_vehicle(model, root, environment_config())
             from ocr_backends import make_readers
             readers = make_readers(root, easyocr, offline)
             plate_model = yolo_class(plate_model_path) if plate_model_path and not (
@@ -618,6 +621,8 @@ def main():
     parser.add_argument('--source', required=True, help='写真、動画のパス、カメラ番号（0）またはRTSP URL')
     parser.add_argument('--output', default='data')
     parser.add_argument('--every', type=int, default=10, help='動画・カメラをNフレームごとに処理')
+    parser.add_argument('--max-frames', type=int, default=0, help='検証用処理フレーム上限（0は無制限）')
+    parser.add_argument('--recognition-trace', help='段階比較用のフレーム別認識ログ')
     parser.add_argument('--confidence', type=float, default=VEHICLE_RESULT_CONFIDENCE)
     parser.add_argument('--vehicle-threshold', type=float, default=VEHICLE_RESULT_CONFIDENCE)
     parser.add_argument('--ocr-threshold', type=float, default=OCR_RESULT_CONFIDENCE)
@@ -683,10 +688,16 @@ def main():
     processed, observations = 0, 0
     timings = deque(maxlen=120)
     plate_best = ConsecutivePlateBest()
+    from aigate.speed_experiment import RecognitionScheduler, environment_config
+    speed_config = environment_config()
+    scheduler = RecognitionScheduler(speed_config)
+    trace = open(args.recognition_trace, 'w', encoding='utf-8') if args.recognition_trace else None
+    trace_started = time.perf_counter()
     timed_stream = TimedInput(stream)
     try:
         for index, media_ms, frame in timed_stream:
             if stopped.is_set(): break
+            if args.max_frames and processed >= args.max_frames: break
             frame_started = time.perf_counter()
             preprocess_started = time.perf_counter()
             canvas = frame.copy() if args.preview else None
@@ -700,6 +711,11 @@ def main():
             combined_timing = False
             model_resources = {}
             frame_records = []
+            frame_trace = []
+            ocr_calls = skipped_calls = 0
+            conditional_fast = conditional_fallback = 0
+            clock = media_ms/1000 if media_ms is not None else time.monotonic()
+            detections = []
             for box in result.boxes:
                 label = result.names[int(box.cls.item())]
                 if label not in VEHICLES:
@@ -712,10 +728,28 @@ def main():
                 x1, y1, x2, y2 = max(0, x1), max(0, y1), min(width, x2), min(height, y2)
                 if x2 <= x1 or y2 <= y1:
                     continue
+                detections.append(dict(box=[x1,y1,x2,y2], label=label, confidence=vehicle_confidence))
+            tracks = scheduler.assign(detections, clock)
+            for detection, track in zip(detections, tracks):
+                x1,y1,x2,y2 = detection['box']
+                label, vehicle_confidence = detection['label'], detection['confidence']
                 crop = frame[y1:y2, x1:x2]
+                read, reason = scheduler.should_read(track, crop, clock)
+                if not read:
+                    skipped_calls += 1
+                    frame_trace.append(dict(track_id=track.id, bbox=detection['box'], reused=True,
+                        reason=reason, candidates=scheduler.cached(track,crop)))
+                    # Reused text must never become new image/teacher/notification evidence.
+                    continue
+                ocr_calls += 1
                 plate_report = {}
                 plates = read_plate(crop, reader, cv2, args.ocr_threshold, plate_model,
                                     diagnostics=plate_report)
+                scheduler.remember(track, plates, crop, clock)
+                conditional_fast += plate_report.get('conditional_fast_count', 0)
+                conditional_fallback += plate_report.get('conditional_fallback_count', 0)
+                frame_trace.append(dict(track_id=track.id,bbox=detection['box'],reused=False,
+                    reason=reason,candidates=plates,proposals=plate_report.get('proposals',plates)))
                 model_resources.update(plate_report.get('model_resources',{}))
                 combined_timing |= plate_report.get('timing_scope') == 'lipla_detection_rectification_ocr_combined'
                 plate_detection_ms += plate_report.get('plate_detection_ms', 0.0)
@@ -840,7 +874,13 @@ def main():
                 plate_recognition_ms=plate_recognition_ms, rectification_ms=None if combined_timing else rectification_ms,
                 ocr_ms=None if combined_timing else ocr_ms, decision_ms=decision_ms, storage_ms=storage_ms,
                 notification_ms=notification_ms, model_resources=model_resources, timing_scope='lipla_combined')
+            measured.update(ocr_calls=ocr_calls, skipped_ocr_calls=skipped_calls, speed_stage=speed_config['stage'])
+            measured.update(conditional_fast_count=conditional_fast, conditional_fallback_count=conditional_fallback)
             telemetry.record(index, measured)
+            if trace:
+                trace.write(json.dumps(dict(frame_index=index,media_ms=media_ms,vehicles=frame_trace,
+                    processing_start_ms=(frame_started-trace_started)*1000,
+                    processing_end_ms=(time.perf_counter()-trace_started)*1000))+'\n')
             if args.progress:
                 atomic_json(args.progress, dict(phase='processing', frames_processed=processed,
                             observations=observations, frame_index=index, media_ms=media_ms,
@@ -859,6 +899,7 @@ def main():
         finally:
             if old_term is not None: signal.signal(signal.SIGTERM, old_term)
             telemetry.close()
+            if trace: trace.close()
             db.close()
             identity_executor.shutdown(wait=not stopped.is_set(), cancel_futures=stopped.is_set())
 
