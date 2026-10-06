@@ -32,6 +32,7 @@ services:
       GATE_RTMP_CONFIG: /stream-config/mediamtx.yml
       GATE_RTMP_API_URL: http://rtmp-ingest:9997
       GATE_RTMP_PORT: ${GATE_RTMP_PORT:-1935}
+      GATE_RTMP_PUBLIC_HOST: ${GATE_RTMP_PUBLIC_HOST:-}
       GATE_RTMPS_PORT: ${GATE_RTMPS_PORT:-1936}
       GATE_EMAIL_BACKEND: smtp
       GATE_EMAIL_FROM: ${GATE_EMAIL_FROM:-}
