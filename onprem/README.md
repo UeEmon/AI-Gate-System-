@@ -63,6 +63,8 @@ ComposeのUSBデバイス割当は含めていません。Docker版では端末W
 bash onprem/enable-rtmp-lan.sh
 ```
 
+Macでは `setup_stream_receiver.py` がデフォルト経路のWi-Fi/Ethernetインターフェースからホスト本体のIPv4を取得し、`onprem/.env` の `GATE_RTMP_PUBLIC_HOST` に保存します。VPNのutunやDocker内部アドレスは採用せず、物理インターフェースを確認します。通常の `deploy-local.sh` と `enable-rtmp-lan.sh` で自動更新され、Webの配信先欄にも反映されます。ネットワーク変更後は上記コマンドを再実行してください。Docker Desktopで既存コンテナを単に再起動するだけでは再取得しません。複数LANがある場合は送信機器から到達可能なアドレスを画面で選んでください。自動取得に失敗した場合は手入力できます。
+
 このスクリプトは `.env` の `GATE_RTMP_BIND_ADDRESS` と `GATE_RTMPS_BIND_ADDRESS` を `0.0.0.0` に変更し、受信コンテナを再作成します。独自のポート番号、配信キー、Web公開範囲は保持します。既存の配信は再作成時に切れるため、送信側で再接続してください。ホスト側の環境変数に同名の値を設定している場合は解除してください。
 
 Docker DesktopのPortsで `0.0.0.0:1935->1935/tcp`（独自ポートの場合はその番号）を確認してください。macOSのファイアウォールでDocker／`com.docker.backend`の受信接続を許可し、「すべての受信接続をブロック」を解除します。Catalinaでは「システム環境設定 → セキュリティとプライバシー → ファイアウォール → ファイアウォールオプション」、新しいmacOSでは「システム設定 → ネットワーク → ファイアウォール → オプション」です。接続先はMacのLAN IPであり、コンテナのIPやlocalhostではありません。同一LAN上の別PCから `nc -vz <MacのLAN IP> 1935` でTCP疎通を確認できます。TCP接続成功後、配信キーとWebの新規配信許可設定を確認してください。
