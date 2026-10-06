@@ -19,7 +19,8 @@
 <div id="message" role="status" hidden></div>
 <section class="panel" data-page="streams" hidden><div class="panel-title"><h2>RTMP/RTMPS 配信サーバー</h2><span class="badge" id="stream-state">確認中</span></div>
 <p class="hint">配信機器からMacへ映像を送信します。ライブ監視ではカメラ入力に「ingest」を指定します。</p>
-<div class="registry-fields"><label class="field">MacのLANアドレス<input id="stream-host" placeholder="192.168.1.10" autocomplete="off"></label><div><p>RTMP配信先: <code id="stream-rtmp-url">—</code></p><p>RTMPS配信先: <code id="stream-rtmps-url">—</code></p></div></div>
+<div class="registry-fields"><label class="field">配信先ホスト（MacのLAN IP）<input id="stream-host" placeholder="Macの実際のLAN IPを入力" autocomplete="off"></label><div><p>RTMP配信先: <code id="stream-rtmp-url">—</code></p><p>RTMPS配信先: <code id="stream-rtmps-url">—</code></p></div></div>
+<p class="hint">LANアドレスでWebを開いた場合は、そのホスト名を初期入力します。localhostで開いた場合はMacの実際のLAN IPを入力してください。VPN・プロキシ経由ではカメラから接続できるアドレスに変更してください。以下の配信先URLはこの入力値から生成します。Macのネットワーク設定自体は変更しません。</p>
 <p class="hint">配信先URLには秘密のキーが含まれます。共有時は取り扱いに注意してください。RTMPSには信頼済み証明書が必要な送信機器があります。</p>
 <h3>配信状況</h3><p id="stream-publisher">配信なし</p><p id="stream-details" class="hint"></p>
 <form id="stream-settings"><h3>受信設定</h3><label><input type="checkbox" id="stream-allow-publish"> 新規配信を許可する</label><br><label><input type="checkbox" id="stream-allow-rtmps"> RTMPSを有効にする</label><p class="hint">設定保存後、受信サーバーが設定ファイルを再読み込みします。既存の配信は直ちに切断されない場合があります。ポートと証明書は onprem/.env と rtmp-certs で管理します。</p><button type="submit">設定を保存</button><button id="stream-refresh" type="button">配信状況を更新</button></form>
