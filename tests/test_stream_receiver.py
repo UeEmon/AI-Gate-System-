@@ -6,10 +6,37 @@ import subprocess
 import yaml
 
 from aigate.stream_receiver import StreamReceiver
-from onprem.setup_stream_receiver import setup
+from onprem.setup_stream_receiver import setup, enable_lan
 
 
 class StreamReceiverTests(unittest.TestCase):
+    def test_enable_lan_preserves_ports_credentials_and_web_binding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            env = directory / '.env'
+            env.write_text('GATE_RTMP_BIND_ADDRESS="127.0.0.1"\n'
+                           'GATE_BIND_ADDRESS=127.0.0.1\nGATE_RTMP_PORT=21935\n'
+                           'GATE_ADMIN_PASSWORD=secret\n')
+            enable_lan(directory)
+            once = env.read_text()
+            enable_lan(directory)
+            self.assertEqual(once, env.read_text())
+            self.assertIn('GATE_RTMP_BIND_ADDRESS=0.0.0.0\n', once)
+            self.assertIn('GATE_RTMPS_BIND_ADDRESS=0.0.0.0\n', once)
+            self.assertIn('GATE_RTMP_PORT=21935\n', once)
+            self.assertIn('GATE_BIND_ADDRESS=127.0.0.1\n', once)
+            self.assertIn('GATE_ADMIN_PASSWORD=secret\n', once)
+
+    def test_enable_lan_rejects_duplicates_without_changing_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            env = directory / '.env'
+            before = 'GATE_RTMPS_BIND_ADDRESS=127.0.0.1\nGATE_RTMPS_BIND_ADDRESS=::1\n'
+            env.write_text(before)
+            with self.assertRaisesRegex(ValueError, '重複'):
+                enable_lan(directory)
+            self.assertEqual(before, env.read_text())
+
     def test_mac_compatible_certificate_and_partial_key_recovery(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
