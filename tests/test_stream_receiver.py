@@ -113,6 +113,31 @@ class StreamReceiverTests(unittest.TestCase):
             self.assertEqual(status['publisher'], {'protocol': 'rtmps', 'bytes_received': 321})
             self.assertEqual(status['readers'], 1)
             self.assertTrue(status['ready'])
+            self.assertEqual(status['tracks'], ['H264'])
+
+    def test_status_handles_mediamtx_string_tracks_and_empty_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / '.env').write_text('GATE_ADMIN_PASSWORD=test\n')
+            path = setup(directory)
+            receiver = StreamReceiver(directory / 'stream-config/mediamtx.yml', path[5:])
+            for tracks, expected in [(['H264', 'MPEG4Audio'], ['H264', 'MPEG4Audio']),
+                                     ([{'codec': 'H264'}, 'AAC'], ['H264', 'AAC']),
+                                     (None, []), ([], [])]:
+                with self.subTest(tracks=tracks):
+                    def response(endpoint):
+                        if endpoint.endswith('paths/list'):
+                            return {'items': [{'name': path, 'ready': True, 'tracks': tracks}]}
+                        return {'items': []}
+                    with patch.object(receiver, '_get', side_effect=response):
+                        status = receiver.status()
+                    self.assertTrue(status['online'])
+                    self.assertEqual(status['tracks'], expected)
+            with patch.object(receiver, '_get', return_value={'items': []}):
+                status = receiver.status()
+            self.assertTrue(status['online'])
+            self.assertFalse(status['ready'])
+            self.assertEqual(status['tracks'], [])
 
 
 if __name__ == '__main__':
