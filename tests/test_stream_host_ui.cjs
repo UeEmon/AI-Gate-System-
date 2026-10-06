@@ -4,10 +4,11 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const path=require('node:path');
 const script=fs.readFileSync(path.join(__dirname,'../static/app.js'),'utf8');
-const section=script.slice(script.indexOf('let streamConfig=null;'),script.indexOf("$('stream-host').addEventListener"));
-function setup(hostname,value=''){
-  const elements={'stream-host':{value},'stream-rtmp-url':{},'stream-rtmps-url':{}};
-  const context=vm.createContext({$:id=>elements[id],location:{hostname}});
+const section=script.slice(script.indexOf('let streamConfig=null;'),script.indexOf("$('stream-refresh').onclick"));
+function setup(hostname,value='',publicHost=''){
+  const elements={'stream-host':{value,addEventListener(event,handler){this.oninput=handler;}},'stream-rtmp-url':{},'stream-rtmps-url':{}};
+  const context=vm.createContext({$:id=>elements[id]??(elements[id]={}),location:{hostname},
+    api:async()=>({settings:{available:true,public_host:publicHost,rtmp_port:1935,rtmps_port:1936,path:'gate-test',rtmps_enabled:true},online:true,readers:0,tracks:[]})});
   vm.runInContext(section,context);
   vm.runInContext("streamConfig={available:true,rtmp_port:1935,rtmps_port:1936,path:'gate-test',rtmps_enabled:true};renderStreamUrls()",context);
   return {elements,context};
@@ -32,4 +33,14 @@ test('manual destination wins and editing updates both URLs',()=>{
   context.renderStreamUrls();
   assert.match(elements['stream-rtmp-url'].textContent,/192\.168\.3\.20/);
   assert.match(elements['stream-rtmps-url'].textContent,/192\.168\.3\.20/);
+});
+test('Mac host from API overrides localhost and proxy, preserving manual edits',async()=>{
+  const {elements,context}=setup('proxy.example.com','','192.168.3.13');
+  await context.loadStreams();
+  assert.equal(elements['stream-host'].value,'192.168.3.13');
+  assert.match(elements['stream-rtmp-url'].textContent,/192\.168\.3\.13/);
+  elements['stream-host'].value='192.168.3.20';
+  elements['stream-host'].oninput();
+  await context.loadStreams();
+  assert.equal(elements['stream-host'].value,'192.168.3.20');
 });
