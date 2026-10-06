@@ -22,6 +22,12 @@ function cell(text, className='') {const td=document.createElement('td');td.text
 function date(value){return new Date(value).toLocaleString('ja-JP');}
 function pct(value){return Number.isFinite(value)?Math.round(value*100)+'%':'—';}
 let streamConfig=null;
+function initializeStreamHost(){
+  const input=$('stream-host');
+  const host=(globalThis.location?.hostname||'').replace(/^\[|\]$/g,'');
+  if(!input.value.trim()&&host&&host!=='localhost'&&host!=='::1'&&host!=='0.0.0.0'&&!host.startsWith('127.'))input.value=host;
+}
+initializeStreamHost();
 function renderStreamUrls(){
   if(!streamConfig?.available)return;
   const host=$('stream-host').value.trim();
