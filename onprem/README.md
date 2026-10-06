@@ -57,6 +57,18 @@ ComposeのUSBデバイス割当は含めていません。Docker版では端末W
 
 ### GoPro等からRTMP/RTMPSでライブ監視
 
+既存環境をLANから受信できる設定に変更する場合は、リポジトリルートで次を実行します。再ビルドは不要です。
+
+```bash
+bash onprem/enable-rtmp-lan.sh
+```
+
+このスクリプトは `.env` の `GATE_RTMP_BIND_ADDRESS` と `GATE_RTMPS_BIND_ADDRESS` を `0.0.0.0` に変更し、受信コンテナを再作成します。独自のポート番号、配信キー、Web公開範囲は保持します。既存の配信は再作成時に切れるため、送信側で再接続してください。ホスト側の環境変数に同名の値を設定している場合は解除してください。
+
+Docker DesktopのPortsで `0.0.0.0:1935->1935/tcp`（独自ポートの場合はその番号）を確認してください。macOSのファイアウォールでDocker／`com.docker.backend`の受信接続を許可し、「すべての受信接続をブロック」を解除します。Catalinaでは「システム環境設定 → セキュリティとプライバシー → ファイアウォール → ファイアウォールオプション」、新しいmacOSでは「システム設定 → ネットワーク → ファイアウォール → オプション」です。接続先はMacのLAN IPであり、コンテナのIPやlocalhostではありません。同一LAN上の別PCから `nc -vz <MacのLAN IP> 1935` でTCP疎通を確認できます。TCP接続成功後、配信キーとWebの新規配信許可設定を確認してください。
+
+参考: [Docker Desktopのポート公開](https://docs.docker.com/desktop/features/networking/) / [Appleのファイアウォール設定](https://support.apple.com/ja-jp/guide/mac-help/mh11783/mac)。インターネット経由の受信は、このLAN公開設定に加えてルーターの転送設定またはVPNが必要です。
+
 MacのDocker Desktopで `python3 onprem/setup_stream_receiver.py`（リポジトリルートから）を実行すると、`onprem/.env` に秘密の配信キーが作られ、配信URLが表示されます。MacのLAN IPを `<MacのLAN IP>` に置き換えてGoProや配信アプリに設定してください。RTMPは1935、RTMPSは1936/TCPを使用します。Web画面の「カメラ」で入力欄を `ingest` にして認識開始すると、受信コンテナからDocker内部のRTMP接続で取り込みます。映像を配信してから開始してください。外部のRTMP/RTMPS URLを直接入力することもできます。配信キーとTLS秘密鍵はGit管理対象外です。
 
 Web画面の「配信サーバー」タブにMacのLANアドレスを入力すると配信先URLと現在の配信方式、読取接続数、受信量を確認できます（表示中は5秒間隔で更新）。「新規配信を許可する」「RTMPSを有効にする」は画面から変更できます。初期設定は `onprem/stream-config/mediamtx.yml` から専用 `stream-config` Dockerボリュームへコピーされ、画面での変更はボリューム内に保存されます。MediaMTXが設定を再読み込みします。既存の配信は即座には切断されない場合があります。`setup_stream_receiver.py` を再実行してもこの2項目は保持されます。管理APIはDocker内部だけで利用し、ホスト側に公開しません。
