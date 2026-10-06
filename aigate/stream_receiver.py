@@ -28,6 +28,7 @@ class StreamReceiver:
                     r'''^rtmpEncryption: ["']?optional["']?\s*$''', content, re.M)),
                 'publish_enabled': '  - action: publish\n' in content,
                 'path': f'gate-{self.key}',
+                'public_host': os.getenv('GATE_RTMP_PUBLIC_HOST', ''),
                 'rtmp_port': int(os.getenv('GATE_RTMP_PORT', '1935')),
                 'rtmps_port': int(os.getenv('GATE_RTMPS_PORT', '1936'))}
 
