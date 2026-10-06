@@ -4,6 +4,10 @@ import argparse
 import re
 import secrets
 import subprocess
+try:
+    from .host_network import refresh_lan_ip
+except ImportError:  # Direct script execution from deploy-local.sh.
+    from host_network import refresh_lan_ip
 
 
 def enable_lan(directory: Path):
@@ -82,6 +86,7 @@ def setup(directory: Path):
     config_file.parent.mkdir(mode=0o700, exist_ok=True)
     config_file.write_text(config, encoding='utf-8')
     config_file.chmod(0o600)
+    refresh_lan_ip(directory)
     return path
 
 
