@@ -1,8 +1,26 @@
 """Prepare the production RTMP/RTMPS ingest configuration and TLS material."""
 from pathlib import Path
+import argparse
 import re
 import secrets
 import subprocess
+
+
+def enable_lan(directory: Path):
+    """Explicitly publish ingest on all host interfaces, retaining other settings."""
+    env_file = directory / '.env'
+    lines = env_file.read_text(encoding='utf-8').splitlines()
+    for name in ('GATE_RTMP_BIND_ADDRESS', 'GATE_RTMPS_BIND_ADDRESS'):
+        pattern = re.compile(r'^\s*' + name + r'\s*=')
+        positions = [i for i, line in enumerate(lines) if pattern.match(line)]
+        if len(positions) > 1:
+            raise ValueError(name + ' が重複しています。')
+        if positions:
+            lines[positions[0]] = name + '=0.0.0.0'
+        else:
+            lines.append(name + '=0.0.0.0')
+    env_file.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+    env_file.chmod(0o600)
 
 
 def setup(directory: Path):
@@ -68,6 +86,12 @@ def setup(directory: Path):
 
 
 if __name__ == '__main__':
-    path = setup(Path(__file__).resolve().parent)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--lan', action='store_true', help='RTMP/RTMPSをLANへ公開する')
+    args = parser.parse_args()
+    directory = Path(__file__).resolve().parent
+    if args.lan:
+        enable_lan(directory)
+    path = setup(directory)
     print(f'配信先 RTMP: rtmp://<MacのLAN IP>:1935/{path}')
     print(f'配信先 RTMPS: rtmps://<MacのLAN IP>:1936/{path}')
