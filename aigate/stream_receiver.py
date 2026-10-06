@@ -92,4 +92,6 @@ class StreamReceiver:
                 'readers': len([item for item in connections if item.get('state') == 'read'
                                 and item.get('path') == config['path']]),
                 'ready': bool(path.get('ready', False)),
-                'tracks': [track.get('codec', '') for track in path.get('tracks', [])]}
+                'tracks': [track if isinstance(track, str) else track.get('codec', '')
+                           for track in (path.get('tracks') or [])
+                           if isinstance(track, (str, dict))]}
