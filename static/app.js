@@ -22,6 +22,7 @@ function cell(text, className='') {const td=document.createElement('td');td.text
 function date(value){return new Date(value).toLocaleString('ja-JP');}
 function pct(value){return Number.isFinite(value)?Math.round(value*100)+'%':'—';}
 let streamConfig=null;
+let streamHostEdited=false;
 function initializeStreamHost(){
   const input=$('stream-host');
   const host=(globalThis.location?.hostname||'').replace(/^\[|\]$/g,'');
@@ -36,9 +37,10 @@ function renderStreamUrls(){
   $('stream-rtmp-url').textContent='rtmp://'+address+':'+streamConfig.rtmp_port+'/'+streamConfig.path;
   $('stream-rtmps-url').textContent=streamConfig.rtmps_enabled?'rtmps://'+address+':'+streamConfig.rtmps_port+'/'+streamConfig.path:'無効';
 }
-$('stream-host').addEventListener('input',renderStreamUrls);
+$('stream-host').addEventListener('input',()=>{streamHostEdited=true;renderStreamUrls();});
 async function loadStreams(){
   const data=await api('/api/stream-receiver');streamConfig=data.settings;
+  if(!streamHostEdited&&streamConfig.public_host)$('stream-host').value=streamConfig.public_host;
   $('stream-settings').hidden=!streamConfig.available;
   if(!streamConfig.available){$('stream-state').textContent='未設定';$('stream-publisher').textContent='受信サーバー未設定';return;}
   $('stream-allow-publish').checked=streamConfig.publish_enabled;
