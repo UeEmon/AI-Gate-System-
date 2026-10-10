@@ -7,10 +7,15 @@ WORKDIR /app
 COPY requirements-paddle-training.txt /tmp/requirements-paddle-training.txt
 RUN python -m pip install --no-cache-dir 'torch>=2.2,<3' 'torchvision>=0.17,<1' \
     --index-url https://download.pytorch.org/whl/cpu
-RUN python -m pip install --no-cache-dir 'ultralytics>=8.3,<9' 'paddlepaddle>=3,<4' \
-    'paddleocr>=3,<4' 'lipla-jp>=0.3,<1' 'Pillow>=10,<13' 'numpy>=1.26,<3'
+# Official CPU index includes Linux aarch64 wheels missing from PyPI for 3.3.1.
+# Keep the same Paddle version on Intel and Apple Silicon.
+RUN python -m pip install --no-cache-dir 'paddlepaddle==3.3.1' \
+    --extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cpu/
+RUN python -m pip install --no-cache-dir 'ultralytics>=8.3,<9' \
+    'paddleocr>=3,<4' 'lipla-jp==0.4.1' 'Pillow>=10,<13' 'numpy>=1.26,<3'
 RUN python -m pip install --no-cache-dir -r /tmp/requirements-paddle-training.txt
 RUN python -c 'import paddle, skimage, lmdb, pyclipper, rapidfuzz, albumentations; print("PaddleOCR training imports OK:", paddle.__version__)'
+RUN OMP_NUM_THREADS=1 python -c 'import platform, paddle, torch; paddle.set_device("cpu"); assert float(paddle.matmul(paddle.ones([2,2]), paddle.ones([2,2]))[0,0]) == 2; assert torch.ones(2,2).matmul(torch.ones(2,2))[0,0].item() == 2; print("Trainer CPU smoke OK:", platform.machine())'
 RUN useradd --create-home --uid 10001 gate && mkdir /data /models && chown gate:gate /data /models
 COPY --chown=gate:gate resource_lock.py app.py events.py plate_rules.py ocr_learning.py vision_train.py \
   paddle_training.py paddle_finetune.py paddle_auto_train.py paddle_auto_worker.py \
