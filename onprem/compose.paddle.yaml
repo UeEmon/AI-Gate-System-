@@ -1,6 +1,5 @@
 services:
   trainer:
-    platform: linux/amd64
     build:
       context: ..
       dockerfile: Dockerfile.paddle
