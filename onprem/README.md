@@ -39,7 +39,28 @@ LAN公開する場合は `GATE_HOST=0.0.0.0` と `GATE_ADMIN_PASSWORD` を環境
 管理ユーザー名は `admin` です。ブラウザ端末のWebカメラはHTTPSまたはlocalhostが必要です。
 LANでは社内HTTPSリバースプロキシを使用し、サーバー証明書を端末で信頼してください。
 
-## Linux Docker Compose
+## Docker Compose（Mac / Linux）
+
+### Apple Silicon Mac（Mチップ）
+
+Apple silicon版Docker Desktopを使用します。運用・学習コンテナはDocker EngineのCPU形式に合わせてビルドされ、MチップではLinux ARM64、IntelではLinux AMD64です。PaddlePaddle 3.3.1の公式CPUインデックスを追加し、Python 3.11のARM64 wheelを利用します。Docker内での推論・学習はCPU処理で、Apple GPU/Metalは使用しません。
+
+既存環境の更新はリポジトリルートで実行します。
+
+```bash
+git switch main
+git pull --ff-only origin main
+unset DOCKER_DEFAULT_PLATFORM
+bash onprem/deploy-local.sh
+sh onprem/setup-paddle-training.sh
+bash onprem/verify-architecture.sh
+```
+
+初回は事前に `onprem/env.example` を `onprem/.env` にコピーし、管理パスワードを設定してください。検証結果の `architecture: aarch64 expected: aarch64` を両コンテナで確認します。既存のデータ・モデルvolumeは保持します。学習イメージはPaddleとPyTorchの基本演算をビルド中に検査します。実機でのDockerビルド、Lipla推論、追加学習の完走は別途検証が必要です。
+
+公式ARM64 wheel一覧: https://www.paddlepaddle.org.cn/packages/stable/cpu/paddlepaddle/
+
+### Linux Docker
 
 ```sh
 cd onprem
